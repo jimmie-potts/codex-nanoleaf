@@ -2,14 +2,21 @@ param([switch]$Check)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
-if ($Check) { Write-Output 'Windows tray components available.'; exit 0 }
+. (Join-Path $PSScriptRoot 'tray-icon.ps1')
+if ($Check) {
+    $checkIcon = New-NanoleafTrayIcon
+    $checkIcon.Dispose()
+    Write-Output 'Windows tray components and icon loading available.'
+    exit 0
+}
 $mutex = [Threading.Mutex]::new($false, 'Local\CodexNanoleafTray')
 if (-not $mutex.WaitOne(0, $false)) { $mutex.Dispose(); exit 0 }
 $python = Join-Path $env:USERPROFILE '.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe'
 $bridge = Join-Path $PSScriptRoot 'bridge.py'
 $icon = [Windows.Forms.NotifyIcon]::new()
 $menu = [Windows.Forms.ContextMenuStrip]::new()
-$icon.Icon = [Drawing.SystemIcons]::Information
+$trayArtwork = New-NanoleafTrayIcon
+$icon.Icon = $trayArtwork
 $icon.Text = 'Nanoleaf: loading status'
 $icon.ContextMenuStrip = $menu
 $script:poll = $null
@@ -95,6 +102,7 @@ try {
     $timer.Dispose()
     $icon.Visible = $false
     $icon.Dispose()
+    $trayArtwork.Dispose()
     $menu.Dispose()
     if ($null -ne $script:poll) { $script:poll.Dispose() }
     foreach ($command in $script:commands) { $command.Dispose() }

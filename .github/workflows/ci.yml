@@ -22,7 +22,9 @@ jobs:
       - name: Check Windows tray prerequisites
         if: runner.os == 'Windows'
         shell: powershell
-        run: ./bridge/tray.ps1 -Check
+        run: |
+          ./bridge/tray.ps1 -Check
+          ./tests/test_tray_icon.ps1
   browser:
     name: Wall map browser checks
     runs-on: ubuntu-latest

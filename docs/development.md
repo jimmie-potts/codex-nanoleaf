@@ -8,7 +8,7 @@ Run `python3 scripts/check.py` from the root. The initial import has 100 tests. 
 
 Run `npm run test:browser` after map or API changes. It starts the synthetic demo on an available loopback port and shuts it down afterward. Screenshots are written to ignored `test-results/`. To inspect the map manually, run `python3 scripts/demo.py` and open its printed URL.
 
-Use Windows PowerShell for the tray and installer. `bridge/tray.ps1 -Check` verifies Windows Forms support without starting a tray or worker. The hosted CI check covers this prerequisite; menu interaction still needs a Windows smoke check.
+Use Windows PowerShell for the tray and installer. `bridge/tray.ps1 -Check` verifies Windows Forms support and icon loading without starting a tray or worker. Run `tests/test_tray_icon.ps1` to check all six icon sizes with Windows, transparency, the blue/green palette, tray sizing, and missing or corrupt asset fallback. Hosted CI runs both checks; menu interaction still needs a Windows smoke check.
 
 ## Upgrade the installed integration
 
