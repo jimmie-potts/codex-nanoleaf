@@ -28,6 +28,7 @@ module.exports = async function(page, root) {
   const refresh = () => page.evaluate(async () => {while (refreshing) await new Promise(resolve => setTimeout(resolve, 10)); await refresh()});
   const project = id => page.locator(`#projectList .project[data-project="${id}"]`);
   const taskRow = id => page.locator(`#taskList .task[data-task="${id}"]`);
+  const mapNumber = number => page.locator(`#wall .number[data-line-id="${line(number).id}"]`);
   const wallLine = number => page.locator(`.wall-line[data-line="${line(number).id}"]`);
   const numbers = locator => locator.locator('.line-badge').evaluateAll(nodes => nodes.map(node => node.dataset.lineNumber));
   try {
@@ -127,7 +128,7 @@ module.exports = async function(page, root) {
 
     const identity = Object.fromEntries(snapshot.lines.map(item => [item.id, String(item.number)]));
     const checkNumbers = async () => {
-      assert.deepEqual(await page.locator('.wall-line').evaluateAll(nodes => Object.fromEntries(nodes.map(node => [node.dataset.line, node.querySelector('.number').textContent]))), identity);
+      assert.deepEqual(await page.locator('#wall .number').evaluateAll(nodes => Object.fromEntries(nodes.map(node => [node.dataset.lineId, node.textContent]))), identity);
       for (const badge of await page.locator('.line-badge').evaluateAll(nodes => nodes.map(node => ({id: node.dataset.lineId, number: node.dataset.lineNumber, text: node.textContent})))) {
         assert.equal(badge.number, identity[badge.id]);
         assert.match(badge.text, new RegExp('^(Line )?' + identity[badge.id] + '( · Shared)?$'));
@@ -194,11 +195,32 @@ module.exports = async function(page, root) {
       await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'No horizontal page overflow at '+width+'px');
       assert.ok(await page.locator('.number').first().evaluate(node => parseFloat(getComputedStyle(node).fontSize) * node.getScreenCTM().a >= 11), 'Physical numbers stay legible when the map shrinks');
-      await wallLine(8).locator('.number').click({timeout: 2000});
+      await mapNumber(8).click({timeout: 2000});
       assert.equal(await wallLine(8).getAttribute('aria-pressed'), 'true', 'The displayed map number is clickable');
       await page.locator('#projectList').evaluate(node => {node.scrollTop = 0});
       await page.screenshot({path: path.join(root, `test-results/line-identification-${name}.png`), fullPage: true});
     }
+    const numberWrites = [];
+    const recordNumberWrite = request => {if (request.method() !== 'GET') numberWrites.push(request.url())};
+    page.on('request', recordNumberWrite);
+    try {
+      for (const width of [1440, 800, 390]) {
+        await page.setViewportSize({width, height: 844});
+        for (const rotation of [0, 90, 180, 270]) for (const flip of [0, 1]) {
+          // Four rotations with/without reflection cover all eight orientations,
+          // including those produced by Flip V or by combining both flips.
+          snapshot.settings = {...snapshot.settings, rotation, flip_x: flip, flip_y: 0}; await refresh();
+          for (const item of snapshot.lines) {
+            const number = mapNumber(item.number); await number.scrollIntoViewIfNeeded();
+            const box = await number.boundingBox();
+            await page.mouse.click(box.x+box.width/2, box.y+box.height/2);
+            assert.equal(await page.locator('.wall-line.selected').getAttribute('data-line'), item.id, `Clicking number ${item.number} at ${width}px, rotation ${rotation}, flip ${flip} selects that physical Line`);
+          }
+        }
+      }
+      assert.deepEqual(numberWrites, [], 'Every map-number click remains local');
+    } finally {page.off('request', recordNumberWrite)}
+    console.log('Line identification: all 360 map-number clicks across sizes and orientations passed.');
     console.log('Line identification: stable numbers, polling, moved/waiting tasks, and responsive layout passed.');
   } finally {
     await page.unroute('**/api/state', route);
