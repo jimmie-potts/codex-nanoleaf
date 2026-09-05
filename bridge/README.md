@@ -81,9 +81,11 @@ returns with the scene.
 ## Project signatures and wall map
 
 Choose **Open wall map** from the tray. The map shows the controller's 15 physical
-Lines, with both zones drawn separately. It updates once a second. Select a Line,
-or hold Ctrl, Command, or Shift to select several, choose a project, and click
-**Assign selected**. Choose Shared pool to release a reservation. Project colors
+Lines, with both zones drawn separately. It updates once a second. The
+[wall Line identification specification](../openspec/specs/wall-line-identification/spec.md)
+defines numbered project/task badges, Shared pool identification, selection,
+pending labels, and the explicit Locate boundary. After selecting Lines, choose
+a project and click **Assign selected**. Choose Shared pool to release a reservation. Project colors
 are editable in the left column and are saved immediately.
 
 | Layout | Task placement | Display |
@@ -115,15 +117,12 @@ Quiet uses steady colors at 10%. Free tracks tasks while the Nanoleaf app contro
 the lights.
 
 Use **Swap halves** on selected Lines if you prefer the project color on the other
-end. Rotate and flip controls change the map's view, not the physical lighting.
-**Locate** highlights one selected physical Line for a second, then restores its
-display. It waits for an active comet, uses 10% brightness in Quiet, and is disabled
-in Free. Line reservations use physical panel IDs rather than map order.
+end. Line reservations use physical panel IDs rather than map order.
 
 The inspector shows task title, status, project, and time since the current turn
 started. Older tasks with no observed start time show "Start time unavailable."
-Selecting a task here never marks it read in Codex. The map shows current status
-colors, not a frame-by-frame preview of pulses and comets. Use the inspector's
+The map shows current status colors, not a frame-by-frame preview of pulses and
+comets. Use the inspector's
 project override for unresolved tasks; it changes only the bridge's assignment.
 Choose "Use Codex assignment" to remove the override.
 

@@ -4,6 +4,11 @@ Use a GitHub issue to define a deliverable, develop it in an isolated worktree,
 and merge one reviewed PR when its acceptance evidence and CI pass. Repository instructions route the agent to the relevant shared skills. The user can narrow any
 task to planning, local changes, review, or a ready PR.
 
+All repository changes must be delivered through PRs. Do not push changes
+directly to `main`. PRs that change the UI also require explicit human approval
+of the current candidate before merging. Finish implementation, checks, and
+independent review, then leave the PR open while that approval is pending.
+
 ## Authority and information ownership
 
 | Information | Owner |
@@ -174,7 +179,10 @@ claiming completion. Unrelated improvements belong in another issue.
 6. Immediately before merging, reread issue scope, dependencies, head revision,
    and current `main`. If the head or base changed, refresh the comparison and
    affected tests/reviews/CI. Require no unresolved decisions, blocking findings,
-   or outstanding change requests. Merge only the reviewed head:
+   or outstanding change requests. For a UI change, also require explicit human
+   approval of the current candidate, recorded in the PR. Agent review and CI
+   do not satisfy this gate; changed UI requires renewed human approval. Keep
+   the PR and issue open in review while approval is pending. Merge only the reviewed head:
    `gh pr merge <number> --repo jimmie-potts/codex-nanoleaf --squash --match-head-commit <reviewed-head>`.
    Never use `--admin`. Do not delete another worktree or its branch.
 7. Read back the PR's merged commit and verify it is on `main`. Check the push

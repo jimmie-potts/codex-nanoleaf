@@ -1,34 +1,204 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Nanoleaf · Wall map</title>
 <style>
-:root{color-scheme:dark;--bg:#0c1019;--panel:#141b27;--edge:#273145;--text:#eaf0fb;--muted:#94a3ba;--accent:#a9c3ff}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 system-ui,sans-serif}button,select,input{font:inherit}button,select{color:var(--text);background:#1d283a;border:1px solid #35435c;border-radius:8px;padding:8px 12px}button{cursor:pointer}button:hover{background:#2a3b54}button:disabled{opacity:.4;cursor:default}button.active{background:#bdd0ff;color:#122039;border-color:#bdd0ff}button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid #e5bc78;outline-offset:3px}header{padding:24px 30px 20px;border-bottom:1px solid var(--edge);display:flex;align-items:center;gap:24px;justify-content:space-between}h1{font-size:24px;margin:0;letter-spacing:-.7px}h2{font-size:15px;margin:0 0 14px}p{margin:6px 0}.eyebrow{color:#9bbcff;font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase}.muted{color:var(--muted)}.controls{display:flex;align-items:center;gap:18px;flex-wrap:wrap}.group{display:flex;gap:4px}.control-label{font-size:11px;color:var(--muted);display:block;margin-bottom:5px}main{display:grid;grid-template-columns:245px minmax(300px,1fr) 295px;min-height:calc(100vh - 134px)}aside{padding:22px 20px;background:var(--panel)}#projectList{max-height:440px;overflow:auto;padding-right:6px;scrollbar-width:thin}#projects{border-right:1px solid var(--edge)}#inspector{border-left:1px solid var(--edge)}.project{display:grid;grid-template-columns:30px 1fr;gap:10px;padding:12px 0;border-bottom:1px solid var(--edge)}input[type=color]{width:27px;height:30px;padding:0;background:none;border:0;cursor:pointer}.project-name{overflow-wrap:anywhere;font-weight:600}.small{font-size:12px;color:var(--muted)}.project-stats{font-size:11px;color:var(--muted);margin-top:4px}.canvas{position:relative;display:flex;flex-direction:column;min-width:0;padding:20px;background:radial-gradient(ellipse at 50% 45%,#162139 0,#0c1019 75%)}.canvas-head{display:flex;justify-content:space-between;gap:10px;align-items:center}.canvas-head button{padding:5px 9px;font-size:12px}svg{width:100%;height:560px;min-height:320px;flex:1;overflow:visible}.wall-line{cursor:pointer;outline:none}.wall-line.pending .outline{stroke:#eac58e;stroke-dasharray:5 4}.wall-line .hit{stroke:transparent;stroke-width:44;stroke-linecap:round;pointer-events:stroke}.wall-line .outline{stroke:#283954;stroke-width:20;stroke-linecap:round}.wall-line.selected .outline,.wall-line:focus .outline{stroke:#f4d29d;stroke-width:24}.zone{stroke-width:12;stroke-linecap:round;filter:drop-shadow(0 0 5px currentColor)}.number{fill:#edf2ff;font:11px system-ui;paint-order:stroke;stroke:#0c1019;stroke-width:4px;text-anchor:middle;pointer-events:none}.legend{display:flex;justify-content:center;gap:16px;flex-wrap:wrap;color:var(--muted);font-size:11px;padding:12px}.dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px}.box{padding:16px 0;border-bottom:1px solid var(--edge)}.box:first-child{padding-top:0}label{display:block;font-size:12px;color:var(--muted);margin:12px 0 5px}select{width:100%}.actions{display:flex;gap:7px;margin-top:10px;flex-wrap:wrap}.task{padding:10px 0;border-bottom:1px solid var(--edge);cursor:pointer}.task-title{font-size:12px;overflow-wrap:anywhere}.badge{display:inline-block;font-size:10px;padding:2px 7px;border-radius:12px;background:#27364a;color:#b8cff3;margin:4px 4px 0 0}#notice{padding:10px 30px;background:#243047;color:#d9e5ff;font-size:12px;display:none}#notice.error{background:#482b30;color:#ffdce0}.empty{color:var(--muted);padding:16px 0;font-size:12px}footer{border-top:1px solid var(--edge);padding:10px 30px;color:var(--muted);font-size:11px;display:flex;justify-content:space-between}.kv{display:grid;grid-template-columns:70px 1fr;gap:8px;font-size:12px;margin:8px 0}.kv span:first-child{color:var(--muted)}.tasklist{max-height:300px;overflow:auto}#busy{color:#eac58e}.status-key{display:flex;gap:6px;align-items:center}@media(max-width:1050px){main{grid-template-columns:200px 1fr}#inspector{grid-column:1 / -1;border-left:0;border-top:1px solid var(--edge);display:grid;grid-template-columns:1fr 1fr;gap:25px}svg{height:480px}}@media(max-width:680px){header{padding:18px;align-items:flex-start;flex-direction:column}main{display:flex;flex-direction:column}#projectList{max-height:440px;overflow:auto;padding-right:6px;scrollbar-width:thin}#projects{border-right:0;order:2}#inspector{display:block;order:3}.canvas{min-height:450px}.canvas-head{align-items:flex-start}.legend{gap:8px}svg{height:400px}footer{padding:10px 18px}}
+:root{color-scheme:dark;--bg:#0c1019;--panel:#141b27;--edge:#273145;--text:#eaf0fb;--muted:#94a3ba;--accent:#a9c3ff}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 system-ui,sans-serif}button,select,input{font:inherit}button,select{color:var(--text);background:#1d283a;border:1px solid #35435c;border-radius:8px;padding:8px 12px}button{cursor:pointer}button:hover{background:#2a3b54}button:disabled{opacity:.4;cursor:default}button.active{background:#bdd0ff;color:#122039;border-color:#bdd0ff}button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid #e5bc78;outline-offset:3px}header{padding:24px 30px 20px;border-bottom:1px solid var(--edge);display:flex;align-items:center;gap:24px;justify-content:space-between}h1{font-size:24px;margin:0;letter-spacing:-.7px}h2{font-size:15px;margin:0 0 14px}p{margin:6px 0}.eyebrow{color:#9bbcff;font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase}.muted{color:var(--muted)}.controls{display:flex;align-items:center;gap:18px;flex-wrap:wrap}.group{display:flex;gap:4px}.control-label{font-size:11px;color:var(--muted);display:block;margin-bottom:5px}main{display:grid;grid-template-columns:245px minmax(300px,1fr) 295px;min-height:calc(100vh - 134px)}aside{padding:22px 20px;background:var(--panel)}#projectList{max-height:440px;overflow:auto;padding-right:6px;scrollbar-width:thin}#projects{border-right:1px solid var(--edge)}#inspector{border-left:1px solid var(--edge)}.project{display:grid;grid-template-columns:30px 1fr;gap:10px;padding:12px 0;border-bottom:1px solid var(--edge)}input[type=color]{width:27px;height:30px;padding:0;background:none;border:0;cursor:pointer}.project-name{overflow-wrap:anywhere;font-weight:600}.small{font-size:12px;color:var(--muted)}.project-stats{font-size:11px;color:var(--muted);margin-top:4px}.canvas{position:relative;display:flex;flex-direction:column;min-width:0;padding:20px;background:radial-gradient(ellipse at 50% 45%,#162139 0,#0c1019 75%)}.canvas-head{display:flex;justify-content:space-between;gap:10px;align-items:center}.canvas-head button{padding:5px 9px;font-size:12px}svg{width:100%;height:560px;min-height:320px;flex:1;overflow:visible}.wall-line{cursor:pointer;outline:none}.wall-line.pending .outline{stroke:#eac58e;stroke-dasharray:5 4}.wall-line .hit{fill:transparent;pointer-events:all}.wall-line .outline{stroke:#283954;stroke-width:20;stroke-linecap:round}.wall-line.selected .outline,.wall-line:focus .outline{stroke:#f4d29d;stroke-width:24}.zone{stroke-width:12;stroke-linecap:round;filter:drop-shadow(0 0 5px currentColor)}.number{fill:#edf2ff;font:11px system-ui;paint-order:stroke;stroke:#0c1019;stroke-width:4px;text-anchor:middle;pointer-events:all}.legend{display:flex;justify-content:center;gap:16px;flex-wrap:wrap;color:var(--muted);font-size:11px;padding:12px}.dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px}.box{padding:16px 0;border-bottom:1px solid var(--edge)}.box:first-child{padding-top:0}label{display:block;font-size:12px;color:var(--muted);margin:12px 0 5px}select{width:100%}.actions{display:flex;gap:7px;margin-top:10px;flex-wrap:wrap}.task{padding:10px 0;border-bottom:1px solid var(--edge);cursor:pointer}.task-title{font-size:12px;overflow-wrap:anywhere}.badge{display:inline-block;font-size:10px;padding:2px 7px;border-radius:12px;background:#27364a;color:#b8cff3;margin:4px 4px 0 0}#notice{padding:10px 30px;background:#243047;color:#d9e5ff;font-size:12px;display:none}#notice.error{background:#482b30;color:#ffdce0}.empty{color:var(--muted);padding:16px 0;font-size:12px}footer{border-top:1px solid var(--edge);padding:10px 30px;color:var(--muted);font-size:11px;display:flex;justify-content:space-between}.kv{display:grid;grid-template-columns:70px 1fr;gap:8px;font-size:12px;margin:8px 0}.kv span:first-child{color:var(--muted)}.tasklist{max-height:300px;overflow:auto}#busy{color:#eac58e}.status-key{display:flex;gap:6px;align-items:center}@media(max-width:1050px){main{grid-template-columns:200px 1fr}#inspector{grid-column:1 / -1;border-left:0;border-top:1px solid var(--edge);display:grid;grid-template-columns:1fr 1fr;gap:25px}svg{height:480px}}@media(max-width:680px){header{padding:18px;align-items:flex-start;flex-direction:column}main{display:flex;flex-direction:column}#projectList{max-height:440px;overflow:auto;padding-right:6px;scrollbar-width:thin}#projects{border-right:0;order:2}#inspector{display:block;order:3}.canvas{min-height:450px}.canvas-head{align-items:flex-start}.legend{gap:8px}svg{height:400px}footer{padding:10px 18px}}
+.line-group{margin-top:8px}.line-group-label{font-size:11px;color:var(--muted);display:block;margin-bottom:4px}.line-badges{display:flex;gap:5px;flex-wrap:wrap}.line-badge{min-width:30px;padding:3px 7px;font-size:12px;border-radius:6px}.line-badge.reserved,.line-badge.available{background:transparent;border-style:dashed}.line-badge.in-use{background:#293e5c;border-color:#56739c}.shared-mark{color:var(--muted);text-align:center;padding-top:2px}
+.project.selected,.task.selected{background:#233047;box-shadow:inset 3px 0 #f4d29d}.project.selected{padding-left:8px}.task.selected{padding-left:8px}.line-badge.selected{background:#f4d29d;color:#172236;border-color:#f4d29d;border-style:solid}.task-title{display:block;width:100%;padding:0;text-align:left;background:transparent;border:0;border-radius:3px;color:var(--text)}.task-title:hover{background:transparent;text-decoration:underline}.task-placement{margin-top:6px}
+footer{flex-wrap:wrap;gap:8px}#busy{flex:1 1 240px;overflow-wrap:anywhere}
 </style></head>
 <body><header><div><div class="eyebrow">CODEX × NANOLEAF</div><h1>Your wall, at a glance.</h1><div class="small">Projects have a place. Every task has a signal.</div></div><div class="controls"><div><span class="control-label">Layout</span><div class="group"><button id="classic">Classic</button><button id="project">Project</button></div></div><div><span class="control-label">Mode</span><div class="group"><button id="work">Work</button><button id="quiet">Quiet</button><button id="free">Free</button></div></div></div></header>
 <div id="notice" role="status"></div>
 <main><aside id="projects"><h2>Projects</h2><p class="small">Choose a color. Assign its Lines on the map.</p><div id="projectList"></div><div class="box"><h2>Animation coverage</h2><select id="coverage" aria-label="Animation coverage"><option value="whole">Both halves</option><option value="status">Status half only</option></select><p class="small">Waves and comets return to the project color after passing.</p></div><div class="small">Shared Lines are available for overflow. Reserved Lines stay with their project.</div></aside>
 <section class="canvas"><div class="canvas-head"><div><h2>The wall <span class="small" id="lineCount"></span></h2><div class="small">Click to select · Ctrl/⌘ or Shift to select several</div></div><div class="group"><button id="rotate" title="Rotate map 90 degrees">Rotate</button><button id="flipX">Flip H</button><button id="flipY">Flip V</button></div></div><svg id="wall" aria-label="Nanoleaf wall map" role="group"></svg><div class="legend"><span><i class="dot" style="background:#00ff00"></i>Working</span><span><i class="dot" style="background:#ffff00"></i>Question</span><span><i class="dot" style="background:#ff0000"></i>Blocked</span><span><i class="dot" style="background:#193cff"></i>Unread</span></div><p class="small" id="wallNote" style="text-align:center"></p></section>
-<aside id="inspector"><div><div class="box"><h2 id="selectionTitle">Select a Line</h2><p class="small" id="selectionHint">Choose one or more Lines to assign them to a project.</p><label for="assignProject">Assigned project</label><select id="assignProject"></select><div class="actions"><button id="assign">Assign selected</button><button id="clear">Clear selection</button></div><div class="actions"><button id="swap">Swap halves</button><button id="locate">Locate</button></div><p class="small" id="locateHint"></p></div><div class="box" id="taskDetail"></div></div><div><div class="box"><h2>Tasks <span class="small" id="taskCount"></span></h2><div class="tasklist" id="taskList"></div></div><div class="box"><h2>Waiting for a Line</h2><div id="waiting"></div></div></div></aside></main>
+<aside id="inspector"><div><div class="box"><h2 id="selectionTitle">Select a Line</h2><p class="small" id="selectionHint">Choose one or more Lines to assign them to a project.</p><label for="assignProject">Reservation project</label><select id="assignProject"></select><div class="actions"><button id="assign">Assign selected</button><button id="clear">Clear selection</button></div><div class="actions"><button id="swap">Swap halves</button><button id="locate">Locate</button></div><p class="small" id="locateHint"></p></div><div class="box" id="taskDetail"></div></div><div><div class="box"><h2>Tasks <span class="small" id="taskCount"></span></h2><div class="tasklist" id="taskList"></div></div><div class="box"><h2>Waiting for a Line</h2><div id="waiting"></div></div></div></aside></main>
 <footer><span id="connection">Connecting…</span><span id="busy"></span><span>Local to this PC · Opening a task here does not mark it read</span></footer>
 <script>
 const token='__CSRF__', $=id=>document.getElementById(id), svgNS='http://www.w3.org/2000/svg';
-let state=null, selected=new Set(), projectFingerprint='', taskFocus=null, wallFingerprint='', errorUntil=0, refreshing=false;
+let state=null, selected=new Set(), projectFingerprint='', taskFingerprint='', taskFocus=null, wallFingerprint='', errorUntil=0, refreshing=false;
 const statusColors={working:'#00ff00',question:'#ffff00',blocked:'#ff0000',unread:'#193cff'};
 function el(tag,text,cls){const node=document.createElement(tag);if(text!==undefined)node.textContent=text;if(cls)node.className=cls;return node}
 function message(text,error=false){$('notice').textContent=text;$('notice').style.display=text?'block':'none';$('notice').classList.toggle('error',error);if(error)errorUntil=Date.now()+6000}
 async function action(path,payload){try{const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-Wall-Token':token},body:JSON.stringify(payload)});const data=await r.json();if(!r.ok)throw Error(data.error);errorUntil=0;await refresh()}catch(e){message(e.message,true)}}
 function projectName(id){return state.projects.find(p=>p.id===id)?.name||'No project'}
-function choose(id,multi=false){if(!multi)selected.clear();if(multi&&selected.has(id))selected.delete(id);else selected.add(id);taskFocus=null;const owners=state.lines.filter(l=>selected.has(l.id)).map(l=>l.project||'');if(owners.length&&owners.every(p=>p===owners[0]))$('assignProject').value=owners[0];drawWall();inspect()}
+function choose(id,multi=false){if(!lineById(id))return;if(!multi)selected.clear();if(multi&&selected.has(id))selected.delete(id);else selected.add(id);taskFocus=null;const owners=state.lines.filter(l=>selected.has(l.id)).map(l=>l.project||'');if(owners.length&&owners.every(p=>p===owners[0]))$('assignProject').value=owners[0];drawWall();inspect();highlightAssociations()}
 function selectOptions(select,sharedLabel){const value=select.value;select.replaceChildren();let opt=el('option',sharedLabel);opt.value='';select.append(opt);for(const p of state.projects){opt=el('option',p.name);opt.value=p.id;select.append(opt)}select.value=value}
-function drawProjects(){const fingerprint=JSON.stringify(state.projects.map(p=>[p.id,p.name,p.color]));if(fingerprint!==projectFingerprint&&!document.activeElement.matches('input[type=color]')){projectFingerprint=fingerprint;$('projectList').replaceChildren();for(const p of state.projects){const row=el('div',undefined,'project'),color=el('input');color.type='color';color.value=p.color;color.setAttribute('aria-label',p.name+' color');color.onchange=()=>action('/api/project',{id:p.id,color:color.value});const info=el('div');info.append(el('div',p.name,'project-name'));const stats=el('div','','project-stats');stats.dataset.project=p.id;info.append(stats);row.append(color,info);$('projectList').append(row)}selectOptions($('assignProject'),'Shared pool')}for(const node of document.querySelectorAll('[data-project]')){const p=state.projects.find(p=>p.id===node.dataset.project);if(p)node.textContent=`${p.assigned} Lines · ${p.active} tasks${p.waiting?' · '+p.waiting+' waiting':''}`}if(!state.projects.length)$('projectList').replaceChildren(el('div','No projects found yet. Open a Codex project to populate this list.','empty'))}
+function lineById(id){return state.lines.find(line=>line.id===id)}
+function lineTask(line){return state.tasks.find(task=>task.id===line.task)}
+function lineDescription(line){
+  const parts=[],task=lineTask(line);
+  if(state.settings.style==='project')parts.push(line.project?'Reserved: '+projectName(line.project):'Shared pool');
+  if(task)parts.push(projectName(task.project),task.title);else parts.push('Unused');
+  return parts.join(' · ');
+}
+function lineBadge(line,kind,label,showShared=false){
+  const shared=showShared&&!line.project, task=lineTask(line);
+  const badge=el('button',line.number+(shared?' · Shared':''),'line-badge '+kind);
+  badge.type='button';badge.dataset.lineId=line.id;badge.dataset.lineNumber=line.number;
+  const description=`Line ${line.number} · ${label}${shared?' · Shared':''}${task?' · '+projectName(task.project)+' · '+task.title:''}`;
+  badge.setAttribute('aria-label',description);badge.title=description;
+  badge.onclick=e=>{e.stopPropagation();choose(line.id,e.ctrlKey||e.metaKey||e.shiftKey)};
+  return badge;
+}
+function replaceKeepingFocus(root,...nodes){
+  const key=root.contains(document.activeElement)?document.activeElement.dataset.focusKey:null;
+  root.replaceChildren(...nodes);
+  if(key)[...root.querySelectorAll('[data-focus-key]')].find(node=>node.dataset.focusKey===key)?.focus({preventScroll:true});
+}
+function lineGroup(label,kind,lines,showShared=false){
+  const group=el('div',undefined,'line-group'),badges=el('div',undefined,'line-badges');
+  group.dataset.lineGroup=kind;group.append(el('span',label,'line-group-label'));
+  badges.append(...(lines.length?lines.map(line=>lineBadge(line,kind,label,showShared)):[el('span','None','small')]));
+  group.append(badges);return group;
+}
+function drawProjects(){
+  const fingerprint=JSON.stringify([state.projects,state.settings.style,state.lines.map(l=>[l.id,l.number,l.project,l.task]),state.tasks.map(t=>[t.id,t.project,t.title])]);
+  if(fingerprint===projectFingerprint)return;
+  projectFingerprint=fingerprint;const list=$('projectList'),rows=[];
+  const existing=new Map([...list.querySelectorAll('.project[data-project]')].map(row=>[row.dataset.project,row]));
+  for(const p of state.projects){
+    let row=existing.get(p.id);
+    if(!row){row=el('div',undefined,'project');row.dataset.project=p.id;row.append(el('input'),el('div'))}
+    const [color,info]=row.children,content=el('div');
+    color.type='color';if(document.activeElement!==color)color.value=p.color;
+    color.setAttribute('aria-label',p.name+' color');color.dataset.focusKey=JSON.stringify(['color',p.id]);
+    color.onchange=()=>action('/api/project',{id:p.id,color:color.value});
+    color.onblur=()=>{projectFingerprint=''};
+    content.append(el('div',p.name,'project-name'),el('div',`${p.active} task${p.active===1?'':'s'}${p.waiting?' · '+p.waiting+' waiting':''}`,'project-stats'));
+    if(state.settings.style==='project')content.append(lineGroup('Reserved','reserved',state.lines.filter(l=>l.project===p.id)));
+    content.append(lineGroup('In use','in-use',state.lines.filter(l=>lineTask(l)?.project===p.id),state.settings.style==='project'));
+    for(const badge of content.querySelectorAll('.line-badge'))badge.dataset.focusKey=JSON.stringify(['project',p.id,badge.closest('.line-group').dataset.lineGroup,badge.dataset.lineId]);
+    replaceKeepingFocus(info,...content.childNodes);rows.push(row);
+  }
+  if(!state.projects.length)rows.push(el('div','No projects found yet. Open a Codex project to populate this list.','empty'));
+  if(state.settings.style==='project'){
+    let row=list.querySelector('.shared-pool');
+    if(!row){row=el('div',undefined,'project shared-pool');const mark=el('span','◇','shared-mark');mark.setAttribute('aria-hidden','true');row.append(mark,el('div'))}
+    const info=row.lastElementChild,content=el('div');content.append(el('div','Shared pool','project-name'));
+    const shared=state.lines.filter(l=>!l.project);
+    content.append(lineGroup('In use','in-use',shared.filter(l=>lineTask(l))),lineGroup('Available','available',shared.filter(l=>!lineTask(l))));
+    for(const badge of content.querySelectorAll('.line-badge'))badge.dataset.focusKey=JSON.stringify(['shared',badge.dataset.lineId]);
+    replaceKeepingFocus(info,...content.childNodes);rows.push(row);
+  }
+  // Keep existing rows attached so an open native color picker survives polling.
+  const focused=list.contains(document.activeElement)?document.activeElement:null;
+  for(let i=0;i<rows.length;i++)if(list.children[i]!==rows[i])list.insertBefore(rows[i],list.children[i]||null);
+  for(const row of [...list.children])if(!rows.includes(row))row.remove();
+  if(focused?.isConnected&&document.activeElement!==focused)focused.focus({preventScroll:true});
+  selectOptions($('assignProject'),'Shared pool');
+}
 function transform(point){let[x,y]=point;const a=state.settings.rotation*Math.PI/180;return[(x*Math.cos(a)-y*Math.sin(a))*(state.settings.flip_x?-1:1),(x*Math.sin(a)+y*Math.cos(a))*(state.settings.flip_y?-1:1)]}
-function drawWall(){const fingerprint=JSON.stringify([state.lines,state.tasks.map(t=>[t.id,t.status,t.project,t.title]),state.projects.map(p=>[p.id,p.color]),state.settings,state.pending,[...selected]]);if(fingerprint===wallFingerprint)return;wallFingerprint=fingerprint;const root=$('wall'),focused=root.contains(document.activeElement)?document.activeElement.dataset.line:null;root.replaceChildren();if(!state.lines.length)return;const all=state.lines.flatMap(l=>l.points.map(transform));const xs=all.map(p=>p[0]),ys=all.map(p=>p[1]);const minX=Math.min(...xs)-55,minY=Math.min(...ys)-55,maxX=Math.max(...xs)+55,maxY=Math.max(...ys)+55;root.setAttribute('viewBox',`${minX} ${minY} ${maxX-minX} ${maxY-minY}`);
-for(const line of state.lines){const points=line.points.map(transform),task=state.tasks.find(t=>t.id===line.task);let colors=[statusColors[task?.status]||'#193cff',statusColors[task?.status]||'#193cff'];if(state.settings.style==='project'){const owner=state.projects.find(p=>p.id===(task?.project||line.project));colors[line.signature]=owner?.color||'#193cff'}const group=document.createElementNS(svgNS,'g');group.setAttribute('class','wall-line'+(selected.has(line.id)?' selected':'')+(state.pending?.lines?.[line.id]?' pending':''));group.setAttribute('tabindex','0');group.setAttribute('role','button');group.setAttribute('aria-label',`Line ${line.number}, ${line.project?projectName(line.project):'Shared'}, ${task?.title||'unused'}`);group.dataset.line=line.id;const title=document.createElementNS(svgNS,'title');title.textContent=`Line ${line.number} · ${line.project?projectName(line.project):'Shared'}${task?' · '+task.title:''}`;group.append(title);
-function segment(a,b,cls,color){const n=document.createElementNS(svgNS,'line');n.setAttribute('x1',a[0]);n.setAttribute('y1',a[1]);n.setAttribute('x2',b[0]);n.setAttribute('y2',b[1]);n.setAttribute('class',cls);if(color){n.setAttribute('stroke',color);n.style.color=color}group.append(n)}segment(points[0],points[2],'hit');segment(points[0],points[2],'outline');segment(points[0],points[1],'zone',colors[0]);segment(points[1],points[2],'zone',colors[1]);const label=document.createElementNS(svgNS,'text');label.setAttribute('x',points[1][0]);label.setAttribute('y',points[1][1]-16);label.setAttribute('class','number');label.textContent=line.number;group.append(label);group.onclick=e=>choose(line.id,e.ctrlKey||e.metaKey||e.shiftKey);group.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();choose(line.id,e.ctrlKey||e.metaKey||e.shiftKey)}};root.append(group);if(focused===line.id)group.focus({preventScroll:true})}}
+function drawWall(){
+  const fingerprint=JSON.stringify([state.lines,state.tasks.map(t=>[t.id,t.status,t.project,t.title]),state.projects.map(p=>[p.id,p.name,p.color]),state.settings,state.pending,[...selected]]);
+  if(fingerprint===wallFingerprint)return;wallFingerprint=fingerprint;
+  const root=$('wall'),focused=root.contains(document.activeElement)?document.activeElement.dataset.line:null;
+  root.replaceChildren();if(!state.lines.length)return;
+  const all=state.lines.flatMap(l=>l.points.map(transform)),xs=all.map(p=>p[0]),ys=all.map(p=>p[1]);
+  const minX=Math.min(...xs)-55,minY=Math.min(...ys)-55,maxX=Math.max(...xs)+55,maxY=Math.max(...ys)+55;
+  root.setAttribute('viewBox',`${minX} ${minY} ${maxX-minX} ${maxY-minY}`);
+  const numbers=document.createElementNS(svgNS,'g');numbers.setAttribute('aria-hidden','true');
+  for(const line of state.lines){
+    const points=line.points.map(transform),task=lineTask(line);
+    const colors=[statusColors[task?.status]||'#193cff',statusColors[task?.status]||'#193cff'];
+    if(state.settings.style==='project'){const owner=state.projects.find(p=>p.id===(task?.project||line.project));colors[line.signature]=owner?.color||'#193cff'}
+    const group=document.createElementNS(svgNS,'g');
+    group.setAttribute('class','wall-line'+(selected.has(line.id)?' selected':'')+(state.pending?.lines?.[line.id]?' pending':''));
+    group.setAttribute('tabindex','0');group.setAttribute('role','button');
+    group.setAttribute('aria-label',`Line ${line.number} · ${lineDescription(line)}`);group.dataset.line=line.id;
+    const title=document.createElementNS(svgNS,'title');title.textContent=`Line ${line.number} · ${lineDescription(line)}`;group.append(title);
+    function segment(a,b,cls,color){
+      const node=document.createElementNS(svgNS,'line');node.setAttribute('x1',a[0]);node.setAttribute('y1',a[1]);node.setAttribute('x2',b[0]);node.setAttribute('y2',b[1]);node.setAttribute('class',cls);
+      if(color){node.setAttribute('stroke',color);node.style.color=color}group.append(node);
+    }
+    const hit=document.createElementNS(svgNS,'rect'),dx=points[2][0]-points[0][0],dy=points[2][1]-points[0][1];
+    hit.setAttribute('class','hit');hit.setAttribute('x',-22);hit.setAttribute('y',-22);
+    hit.setAttribute('width',Math.hypot(dx,dy)+44);hit.setAttribute('height',44);hit.setAttribute('rx',22);
+    hit.setAttribute('transform',`translate(${points[0][0]} ${points[0][1]}) rotate(${Math.atan2(dy,dx)*180/Math.PI})`);
+    group.append(hit);segment(points[0],points[2],'outline');
+    segment(points[0],points[1],'zone',colors[0]);segment(points[1],points[2],'zone',colors[1]);
+    group.onclick=e=>choose(line.id,e.ctrlKey||e.metaKey||e.shiftKey);
+    group.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();choose(line.id,e.ctrlKey||e.metaKey||e.shiftKey)}};
+    root.append(group);if(focused===line.id)group.focus({preventScroll:true});
+    const label=document.createElementNS(svgNS,'text');label.setAttribute('x',points[1][0]);label.setAttribute('class','number');
+    label.dataset.midY=points[1][1];label.dataset.lineId=line.id;label.textContent=line.number;
+    label.onclick=e=>{choose(line.id,e.ctrlKey||e.metaKey||e.shiftKey);[...root.querySelectorAll('.wall-line')].find(node=>node.dataset.line===line.id)?.focus({preventScroll:true})};
+    numbers.append(label);
+  }
+  // Number clicks must win over every Line's transparent hit stroke.
+  root.append(numbers);sizeLineNumbers();
+}
+function sizeLineNumbers(){
+  const scale=$('wall').getScreenCTM()?.a;if(!scale)return;
+  for(const label of $('wall').querySelectorAll('.number')){label.style.fontSize=12/scale+'px';label.style.strokeWidth=3/scale+'px';label.setAttribute('y',Number(label.dataset.midY)-16/scale)}
+}
 function elapsed(start){if(!start)return 'Start time unavailable';let s=Math.max(0,Math.floor(state.now-start));return s>=3600?`${Math.floor(s/3600)}h ${Math.floor(s%3600/60)}m`:s>=60?`${Math.floor(s/60)}m ${s%60}s`:`${s}s`}
-function taskRow(t){const row=el('div',undefined,'task');row.append(el('div',t.title,'task-title'));row.append(el('span',t.status,'badge'));row.append(el('span',projectName(t.project),'small'));row.onclick=()=>{taskFocus=t.id;if(t.line){selected=new Set([t.line]);drawWall()}inspect()};return row}
-function inspect(){const chosen=state.lines.filter(l=>selected.has(l.id));$('selectionTitle').textContent=chosen.length===1?'Line '+chosen[0].number:chosen.length?chosen.length+' Lines selected':'Select a Line';$('selectionHint').textContent=chosen.length?chosen.map(l=>l.project?projectName(l.project):'Shared').filter((v,i,a)=>a.indexOf(v)===i).join(' · '):'Choose one or more Lines to assign them to a project.';for(const id of ['assign','swap','clear'])$(id).disabled=!chosen.length;$('locate').disabled=chosen.length!==1||state.mode==='free';$('locateHint').textContent=state.mode==='free'?'Switch to Work or Quiet to locate a Line.':'Locate briefly highlights the selected physical Line.';const task=state.tasks.find(t=>t.id===(taskFocus||chosen[0]?.task));const detail=$('taskDetail');if(detail.contains(document.activeElement)&&document.activeElement.tagName==='SELECT')return;detail.replaceChildren();if(!task){detail.append(el('p','No task on this Line.','small'));return}detail.append(el('h2',task.title),el('div',task.status,'badge'));for(const [key,value]of[['Project',projectName(task.project)],['Elapsed',elapsed(task.started)]]){const row=el('div',undefined,'kv');row.append(el('span',key),el('span',value));detail.append(row)}detail.append(el('label','Override project for this task'));const select=el('select');select.setAttribute('aria-label','Task project override');selectOptions(select,'Use Codex assignment');select.value=task.manual||'';select.onchange=()=>action('/api/task',{id:task.id,project:select.value||null});detail.append(select)}
-function pendingText(){const p=state.pending,parts=[];if(p.settings?.style)parts.push(p.settings.style+' layout');for(const [id,edit] of Object.entries(p.lines||{})){const line=state.lines.find(l=>l.id===id);parts.push('Line '+(line?.number||id)+(Object.hasOwn(edit,'project')?' → '+(edit.project?projectName(edit.project):'Shared'):' half swap'))}if(Object.keys(p.tasks||{}).length)parts.push('task project change');return 'After this comet: '+parts.join(' · ')}
-function render(){for(const id of ['classic','project'])$(id).classList.toggle('active',id===state.settings.style);for(const id of ['work','free','quiet'])$(id).classList.toggle('active',id===state.mode);$('coverage').value=state.settings.coverage;$('coverage').disabled=state.settings.style==='classic';$('flipX').classList.toggle('active',!!state.settings.flip_x);$('flipY').classList.toggle('active',!!state.settings.flip_y);$('lineCount').textContent=state.lines.length+' Lines';$('taskCount').textContent=state.tasks.length;drawProjects();drawWall();inspect();$('taskList').replaceChildren(...state.tasks.map(taskRow));const waiting=state.tasks.filter(t=>!t.line);$('waiting').replaceChildren(...(waiting.length?waiting.map(taskRow):[el('p','Every task has a Line.','small')]));$('busy').textContent=state.pending?pendingText():state.mode_pending?'Mode change pending.':'';$('connection').textContent='Connected · '+new Date().toLocaleTimeString();$('wallNote').textContent=state.mode==='free'?'Free mode: the lights follow the Nanoleaf app. The map shows saved task assignments.':state.tasks.length?'Colors show project identity and current task status.':'No active indicators. Your remembered scene plays on the wall.';if(Date.now()>errorUntil)message(state.error||state.geometry_error||'',!!(state.error||state.geometry_error))}
+function taskRow(t){
+  const row=el('div',undefined,'task'),title=el('button',t.title,'task-title');row.dataset.task=t.id;title.type='button';title.dataset.focusKey=JSON.stringify([t.id,'title']);
+  row.append(title,el('span',t.status,'badge'),el('span',projectName(t.project),'small'));
+  const placement=el('div',undefined,'task-placement'),line=lineById(t.line);
+  if(line){const badge=lineBadge(line,'in-use','Current task placement');badge.textContent='Line '+line.number;badge.dataset.focusKey=JSON.stringify([t.id,'line']);placement.append(badge)}
+  else placement.append(el('span','Waiting for a Line','small'));
+  row.append(placement);
+  row.onclick=()=>{if(lineById(t.line))choose(t.line);else{selected.clear();taskFocus=t.id;drawWall();inspect();highlightAssociations()}};
+  return row;
+}
+function drawTasks(){
+  const fingerprint=JSON.stringify([state.tasks,state.lines.map(l=>[l.id,l.number,l.task]),state.projects.map(p=>[p.id,p.name])]);
+  if(fingerprint===taskFingerprint)return;taskFingerprint=fingerprint;
+  const tasks=$('taskList'),waitingList=$('waiting');
+  const waitingFocus=waitingList.contains(document.activeElement)?document.activeElement.dataset.focusKey:null;
+  replaceKeepingFocus(tasks,...state.tasks.map(taskRow));
+  const waiting=state.tasks.filter(t=>!t.line);
+  replaceKeepingFocus(waitingList,...(waiting.length?waiting.map(taskRow):[el('p','Every task has a Line.','small')]));
+  // A placed task leaves Waiting but keeps its keyboard control in Tasks.
+  if(waitingFocus&&!waitingList.contains(document.activeElement))
+    [...tasks.querySelectorAll('[data-focus-key]')].find(node=>node.dataset.focusKey===waitingFocus)?.focus({preventScroll:true});
+}
+function highlightAssociations(){
+  const chosen=state.lines.filter(l=>selected.has(l.id)),taskIds=new Set(chosen.map(l=>l.task).filter(Boolean));
+  if(taskFocus)taskIds.add(taskFocus);
+  const projectIds=new Set(state.tasks.filter(t=>taskIds.has(t.id)).map(t=>t.project).filter(Boolean));
+  if(state.settings.style==='project')for(const line of chosen)if(line.project)projectIds.add(line.project);
+  for(const row of document.querySelectorAll('#projectList .project'))row.classList.toggle('selected',row.classList.contains('shared-pool')?chosen.some(l=>!l.project):projectIds.has(row.dataset.project));
+  for(const row of document.querySelectorAll('.task'))row.classList.toggle('selected',taskIds.has(row.dataset.task));
+  for(const badge of document.querySelectorAll('.line-badge')){const active=selected.has(badge.dataset.lineId);badge.classList.toggle('selected',active);badge.setAttribute('aria-pressed',String(active))}
+  for(const line of document.querySelectorAll('.wall-line'))line.setAttribute('aria-pressed',String(selected.has(line.dataset.line)));
+}
+function inspect(){
+  const chosen=state.lines.filter(l=>selected.has(l.id)).sort((a,b)=>a.number-b.number);
+  $('selectionTitle').textContent=chosen.length===1?'Line '+chosen[0].number:chosen.length?'Lines '+chosen.map(l=>l.number).join(', '):'Select a Line';
+  $('selectionHint').textContent=chosen.length===1?lineDescription(chosen[0]):chosen.length?chosen.length+' physical Lines selected.':'Choose one or more Lines to assign them to a project.';
+  for(const id of ['assign','swap'])$(id).disabled=!chosen.length;
+  $('clear').disabled=!chosen.length&&!taskFocus;
+  $('locate').textContent=chosen.length===1?'Locate Line '+chosen[0].number:'Locate';
+  $('locate').disabled=chosen.length!==1||state.mode==='free';
+  $('locateHint').textContent=state.mode==='free'?'Switch to Work or Quiet to locate a Line.':'Locate briefly highlights the selected physical Line.';
+  const task=state.tasks.find(t=>t.id===(taskFocus||(chosen.length===1?chosen[0].task:null))),detail=$('taskDetail');
+  if(detail.contains(document.activeElement)&&document.activeElement.tagName==='SELECT')return;
+  detail.replaceChildren();
+  if(!task){detail.append(el('p',chosen.length>1?'Select one Line to inspect its task.':chosen.length?'No task on this Line.':'Select a Line or task for details.','small'));return}
+  detail.append(el('h2',task.title),el('div',task.status,'badge'));
+  for(const [key,value]of[['Project',projectName(task.project)],['Elapsed',elapsed(task.started)]]){const row=el('div',undefined,'kv');row.append(el('span',key),el('span',value));detail.append(row)}
+  detail.append(el('label','Override project for this task'));
+  const select=el('select');select.setAttribute('aria-label','Task project override');selectOptions(select,'Use Codex assignment');select.value=task.manual||'';
+  select.onchange=()=>action('/api/task',{id:task.id,project:select.value||null});detail.append(select);
+}
+function pendingText(){
+  const p=state.pending,parts=[];
+  if(p.settings?.style)parts.push(p.settings.style+' layout');
+  for(const [id,edit] of Object.entries(p.lines||{})){
+    const line=lineById(id);let text=line?'Line '+line.number:'Line unavailable';
+    if(Object.hasOwn(edit,'project'))text+=' → '+(edit.project?projectName(edit.project):'Shared pool');
+    if(Object.hasOwn(edit,'signature'))text+=' · half swap';
+    parts.push(text);
+  }
+  for(const [id,project] of Object.entries(p.tasks||{})){
+    const task=state.tasks.find(t=>t.id===id),line=lineById(task?.line);
+    const source=line?`Line ${line.number} · ${task.title}`:task?`${task.title} (${task.line?'Line unavailable':'Waiting for a Line'})`:'Unavailable task';
+    parts.push(source+' → '+(project?projectName(project):'Use Codex assignment'));
+  }
+  return 'After this comet: '+parts.join(' · ');
+}
+function render(){selected=new Set([...selected].filter(id=>lineById(id)));if(taskFocus){const task=state.tasks.find(t=>t.id===taskFocus);if(!task)taskFocus=null;else if(lineById(task.line)){selected=new Set([task.line]);taskFocus=null}}for(const id of ['classic','project'])$(id).classList.toggle('active',id===state.settings.style);for(const id of ['work','free','quiet'])$(id).classList.toggle('active',id===state.mode);$('coverage').value=state.settings.coverage;$('coverage').disabled=state.settings.style==='classic';$('flipX').classList.toggle('active',!!state.settings.flip_x);$('flipY').classList.toggle('active',!!state.settings.flip_y);$('lineCount').textContent=state.lines.length+' Lines';$('taskCount').textContent=state.tasks.length;drawProjects();drawWall();inspect();drawTasks();highlightAssociations();$('busy').textContent=state.pending?pendingText():state.mode_pending?'Mode change pending.':'';$('connection').textContent='Connected · '+new Date().toLocaleTimeString();$('wallNote').textContent=state.mode==='free'?'Free mode: the lights follow the Nanoleaf app. The map shows saved task assignments.':state.tasks.length?'Colors show project identity and current task status.':'No active indicators. Your remembered scene plays on the wall.';if(Date.now()>errorUntil)message(state.error||state.geometry_error||'',!!(state.error||state.geometry_error))}
 async function refresh(){if(refreshing)return;refreshing=true;try{const r=await fetch('/api/state');const data=await r.json();if(!r.ok)throw Error(data.error);state=data;render()}catch(e){$('connection').textContent='Disconnected · retrying';message(e.message,true)}finally{refreshing=false}}
-for(const id of ['classic','project'])$(id).onclick=()=>action('/api/settings',{style:id});for(const mode of ['work','free','quiet'])$(mode).onclick=()=>action('/api/mode',{mode});$('coverage').onchange=()=>action('/api/settings',{coverage:$('coverage').value});$('assign').onclick=()=>action('/api/assign',{lines:Object.fromEntries([...selected].map(id=>[id,{project:$('assignProject').value||null}]))});$('clear').onclick=()=>{selected.clear();taskFocus=null;const owners=state.lines.filter(l=>selected.has(l.id)).map(l=>l.project||'');if(owners.length&&owners.every(p=>p===owners[0]))$('assignProject').value=owners[0];drawWall();inspect()};$('swap').onclick=()=>action('/api/assign',{lines:Object.fromEntries(state.lines.filter(l=>selected.has(l.id)).map(l=>[l.id,{signature:1-l.signature}]))});$('locate').onclick=()=>action('/api/locate',{line:[...selected][0]});$('rotate').onclick=()=>action('/api/settings',{rotation:(state.settings.rotation+90)%360});$('flipX').onclick=()=>action('/api/settings',{flip_x:1-state.settings.flip_x});$('flipY').onclick=()=>action('/api/settings',{flip_y:1-state.settings.flip_y});refresh();setInterval(refresh,1000);
+for(const id of ['classic','project'])$(id).onclick=()=>action('/api/settings',{style:id});for(const mode of ['work','free','quiet'])$(mode).onclick=()=>action('/api/mode',{mode});$('coverage').onchange=()=>action('/api/settings',{coverage:$('coverage').value});$('assign').onclick=()=>action('/api/assign',{lines:Object.fromEntries([...selected].map(id=>[id,{project:$('assignProject').value||null}]))});$('clear').onclick=()=>{selected.clear();taskFocus=null;const owners=state.lines.filter(l=>selected.has(l.id)).map(l=>l.project||'');if(owners.length&&owners.every(p=>p===owners[0]))$('assignProject').value=owners[0];drawWall();inspect();highlightAssociations()};$('swap').onclick=()=>action('/api/assign',{lines:Object.fromEntries(state.lines.filter(l=>selected.has(l.id)).map(l=>[l.id,{signature:1-l.signature}]))});$('locate').onclick=()=>action('/api/locate',{line:[...selected][0]});$('rotate').onclick=()=>action('/api/settings',{rotation:(state.settings.rotation+90)%360});$('flipX').onclick=()=>action('/api/settings',{flip_x:1-state.settings.flip_x});$('flipY').onclick=()=>action('/api/settings',{flip_y:1-state.settings.flip_y});new ResizeObserver(sizeLineNumbers).observe($('wall'));refresh();setInterval(refresh,1000);
 </script></body></html>
