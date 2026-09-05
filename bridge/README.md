@@ -26,7 +26,9 @@ changes and failed light updates; it retries controller failures. Connection tex
 describes the last update, not continuous connectivity testing. Free deliberately
 sends no controller requests after its handoff. "Exit tray only" closes the menu;
 the selected mode and hooks continue working. Windows may put the icon in the
-hidden-icons area beside the clock.
+hidden-icons area beside the clock. The fixed tray icon uses a green center and blue
+Lines matching the wall arrangement. Live status remains in the tooltip and menu.
+If the icon file is missing or invalid, the tray uses the Windows information icon.
 
 To add the tray to an existing installation without resetting tasks, run
 `install-modes.ps1` from this folder in Windows PowerShell. It backs up the installed
