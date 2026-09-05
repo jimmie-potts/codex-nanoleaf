@@ -12,6 +12,10 @@ The integration runs on Windows. Installed WSL hooks forward to Windows Python s
 
 ## Development
 
+For planning, TDD, review, and delivery, follow [the development workflow](docs/sdlc.md).
+GitHub issues track requested work; each deliverable normally uses an isolated
+worktree and one PR. Repository skills select the relevant workflow automatically.
+
 Use Python 3.12 or newer. From the repository root:
 
 ```bash
@@ -31,7 +35,13 @@ npm run test:browser
 
 On a fresh Linux machine, Playwright may also need its browser system dependencies. The CI workflow uses `npx playwright install --with-deps chromium`. `PYTHON` can select a Python executable; `NANOLEAF_BROWSER_EXECUTABLE` can select an existing Chromium-based browser.
 
-GitHub Actions runs the Python suite on Linux and Windows with Python 3.12 and 3.14, plus the browser checks on Linux.
+GitHub Actions runs the Python suite on Linux and Windows with Python 3.12 and 3.14, workflow checks on both platforms, and browser checks on Linux.
+
+After `npm ci`, run `npm run check:workflow` to validate OpenSpec work and
+`npm run test:workflow` to exercise the validation commands. OpenSpec 1.12.0 is
+pinned locally; use `npm run openspec -- <arguments>` instead of a global CLI.
+The initial capability inventory is empty. Existing behavior remains documented
+in [the bridge guide](bridge/README.md) until a capability is migrated through review.
 
 ## Installation
 

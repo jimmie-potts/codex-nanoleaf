@@ -2,6 +2,9 @@
 
 The repository is the canonical source. The installed program in `%LOCALAPPDATA%\CodexNanoleaf` is a separate deployment with private credentials, its own SQLite state, and the remembered Nanoleaf scene. The original scratch workspace is historical and should not be used for future changes.
 
+Follow [the SDLC guide](sdlc.md) for issue scope, planning, TDD, independent review,
+and merge criteria. It also defines when installation is part of a task.
+
 ## Validate a change
 
 Run `python3 scripts/check.py` from the root. The initial import has 100 tests. They exercise status transitions, read handling, comets, scenes, modes, project placement, split rendering, metadata recovery, and local HTTP validation. A successful run contacts neither a controller nor the real Codex state.
@@ -9,6 +12,42 @@ Run `python3 scripts/check.py` from the root. The initial import has 100 tests. 
 Run `npm run test:browser` after map or API changes. It starts the synthetic demo on an available loopback port and shuts it down afterward. Screenshots are written to ignored `test-results/`. To inspect the map manually, run `python3 scripts/demo.py` and open its printed URL.
 
 Use Windows PowerShell for the tray and installer. `bridge/tray.ps1 -Check` verifies Windows Forms support and icon loading without starting a tray or worker. Run `tests/test_tray_icon.ps1` to check all six icon sizes with Windows, transparency, the blue/green palette, tray sizing, and missing or corrupt asset fallback. Hosted CI runs both checks; menu interaction still needs a Windows smoke check.
+
+## Workflow tooling
+
+Run `npm ci` to install the locked development dependencies. On WSL, if the user
+npm cache is read-only, add `--cache /tmp/codex-nanoleaf-npm-cache`. The Python
+regression suite still requires only the standard library.
+
+`npm run openspec -- <arguments>` uses the pinned OpenSpec 1.12.0 CLI. The wrapper
+disables telemetry and completion/animation prompts through child-process
+environment variables; it does not change global configuration. It preserves
+the caller's working directory so isolated fixtures can use their own planning
+root. Normal repository work runs from the assigned worktree root.
+
+Run `npm run check:workflow` after workflow, skill, or OpenSpec changes. It invokes
+strict non-interactive validation separately for current specs/changes and for
+archived task completion. Either failure makes the command fail. Zero items is
+a valid bootstrap result and is reported as zero, not as a reviewed baseline.
+These CLI checks validate syntax and archive task markers; they do not replace
+acceptance tests, artifact-completeness checks, or independent review.
+
+Run `npm run test:workflow` to exercise empty, valid, invalid, and incomplete
+archive fixtures using temporary directories. CI runs both commands in the
+always-running Workflow checks job, alongside the existing product checks.
+
+To regenerate the core Codex skills after an explicitly scoped OpenSpec upgrade,
+use the local wrapper with `init --tools codex --profile core --no-animation`.
+The explicit profile applies to that run. Do not change the global profile or
+run a bare update that could select unrelated integrations. Review regenerated
+instructions against the repository's composition rules. OpenSpec owns the
+`openspec-*` skill directories; `nanoleaf-*` skills and project configuration own
+the repository adaptations.
+
+Use the installed skill-creator validator for authored skill structure, inspect
+references, and test behavior with independent agents in isolated fixtures.
+Record their actual actions and limitations in the PR. Do not treat a skill
+description or a schema pass as proof of correct automatic selection.
 
 ## Upgrade the installed integration
 

@@ -4,8 +4,16 @@
   "private": true,
   "description": "Nanoleaf Lines task indicators and a local project wall map for Codex Desktop",
   "scripts": {
-    "test:browser": "node scripts/test-browser.cjs"
+    "test:browser": "node scripts/test-browser.cjs",
+    "openspec": "node scripts/openspec.cjs",
+    "check:workflow": "node scripts/check-workflow.cjs",
+    "test:workflow": "node --test tests/workflow_checks.cjs"
   },
-  "engines": {"node": ">=22"},
-  "devDependencies": {"playwright": "1.63.0"}
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@fission-ai/openspec": "1.12.0",
+    "playwright": "1.63.0"
+  }
 }

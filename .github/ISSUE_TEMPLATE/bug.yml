@@ -1,0 +1,58 @@
+name: Bug
+description: Report reproducible behavior that violates the existing contract.
+labels: [bug, 'status:backlog']
+body:
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Observed and expected behavior
+      description: Describe the failure, the expected result, and the relevant contract when known.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Give reproducible steps and relevant versions. Omit credentials and live task metadata.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: Identify affected behavior and the boundaries of the requested fix.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Describe the observable result that proves the bug is fixed.
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification approach
+      description: Suggest a regression check and any required Windows or device verification.
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies
+      description: Link prerequisite issues or state None.
+      value: None
+    validations:
+      required: true
+  - type: dropdown
+    id: delivery
+    attributes:
+      label: Delivery target
+      description: Installation work requires an explicit request and an identified installation owner.
+      options:
+        - Source-only
+        - Includes installation and its verification
+      default: 0
+    validations:
+      required: true

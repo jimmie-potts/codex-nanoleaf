@@ -1,0 +1,6 @@
+interface:
+  display_name: "Nanoleaf TDD"
+  short_description: "Develop Nanoleaf behavior with focused red-green cycles"
+  default_prompt: "Use $nanoleaf-tdd to develop the next accepted behavior and record real red/green evidence."
+policy:
+  allow_implicit_invocation: true
