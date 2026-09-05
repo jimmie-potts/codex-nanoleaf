@@ -47,7 +47,7 @@ function writeArchive(directory, completed) {
 function run(file, directory, args = [], env = {}) {
   const result = spawnSync(process.execPath, [file, ...args], {
     cwd: directory,
-    env: { ...process.env, ...env },
+    env: { ...process.env, CODEX_HOME: path.join(directory, 'fixture-codex'), ...env },
     encoding: 'utf8',
     timeout: 30000,
   });
@@ -145,5 +145,22 @@ test('specification-only initialization creates no repository skill integrations
   assert.equal(result.status, 0, result.stderr + result.stdout);
   for (const name of ['.agents', '.codex', '.claude']) {
     assert.equal(fs.existsSync(path.join(directory, name)), false, `${name} must not be generated`);
+  }
+});
+
+test('initialization preserves personal Codex prompts with current integrations present', (t) => {
+  const directory = fixture(t);
+  const personalHome = path.join(directory, 'personal-codex');
+  const prompt = path.join(personalHome, 'prompts', 'opsx-apply.md');
+  fs.mkdirSync(path.dirname(prompt), { recursive: true });
+  const original = 'Personal OpenSpec prompt; preserve this content.\n';
+  for (const integration of ['codex', 'none']) {
+    fs.writeFileSync(prompt, original);
+    const result = run(wrapper, directory, ['init', '--tools', integration, '--profile', 'core', '--no-animation'], {
+      CODEX_HOME: personalHome,
+    });
+    assert.equal(result.status, 0, result.stderr + result.stdout);
+    assert.equal(fs.existsSync(prompt), true, `${integration} initialization must preserve the personal prompt`);
+    assert.equal(fs.readFileSync(prompt, 'utf8'), original);
   }
 });

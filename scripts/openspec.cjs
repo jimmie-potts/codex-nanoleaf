@@ -10,7 +10,7 @@ if (!existsSync(cli)) {
   process.exit(1);
 }
 
-// OpenSpec 1.12.0 can migrate global settings during init, even with --profile.
+// OpenSpec 1.12.0 can migrate global settings and Codex prompts during init.
 const configHome = mkdtempSync(path.join(tmpdir(), 'nanoleaf-openspec-config-'));
 try {
   const result = spawnSync(process.execPath, [cli, ...process.argv.slice(2)], {
@@ -18,6 +18,7 @@ try {
     env: {
       ...process.env,
       XDG_CONFIG_HOME: configHome,
+      CODEX_HOME: path.join(configHome, 'codex'),
       OPENSPEC_TELEMETRY: '0',
       DO_NOT_TRACK: '1',
       OPENSPEC_NO_COMPLETIONS: '1',

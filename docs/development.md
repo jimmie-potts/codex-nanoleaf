@@ -22,8 +22,9 @@ regression suite still requires only the standard library.
 `npm run openspec -- <arguments>` uses the pinned OpenSpec 1.12.0 CLI. The wrapper
 disables telemetry and completion/animation prompts through child-process
 environment variables. Each invocation uses a temporary CLI configuration
-directory, which is removed afterward. This prevents OpenSpec's initialization
-migration from changing user settings, even when `--profile core` is supplied.
+directory and a separate temporary Codex home, which are removed afterward.
+This prevents OpenSpec's initialization migration from changing user settings
+or deleting global legacy Codex prompts, even when `--profile core` is supplied.
 Global CLI preferences do not apply through this wrapper, and CLI configuration
 changes made through it do not persist. Put repository rules in
 `openspec/config.yaml`. The wrapper preserves the caller's working directory so
