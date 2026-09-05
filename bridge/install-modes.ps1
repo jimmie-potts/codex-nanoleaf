@@ -1,3 +1,4 @@
+param([switch]$SkipShortcuts)
 # Upgrade the existing installation without resetting tasks or rewriting hooks.
 $ErrorActionPreference = 'Stop'
 $destination = Join-Path $env:LOCALAPPDATA 'CodexNanoleaf'
@@ -28,16 +29,18 @@ Get-CimInstance Win32_Process | Where-Object {
     ($_.Name -in @('python.exe', 'pythonw.exe') -and $_.CommandLine -match ([regex]::Escape($bridge) + '"?\s+(?:worker|serve)(?:\s|$)')) -or
     ($_.Name -eq 'powershell.exe' -and $_.CommandLine -match ([regex]::Escape($tray) + '(?:"|$)'))
 } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
-$shell = New-Object -ComObject WScript.Shell
-foreach ($folder in @([Environment]::GetFolderPath('Startup'), [Environment]::GetFolderPath('Programs'))) {
-    $shortcut = $shell.CreateShortcut((Join-Path $folder 'Codex Nanoleaf.lnk'))
-    $shortcut.TargetPath = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
-    $shortcut.Arguments = '-NoProfile -STA -WindowStyle Hidden -File "' + $tray + '"'
-    $shortcut.WorkingDirectory = $destination
-    $shortcut.WindowStyle = 7
-    $shortcut.IconLocation = (Join-Path $destination 'tray-icon.ico') + ',0'
-    $shortcut.Description = 'Open the Nanoleaf wall map and switch layouts or modes'
-    $shortcut.Save()
+if (-not $SkipShortcuts) {
+    $shell = New-Object -ComObject WScript.Shell
+    foreach ($folder in @([Environment]::GetFolderPath('Startup'), [Environment]::GetFolderPath('Programs'))) {
+        $shortcut = $shell.CreateShortcut((Join-Path $folder 'Codex Nanoleaf.lnk'))
+        $shortcut.TargetPath = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
+        $shortcut.Arguments = '-NoProfile -STA -WindowStyle Hidden -File "' + $tray + '"'
+        $shortcut.WorkingDirectory = $destination
+        $shortcut.WindowStyle = 7
+        $shortcut.IconLocation = (Join-Path $destination 'tray-icon.ico') + ',0'
+        $shortcut.Description = 'Open the Nanoleaf wall map and switch layouts or modes'
+        $shortcut.Save()
+    }
 }
 Start-Process powershell.exe -WindowStyle Hidden -ArgumentList ('-NoProfile -STA -WindowStyle Hidden -File "' + $tray + '"')
 Write-Output ('Wall map and tray controls installed. Previous program files: ' + $backup)

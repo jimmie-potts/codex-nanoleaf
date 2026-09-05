@@ -12,7 +12,7 @@ def main():
     with Image.open(ROOT / 'bridge/assets/tray-icon-source.png') as source:
         if source.mode != 'RGBA' or source.getchannel('A').getextrema()[0] != 0:
             raise ValueError('The approved source must contain real transparency.')
-        artwork = ImageOps.contain(source, (240, 240), Image.Resampling.LANCZOS)
+        artwork = ImageOps.contain(source, (256, 256), Image.Resampling.LANCZOS)
         square = Image.new('RGBA', (256, 256))
         square.alpha_composite(artwork, ((256 - artwork.width) // 2, (256 - artwork.height) // 2))
         # Windows PowerShell's System.Drawing needs DIB frames for reliable decoding.
