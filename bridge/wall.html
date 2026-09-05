@@ -144,9 +144,14 @@ function taskRow(t){
 function drawTasks(){
   const fingerprint=JSON.stringify([state.tasks,state.lines.map(l=>[l.id,l.number,l.task]),state.projects.map(p=>[p.id,p.name])]);
   if(fingerprint===taskFingerprint)return;taskFingerprint=fingerprint;
-  replaceKeepingFocus($('taskList'),...state.tasks.map(taskRow));
+  const tasks=$('taskList'),waitingList=$('waiting');
+  const waitingFocus=waitingList.contains(document.activeElement)?document.activeElement.dataset.focusKey:null;
+  replaceKeepingFocus(tasks,...state.tasks.map(taskRow));
   const waiting=state.tasks.filter(t=>!t.line);
-  replaceKeepingFocus($('waiting'),...(waiting.length?waiting.map(taskRow):[el('p','Every task has a Line.','small')]));
+  replaceKeepingFocus(waitingList,...(waiting.length?waiting.map(taskRow):[el('p','Every task has a Line.','small')]));
+  // A placed task leaves Waiting but keeps its keyboard control in Tasks.
+  if(waitingFocus&&!waitingList.contains(document.activeElement))
+    [...tasks.querySelectorAll('[data-focus-key]')].find(node=>node.dataset.focusKey===waitingFocus)?.focus({preventScroll:true});
 }
 function highlightAssociations(){
   const chosen=state.lines.filter(l=>selected.has(l.id)),taskIds=new Set(chosen.map(l=>l.task).filter(Boolean));
