@@ -1,0 +1,11 @@
+{
+  "name": "codex-nanoleaf",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Nanoleaf Lines task indicators and a local project wall map for Codex Desktop",
+  "scripts": {
+    "test:browser": "node scripts/test-browser.cjs"
+  },
+  "engines": {"node": ">=22"},
+  "devDependencies": {"playwright": "1.63.0"}
+}

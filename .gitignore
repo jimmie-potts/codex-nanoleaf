@@ -1,0 +1,31 @@
+# Credentials and live integration state
+.env
+.env.*
+config.json
+hooks.json
+scene-state.json
+layout.json
+map-server.json
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.db
+*.db-*
+backup-*/
+*.log
+*.new
+
+# Local development artifacts
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+node_modules/
+test-results/
+playwright-report/
+coverage/
+.coverage
+.codex-log/
+.codex/*.local.*
+.DS_Store
+Thumbs.db
