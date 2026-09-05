@@ -20,6 +20,7 @@ await page.evaluate(()=>{state.pending={settings:{style:'classic'},lines:{[state
 if(await page.locator('#taskList b').count())throw Error('Task title interpreted as HTML');
 await page.screenshot({path:path.join(root,'test-results/wall-map-desktop.png'),fullPage:true});
 await page.setViewportSize({width:800,height:1000});await page.screenshot({path:path.join(root,'test-results/wall-map-compact.png'),fullPage:true});
+await require('./line_identity_checks.cjs')(page,root);
 if(errors.length)throw Error(errors.join('\n'));console.log('Browser checks passed: map geometry, multi-select, assignments, colors, half swaps, coverage, rotation, flip, Locate, modes, profiles, and title escaping.');
 
 };

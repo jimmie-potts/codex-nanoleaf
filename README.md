@@ -41,8 +41,9 @@ After `npm ci`, run `npm run check:workflow` to validate OpenSpec work and
 `npm run test:workflow` to exercise the validation commands. OpenSpec 1.12.0 is
 pinned locally; use `npm run openspec -- <arguments>` instead of a global CLI.
 Reusable skills come from the [shared catalog](https://github.com/jimmie-potts/agent-skills); see [setup](docs/development.md#shared-skills). This repository keeps no shared skill copies.
-The initial capability inventory is empty. Existing behavior remains documented
-in [the bridge guide](bridge/README.md) until a capability is migrated through review.
+The [wall Line identification specification](openspec/specs/wall-line-identification/spec.md)
+owns numbering, selection, and the Locate boundary. Other behavior remains
+documented in [the bridge guide](bridge/README.md) until migrated through review.
 
 ## Installation
 

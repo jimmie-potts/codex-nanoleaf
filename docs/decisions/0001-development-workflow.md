@@ -17,6 +17,7 @@ protection. The user approved the choices below in the SDLC setup plan.
 - GitHub issues own requested scope, acceptance criteria, dependencies, delivery
   target, and status. Use issue labels rather than a Project board.
 - Use one independently deliverable issue, isolated worktree, and PR by default.
+  All repository changes go through PRs, with no direct changes to `main`.
   Keep implementation, tests, documentation, and applicable spec/archive changes
   together. Close the issue after merged-source CI succeeds, or after the stated
   installation target is verified when that was included.
@@ -32,6 +33,9 @@ protection. The user approved the choices below in the SDLC setup plan.
   CI before automatic merge. Fix P0-P2 defects, document P3 dispositions, and
   revalidate changed candidates. The active agent squash-merges with a head-SHA
   guard and never bypasses protections.
+- Require explicit human approval of the current candidate for every UI PR.
+  Record approval in the PR, and obtain renewed approval when its UI changes.
+  Agent review and CI remain required but do not replace the human decision.
 - Keep installation and physical verification separate and explicitly requested.
   Preserve the current installation owner and single Windows light writer.
 - Maintain reusable skills in `agent-skills`, including planning, TDD, review,

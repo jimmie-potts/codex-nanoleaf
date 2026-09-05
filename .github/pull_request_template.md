@@ -24,6 +24,12 @@ Standards and Specification reviews, finding dispositions, and CI for the curren
 candidate. Recheck unresolved review threads and outstanding change requests.
 After merge, append the merged revision and its main CI result.
 
+- UI changes: Yes / No.
+- Human approval for this UI candidate: Pending / approval evidence and revision.
+
+UI PRs must remain open until a human approves the current candidate. Agent
+reviews and CI do not replace that approval; changed UI needs renewed approval.
+
 ## Installation impact
 
 Describe any migration, deployment, or scene/brightness effect. State when the change is source-only.
