@@ -1,0 +1,33 @@
+schema: spec-driven
+context: |
+  Codex Nanoleaf is a Windows bridge with standard-library Python, PowerShell,
+  and a local browser map. GitHub issues in jimmie-potts/codex-nanoleaf own scope,
+  acceptance criteria, dependencies, status, and delivery target. Read AGENTS.md,
+  docs/sdlc.md, and docs/development.md before acting. Use this worktree's local
+  OpenSpec root. Run CLI commands through npm run openspec -- <arguments>.
+  Existing behavior stays in bridge/README.md until a reviewed capability spec
+  replaces its normative text. An empty bootstrap inventory is intentional.
+  Keep one Windows light writer, private state outside Git, and installation
+  separate from source delivery. Preserve other worktrees and their owners.
+  Reuse shared agent-skills procedures. Do not generate skill copies in this repo.
+rules:
+  proposal:
+    - Link the exact GitHub issue and its criteria; describe the technical delta without copying the issue's criteria or status.
+    - Reuse an existing issue-linked change or use gh-<issue-number>-<slug>; distinguish unchanged baseline behavior from proposed additions.
+  specs:
+    - Write observable requirements and scenarios that map to the linked issue's criteria.
+    - Preserve existing scenarios during modification and update the documentation owner links when migrating a capability.
+  design:
+    - Evaluate the schema's conditional design criteria; include failure and recovery behavior when state, concurrency, or installation is affected.
+  tasks:
+    - Each implementation task includes observable completion evidence; use focused red-green-refactor cycles for executable behavior.
+    - Keep revision-specific CI and review evidence in the PR; do not invent test results or commit identifiers in planning artifacts.
+operations:
+  apply:
+    guidance:
+      - Read the repository composition rule; preserve the user's authorized terminal state across skill handoffs.
+      - Compose the shared tdd skill for meaningful behavior and run the relevant repository checks.
+  archive:
+    guidance:
+      - Require completed applicable artifacts, tasks, and acceptance evidence; report failed input lookups.
+      - Synchronize every delta and verify the resulting main specs on this branch before final review, then run npm run check:workflow.
