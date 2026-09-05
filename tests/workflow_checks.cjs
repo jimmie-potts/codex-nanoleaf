@@ -44,9 +44,10 @@ function writeArchive(directory, completed) {
   fs.writeFileSync(path.join(folder, 'tasks.md'), `## 1. Queue\n- [${completed ? 'x' : ' '}] 1.1 Deduplicate completion events; verify one queue entry.\n`);
 }
 
-function run(file, directory, args = []) {
+function run(file, directory, args = [], env = {}) {
   const result = spawnSync(process.execPath, [file, ...args], {
     cwd: directory,
+    env: { ...process.env, ...env },
     encoding: 'utf8',
     timeout: 30000,
   });
@@ -110,4 +111,31 @@ test('CLI argument errors propagate through the wrapper', (t) => {
   const result = run(wrapper, fixture(t), ['--unknown-nanoleaf-option']);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /unknown.*option/i);
+});
+
+test('regenerating core skills preserves absent or existing user configuration and custom skills', (t) => {
+  for (const initial of [null, '{"profile":"custom","delivery":"commands","workflows":["explore"]}\n']) {
+    const directory = fixture(t);
+    const userConfig = path.join(directory, 'user-config');
+    const settings = path.join(userConfig, 'openspec', 'config.json');
+    if (initial !== null) {
+      fs.mkdirSync(path.dirname(settings), { recursive: true });
+      fs.writeFileSync(settings, initial);
+    }
+    const skills = path.join(directory, '.agents', 'skills');
+    fs.cpSync(path.join(root, '.agents', 'skills'), skills, { recursive: true });
+    const result = run(wrapper, directory, ['init', '--tools', 'codex', '--profile', 'core', '--no-animation'], {
+      XDG_CONFIG_HOME: userConfig,
+    });
+    assert.equal(result.status, 0, result.stderr + result.stdout);
+    const after = fs.existsSync(settings) ? fs.readFileSync(settings, 'utf8') : null;
+    assert.equal(after, initial, 'regeneration must not create or change user OpenSpec configuration');
+    for (const name of fs.readdirSync(path.join(root, '.agents', 'skills')).filter((name) => name.startsWith('nanoleaf-'))) {
+      assert.equal(
+        fs.readFileSync(path.join(skills, name, 'SKILL.md'), 'utf8'),
+        fs.readFileSync(path.join(root, '.agents', 'skills', name, 'SKILL.md'), 'utf8'),
+      );
+    }
+    assert.equal(fs.readdirSync(skills).filter((name) => name.startsWith('openspec-')).length, 6);
+  }
 });

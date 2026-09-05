@@ -90,6 +90,11 @@ the schema's published criteria; when omitted, record the reason and verify all
 other required artifacts. Every task names how its completion can be observed.
 File existence and checked boxes alone do not prove that behavior works.
 
+In OpenSpec 1.12.0, a valid conditional design omission can leave
+`isPlanningComplete: false` and `design: ready` while apply reports `ready` or
+`all_done`. Check the required artifact set and the recorded omission; do not
+use that status flag alone to decide readiness or completion.
+
 Use `gh-<issue-number>-<slug>` for a change identity, and link the exact issue in
 its proposal. Reuse an existing linked change, checking both active and archived
 directories for collisions. Do not choose the newest or only active change as a

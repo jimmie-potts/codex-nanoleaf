@@ -21,9 +21,14 @@ regression suite still requires only the standard library.
 
 `npm run openspec -- <arguments>` uses the pinned OpenSpec 1.12.0 CLI. The wrapper
 disables telemetry and completion/animation prompts through child-process
-environment variables; it does not change global configuration. It preserves
-the caller's working directory so isolated fixtures can use their own planning
-root. Normal repository work runs from the assigned worktree root.
+environment variables. Each invocation uses a temporary CLI configuration
+directory, which is removed afterward. This prevents OpenSpec's initialization
+migration from changing user settings, even when `--profile core` is supplied.
+Global CLI preferences do not apply through this wrapper, and CLI configuration
+changes made through it do not persist. Put repository rules in
+`openspec/config.yaml`. The wrapper preserves the caller's working directory so
+isolated fixtures can use their own planning root. Normal repository work runs
+from the assigned worktree root.
 
 Run `npm run check:workflow` after workflow, skill, or OpenSpec changes. It invokes
 strict non-interactive validation separately for current specs/changes and for
@@ -33,8 +38,9 @@ These CLI checks validate syntax and archive task markers; they do not replace
 acceptance tests, artifact-completeness checks, or independent review.
 
 Run `npm run test:workflow` to exercise empty, valid, invalid, and incomplete
-archive fixtures using temporary directories. CI runs both commands in the
-always-running Workflow checks job, alongside the existing product checks.
+archive fixtures and regeneration without user-configuration changes. CI runs
+both commands in the always-running Workflow checks job, alongside the existing
+product checks.
 
 To regenerate the core Codex skills after an explicitly scoped OpenSpec upgrade,
 use the local wrapper with `init --tools codex --profile core --no-animation`.
