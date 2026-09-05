@@ -12,7 +12,7 @@ Use Windows PowerShell for the tray and installer. `bridge/tray.ps1 -Check` veri
 
 ## Upgrade the installed integration
 
-Use `bridge/install-modes.ps1` from Windows PowerShell for an authorized upgrade. From WSL, a Windows process can access the source using its WSL UNC path. You can also copy the deployable `bridge` folder to a temporary Windows directory and run the installer there. Treat that copy as disposable staging and retain the WSL repository as the source.
+Use `bridge/install-modes.ps1` from Windows PowerShell for an authorized upgrade. From WSL, a Windows process can access the source using its WSL UNC path. You can also copy the deployable `bridge` folder to a temporary Windows directory and run the installer there. Treat that copy as disposable staging and retain the WSL repository as the source. Pass `-SkipShortcuts` when upgrading an existing installation without write access to the Start Menu. This preserves both existing shortcuts, including their previous icons; the tray artwork and installed program files still update.
 
 The installer copies the bridge database using Windows SQLite and backs up the configuration, geometry, scene state, and existing program files. It preserves trusted hooks and task records. It then restarts the exact installed worker, map server, and tray. The tray's refresh resumes the saved mode. Reopen the map from the tray after an upgrade because its local port may change.
 
