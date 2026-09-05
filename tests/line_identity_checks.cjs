@@ -169,6 +169,24 @@ module.exports = async function(page, root) {
     assert.match(await taskRow('waiting-task').textContent(), /Waiting for a Line/);
     await checkNumbers();
 
+    const color = project('a').locator('input[type=color]'); await color.focus();
+    const colorNode = await color.elementHandle();
+    snapshot.tasks[0].line = line(2).id; line(12).task = null; line(2).task = 'reserved-task'; await refresh();
+    assert.deepEqual(await numbers(project('a').locator('[data-line-group="in-use"]')), ['2'], 'Color focus must not freeze project placements');
+    assert.deepEqual(await numbers(page.locator('.shared-pool [data-line-group="in-use"]')), ['11']);
+    assert.equal(await colorNode.evaluate(node => node.isConnected && document.activeElement === node), true, 'Keep the active color control itself while updating its badges');
+    await refresh();
+    assert.deepEqual(await numbers(project('a').locator('[data-line-group="in-use"]')), ['2']);
+    await colorNode.dispose();
+    const sharedBadge = page.locator(`.shared-pool .line-badge[data-line-id="${line(12).id}"]`);
+    await sharedBadge.focus();
+    snapshot.tasks[0].line = line(12).id; line(2).task = null; line(12).task = 'reserved-task'; await refresh();
+    assert.equal(await sharedBadge.evaluate(node => document.activeElement === node), true, 'Shared focus follows the physical Line from Available to In use');
+    snapshot.tasks[0].line = line(2).id; line(12).task = null; line(2).task = 'reserved-task'; await refresh();
+    assert.equal(await sharedBadge.evaluate(node => document.activeElement === node), true, 'Shared focus follows the physical Line back to Available');
+    await sharedBadge.press('Enter');
+    assert.equal(await wallLine(12).getAttribute('aria-pressed'), 'true');
+
     await wallLine(11).click();
     snapshot.pending = {lines: {[line(8).id]: {project: 'a'}}, tasks: {}, settings: {}}; await refresh();
     for (const [name, width, height] of [['desktop', 1440, 1000], ['compact', 800, 1000], ['mobile', 390, 844]]) {
@@ -176,6 +194,8 @@ module.exports = async function(page, root) {
       await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'No horizontal page overflow at '+width+'px');
       assert.ok(await page.locator('.number').first().evaluate(node => parseFloat(getComputedStyle(node).fontSize) * node.getScreenCTM().a >= 11), 'Physical numbers stay legible when the map shrinks');
+      await wallLine(8).locator('.number').click({timeout: 2000});
+      assert.equal(await wallLine(8).getAttribute('aria-pressed'), 'true', 'The displayed map number is clickable');
       await page.locator('#projectList').evaluate(node => {node.scrollTop = 0});
       await page.screenshot({path: path.join(root, `test-results/line-identification-${name}.png`), fullPage: true});
     }
