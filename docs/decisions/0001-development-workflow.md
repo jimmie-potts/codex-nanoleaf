@@ -25,7 +25,7 @@ protection. The user approved the choices below in the SDLC setup plan.
 - Use TDD for meaningful executable behavior. Record real red/green evidence,
   and explain a proportionate substitute when a failing automated test is
   impractical. Documentation and cosmetic changes need relevant inspection.
-- Automatically select repository workflow skills within the user's requested
+- Route automatically to shared workflows within the user's requested
   scope. Planning and review remain read-only. Authorized implementation normally
   continues through an eligible merge without repeated permission questions.
 - Require independent Standards and Specification review and successful current
@@ -34,8 +34,14 @@ protection. The user approved the choices below in the SDLC setup plan.
   guard and never bypasses protections.
 - Keep installation and physical verification separate and explicitly requested.
   Preserve the current installation owner and single Windows light writer.
-- Validate the initial workflow with isolated exercises, without adding product
-  features, modifying global skills/configuration, or creating background services.
+- Maintain reusable skills in `agent-skills`, including planning, TDD, review,
+  delivery, and OpenSpec integrations. Reuse existing definitions and install
+  them through the shared catalog. Keep only domain-specific skills in a domain
+  repository; this bootstrap needs none. This revises the initial proposal to
+  commit generated integrations and Nanoleaf-named workflow wrappers here.
+- Validate the workflow with isolated exercises. Preserve unrelated catalog
+  work, global OpenSpec configuration, product behavior, and live installation.
+  Do not create background services.
 
 ## Consequences
 
@@ -46,8 +52,9 @@ replace documentation contracts one capability at a time.
 The merge checks depend on the active agent following the documented procedure
 while native protection is unavailable. They are not a server-side restriction.
 Missing review or CI leaves work open. Skills must preserve scope across handoffs;
-generated defaults that discard existing authority or allow incomplete archives
-are explicitly overridden by repository instructions.
+shared methods return to the authorized coordinator, and repository policy
+controls required completion evidence. Shared skill updates have their own
+review and source history; consumers record the evaluated revision.
 
 The [SDLC guide](../sdlc.md) owns the operating procedure. Changes to these lasting
 defaults should amend this decision through review or introduce a superseding ADR.

@@ -9,6 +9,7 @@ context: |
   replaces its normative text. An empty bootstrap inventory is intentional.
   Keep one Windows light writer, private state outside Git, and installation
   separate from source delivery. Preserve other worktrees and their owners.
+  Reuse shared agent-skills procedures. Do not generate skill copies in this repo.
 rules:
   proposal:
     - Link the exact GitHub issue and its criteria; describe the technical delta without copying the issue's criteria or status.
@@ -25,7 +26,7 @@ operations:
   apply:
     guidance:
       - Read the repository composition rule; preserve the user's authorized terminal state across skill handoffs.
-      - Use nanoleaf-tdd for meaningful behavior and run the relevant repository checks.
+      - Compose the shared tdd skill for meaningful behavior and run the relevant repository checks.
   archive:
     guidance:
       - Require completed applicable artifacts, tasks, and acceptance evidence; report failed input lookups.

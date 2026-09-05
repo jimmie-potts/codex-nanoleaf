@@ -1,6 +1,0 @@
-interface:
-  display_name: "Nanoleaf decisions and docs"
-  short_description: "Resolve Nanoleaf choices and prepare documentation"
-  default_prompt: "Use $nanoleaf-grill-with-docs to resolve the material choices in this Nanoleaf plan."
-policy:
-  allow_implicit_invocation: true

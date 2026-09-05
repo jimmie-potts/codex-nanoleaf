@@ -1,6 +1,0 @@
-interface:
-  display_name: "Nanoleaf delivery"
-  short_description: "Deliver scoped Nanoleaf work through a checked merge"
-  default_prompt: "Use $nanoleaf-delivery to implement this issue, validate it, and merge when eligible."
-policy:
-  allow_implicit_invocation: true

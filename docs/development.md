@@ -42,18 +42,49 @@ archive fixtures and regeneration without user-configuration changes. CI runs
 both commands in the always-running Workflow checks job, alongside the existing
 product checks.
 
-To regenerate the core Codex skills after an explicitly scoped OpenSpec upgrade,
-use the local wrapper with `init --tools codex --profile core --no-animation`.
-The explicit profile applies to that run. Do not change the global profile or
-run a bare update that could select unrelated integrations. Review regenerated
-instructions against the repository's composition rules. OpenSpec owns the
-`openspec-*` skill directories; `nanoleaf-*` skills and project configuration own
-the repository adaptations.
+Initialize specification storage, if needed, with:
 
-Use the installed skill-creator validator for authored skill structure, inspect
-references, and test behavior with independent agents in isolated fixtures.
-Record their actual actions and limitations in the PR. Do not treat a skill
-description or a schema pass as proof of correct automatic selection.
+```bash
+npm run openspec -- init --tools none --profile core --no-animation
+```
+
+The project-scoped core profile override and `--tools none` keep skill
+integrations out of this repository. OpenSpec's schema and CLI remain pinned
+here; its reusable skill instructions are maintained in the shared catalog.
+
+## Shared skills
+
+The canonical source is [agent-skills](https://github.com/jimmie-potts/agent-skills).
+Use a reviewed checkout of that repository. From its root, install the selected
+personal skills using its existing manager:
+
+```bash
+./scripts/manage-skills.sh install --agent codex github-delivery tdd grill-with-docs grilling domain-modeling code-review openspec-propose openspec-explore openspec-apply-change openspec-update-change openspec-sync-specs openspec-archive-change
+./scripts/manage-skills.sh status --agent codex
+```
+
+The manager links each selected skill to that checkout and preserves conflicts.
+Keep that checkout available. Restart Codex when it needs to refresh skill
+metadata. TDD and Grill with Docs retain their global explicit-only settings;
+Nanoleaf's agent instructions deliberately compose them within authorized work.
+That routing is separate from host discovery. A missing skill must be installed
+or reported, without creating a local copy as a fallback.
+
+This repository keeps Nanoleaf policy and contracts, with no shared skill
+copies or external symlinks. Create a local skill only for a procedure that
+depends on the Nanoleaf domain. Do not regenerate `openspec-*` integrations here.
+Update shared skill definitions and their generator provenance in `agent-skills`.
+
+For a fresh or cloud environment, provision the reviewed shared catalog outside
+this repository using the host's supported skill setup. The local symlink setup
+does not prove cloud availability. Record the evaluated shared-catalog revision
+and actual loaded source paths in PR validation evidence.
+
+Validate authored skills with the catalog's checks and the skill-creator
+validator. Exercise shared routing, authority boundaries, TDD, and delivery with
+independent agents in isolated fixtures. Record observed actions and limitations;
+a schema pass alone does not prove correct selection. Keep exercise artifacts
+outside product Git history and summarize their evidence in the PR.
 
 ## Upgrade the installed integration
 

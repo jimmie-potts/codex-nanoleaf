@@ -113,7 +113,7 @@ test('CLI argument errors propagate through the wrapper', (t) => {
   assert.match(result.stderr, /unknown.*option/i);
 });
 
-test('regenerating core skills preserves absent or existing user configuration and custom skills', (t) => {
+test('legacy integration regeneration in an isolated fixture preserves user configuration and domain skills', (t) => {
   for (const initial of [null, '{"profile":"custom","delivery":"commands","workflows":["explore"]}\n']) {
     const directory = fixture(t);
     const userConfig = path.join(directory, 'user-config');
@@ -123,19 +123,27 @@ test('regenerating core skills preserves absent or existing user configuration a
       fs.writeFileSync(settings, initial);
     }
     const skills = path.join(directory, '.agents', 'skills');
-    fs.cpSync(path.join(root, '.agents', 'skills'), skills, { recursive: true });
+    fs.mkdirSync(path.join(skills, 'openspec-explore'), { recursive: true });
+    fs.writeFileSync(path.join(skills, 'openspec-explore', 'SKILL.md'), 'Legacy integration fixture.\n');
+    fs.mkdirSync(path.join(skills, 'sample-domain'), { recursive: true });
+    const domainSkill = 'Domain-owned fixture; regeneration must preserve it.\n';
+    fs.writeFileSync(path.join(skills, 'sample-domain', 'SKILL.md'), domainSkill);
     const result = run(wrapper, directory, ['init', '--tools', 'codex', '--profile', 'core', '--no-animation'], {
       XDG_CONFIG_HOME: userConfig,
     });
     assert.equal(result.status, 0, result.stderr + result.stdout);
     const after = fs.existsSync(settings) ? fs.readFileSync(settings, 'utf8') : null;
     assert.equal(after, initial, 'regeneration must not create or change user OpenSpec configuration');
-    for (const name of fs.readdirSync(path.join(root, '.agents', 'skills')).filter((name) => name.startsWith('nanoleaf-'))) {
-      assert.equal(
-        fs.readFileSync(path.join(skills, name, 'SKILL.md'), 'utf8'),
-        fs.readFileSync(path.join(root, '.agents', 'skills', name, 'SKILL.md'), 'utf8'),
-      );
-    }
+    assert.equal(fs.readFileSync(path.join(skills, 'sample-domain', 'SKILL.md'), 'utf8'), domainSkill);
     assert.equal(fs.readdirSync(skills).filter((name) => name.startsWith('openspec-')).length, 6);
+  }
+});
+
+test('specification-only initialization creates no repository skill integrations', (t) => {
+  const directory = fixture(t);
+  const result = run(wrapper, directory, ['init', '--tools', 'none', '--profile', 'core', '--no-animation']);
+  assert.equal(result.status, 0, result.stderr + result.stdout);
+  for (const name of ['.agents', '.codex', '.claude']) {
+    assert.equal(fs.existsSync(path.join(directory, name)), false, `${name} must not be generated`);
   }
 });

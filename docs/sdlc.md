@@ -1,14 +1,14 @@
 # Development workflow
 
 Use a GitHub issue to define a deliverable, develop it in an isolated worktree,
-and merge one reviewed PR when its acceptance evidence and CI pass. The agent
-selects the relevant repository skills automatically. The user can narrow any
+and merge one reviewed PR when its acceptance evidence and CI pass. Repository instructions route the agent to the relevant shared skills. The user can narrow any
 task to planning, local changes, review, or a ready PR.
 
 ## Authority and information ownership
 
 | Information | Owner |
 | --- | --- |
+| Reusable skill methods and OpenSpec integrations | [Shared agent-skills catalog](https://github.com/jimmie-potts/agent-skills) |
 | Requested outcome, scope, acceptance criteria, dependencies, delivery target, status | GitHub issue |
 | Current capability requirements after migration | `openspec/specs/<capability>/spec.md` |
 | Current behavior not yet migrated | [Bridge guide](../bridge/README.md) |
@@ -69,7 +69,7 @@ current code, `why` for historical rationale, and `diagnosing-bugs` for an unkno
 failure. Use `codebase-design` for interface or module decisions. Investigation
 ends with findings and a recommended next step; it does not imply a fix.
 
-Use `nanoleaf-grill-with-docs` when choices could change what is built. Investigate
+Use the shared `grill-with-docs` method when choices could change what is built. Investigate
 discoverable facts first, then ask all independent current questions together.
 Resolve dependent questions in later rounds. Record accepted decisions and
 assumptions. Add an ADR for lasting choices about ownership, compatibility,
@@ -117,7 +117,7 @@ editing. Preserve their state. Map dependencies before delegating. The
 coordinating agent owns repository and GitHub writes; review agents return
 findings and evidence without changing the candidate.
 
-For each executable behavior, use `nanoleaf-tdd`: select an acceptance scenario,
+For each executable behavior, use the shared `tdd` method: select an acceptance scenario,
 run a focused failing test, implement the smallest useful change, rerun that test,
 and refactor while keeping it green. Use the existing fake clock, isolated SQLite
 state, and fake controller where they fit. Keep the actual pre-fix command and
@@ -146,8 +146,8 @@ claiming completion. Unrelated improvements belong in another issue.
    artifact/archive instructions through the local wrapper, require successful
    lookups, and verify the complete expected capability set. Synchronize and
    archive on the same branch before final review. Compare every affected main
-   spec with its delta, then run `npm run check:workflow`. Generated defaults that
-   allow incomplete archives or silent lookup failures do not apply here.
+   spec with its delta, then run `npm run check:workflow`. Shared skill defaults do not override these
+   repository completion requirements.
 2. Commit the full candidate and publish its PR. Use `Refs #<issue>` rather than
    an auto-closing keyword so the issue can remain open until main CI passes.
    Record the base SHA, head SHA, merge-base, diff command, and clean worktree
@@ -215,10 +215,18 @@ and the single Windows light writer.
 ## Maintaining the workflow
 
 The accepted defaults are recorded in [ADR 0001](decisions/0001-development-workflow.md).
-Keep central skills unchanged. Generated OpenSpec integrations belong to the
-pinned package; repository composition and GitHub policy live in `AGENTS.md`,
-project configuration, and `nanoleaf-*` skills. Review regenerated instructions
-when upgrading OpenSpec, including their authority and completion defaults.
+Maintain reusable skill definitions in the shared `agent-skills` repository.
+Use existing planning, TDD, and review skills; keep reusable delivery and OpenSpec
+procedures there too. This repository owns Nanoleaf contracts, commands, and
+GitHub policy through `AGENTS.md`, this guide, and project configuration. Only a
+procedure that depends on the Nanoleaf domain belongs in a local skill. This
+bootstrap has none.
+
+Install shared skills as described in [the development guide](development.md#shared-skills).
+Do not vendor copies, renamed wrappers, or external symlinks into this repository.
+Review shared skill changes in their owning repository and record the evaluated
+catalog revision in PR evidence. Updating OpenSpec integrations is a catalog task;
+initialize this project's specification storage without generating integrations.
 
 Validate meaningful workflow behavior using temporary fixtures. Keep credentials,
 real task metadata, and device state out of them. Test planning-only requests,
