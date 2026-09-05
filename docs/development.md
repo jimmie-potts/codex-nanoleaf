@@ -60,16 +60,28 @@ Use a reviewed checkout of that repository. From its root, install the selected
 personal skills using its existing manager:
 
 ```bash
-./scripts/manage-skills.sh install --agent codex github-delivery tdd grill-with-docs grilling domain-modeling code-review openspec-propose openspec-explore openspec-apply-change openspec-update-change openspec-sync-specs openspec-archive-change
-./scripts/manage-skills.sh status --agent codex
+./scripts/manage-skills.sh install --agent both github-delivery tdd grill-with-docs grilling domain-modeling code-review openspec-propose openspec-explore openspec-apply-change openspec-update-change openspec-sync-specs openspec-archive-change unslop
+./scripts/manage-skills.sh status --agent both
 ```
 
-The manager links each selected skill to that checkout and preserves conflicts.
-Keep that checkout available. Restart Codex when it needs to refresh skill
-metadata. TDD and Grill with Docs retain their global explicit-only settings;
+Personal provisioning requires an explicit request; source delivery documents
+these commands without running them against personal directories. Use `--agent
+codex` or `--agent claude` to provision only one tool. The manager links skills
+under `~/.agents/skills` for Codex and `~/.claude/skills` for Claude. It preserves
+conflicts, so inspect its output and resolve ownership before replacing links.
+Keep that reviewed checkout available. Restart the target tool to verify fresh
+discovery. TDD and Grill with Docs retain their global explicit-only settings;
 Nanoleaf's agent instructions deliberately compose them within authorized work.
 That routing is separate from host discovery. A missing skill must be installed
 or reported, without creating a local copy as a fallback.
+
+For Claude's instruction and skill discovery checks, see
+[Claude Code setup](claude-code.md). The manager's status verifies filesystem
+links; it does not establish that a running host loaded their contents. In
+Codex Desktop, verify the required skills in a fresh task's available skill
+catalog. When testing outside personal setup, the manager accepts
+`CODEX_SKILLS_DIR` and `CLAUDE_SKILLS_DIR` pointing to temporary destinations.
+Those variables configure the manager, not the hosts' discovery paths.
 
 This repository keeps Nanoleaf policy and contracts, with no shared skill
 copies or external symlinks. Create a local skill only for a procedure that

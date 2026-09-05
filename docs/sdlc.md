@@ -144,6 +144,51 @@ If implementation changes an assumption that affects scope or acceptance,
 resolve that decision before proceeding. Update affected plans and tests before
 claiming completion. Unrelated improvements belong in another issue.
 
+## Concurrent development and handoffs
+
+Codex and Claude Code use the same issue, review, and delivery policy. Each
+active deliverable has one coordinating writer, an issue-based branch using
+`codex/gh-<issue-number>-<slug>` regardless of tool, and an isolated writable
+worktree. Read-only reviewers may inspect that candidate. Two writers must not
+share a worktree, branch, or issue/PR coordinator role at the same time.
+
+Before implementation, read the issue's current comments and status, inspect
+`git worktree list --porcelain`, and check the intended path's branch, HEAD, and
+dirty state. Record the coordinator/session, worktree path, branch, base SHA,
+and intended scope in the issue. Reread the claim before editing. An existing
+owner or competing claim requires an explicit handoff or a separately scoped
+issue before writes. An issue comment is a coordination record, not an atomic
+lock; agents must settle conflicting claims rather than assume the latest wins.
+
+Worktrees share Git refs and configuration. Only the coordinator changes its
+issue/PR, branch, or worktree registration. Avoid repository-wide configuration,
+pruning, resets, or cleanup that could affect another owner. Each worktree owns
+its dependencies and test artifacts; demos use separate ports and temporary
+synthetic state. Never point development exercises at the installed bridge.
+
+Serialize merges across deliverables. Record who owns the merge checkpoint in
+the active issue, check other in-progress/review issues for a competing merge,
+and resolve any overlap before continuing. A checkpoint covers the final
+scope/base/head checks, merge, and main CI readback. Release it with the result
+in the issue. If `main` advances, refresh affected evidence under the existing
+merge rules before retrying. These records are procedural safeguards, not a
+distributed locking service.
+
+For a handoff, the outgoing writer stops mutations and records the worktree,
+branch, HEAD, dirty/untracked files, running processes, evidence, and remaining
+work in the issue or PR. The incoming writer confirms that state and accepts
+ownership before editing. Retain uncommitted work in place; do not silently
+stash, reset, or overwrite it. Shared personal memory is context, never a claim
+or a substitute for current GitHub and Git evidence.
+
+Only the owner may remove its worktree after handoff has ended and the work is
+delivered or explicitly abandoned. Check dirty/untracked files, unmerged
+commits, running sessions, and tool-managed retention first. Use ordinary
+`git worktree remove <owned-path>` only when clean and no longer in use; never
+force removal or prune another owner's registration. Preserve changes when a
+check fails. The [Claude setup guide](claude-code.md) and
+[Codex setup notes](../.codex/README.md) cover their different lifecycles.
+
 ## Review and merge
 
 1. Complete the implementation, documentation, acceptance checks, and all
