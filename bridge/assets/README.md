@@ -4,4 +4,4 @@
 
 Run `python scripts/build-tray-icon.py` from the repository root to package the source into `bridge/tray-icon.ico`. This optional development command requires Pillow. The installed bridge does not require Pillow.
 
-The ICO includes 16, 20, 24, 32, 48, and 256-pixel images. Packaging preserves the source proportions and adds transparent padding. The Windows tray and application shortcuts share this asset.
+The ICO includes 16, 20, 24, 32, 48, and 256-pixel images. Packaging preserves the square close-up framing without extra padding. The enlarged green center and hexagon fill the tray slot; the four outer branches are cropped at the edges. The Windows tray and application shortcuts share this asset.
