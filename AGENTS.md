@@ -12,6 +12,7 @@ This repository is the source for a Windows bridge that maps Codex task status t
 
 ## Development workflow
 
+- Codex and Claude Code share these repository rules. Each active deliverable has one coordinating writer, branch, and writable worktree. Before editing, identify the owner and inspect existing worktrees. Never edit, reset, rebase, or remove another session's worktree or branch. Follow [concurrent development](docs/sdlc.md#concurrent-development-and-handoffs) for claims, handoff, shared Git operations, and cleanup.
 - For planning, implementation, and delivery, read [the SDLC guide](docs/sdlc.md). GitHub issues own requested outcomes, acceptance criteria, dependencies, and status here.
 - Reuse installed skills from the shared `agent-skills` catalog. For implementation, select `github-delivery`; for unsettled decisions, explicitly compose `grill-with-docs`; for meaningful executable changes, compose `tdd`; for review, use `code-review`. [Shared skill setup](docs/development.md#shared-skills) names the source and required skills. Report missing prerequisites instead of copying skills into this repository.
 - Keep only domain-specific skills with domain code. Reusable methods and OpenSpec integrations belong in `agent-skills`; domain contracts, verification commands, and policy remain here. This bootstrap needs no local skills.

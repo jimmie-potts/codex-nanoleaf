@@ -27,5 +27,12 @@ coverage/
 .coverage
 .codex-log/
 .codex/*.local.*
+# Claude personal settings and session/worktree artifacts
+CLAUDE.local.md
+.claude/settings.local.json
+.claude/worktrees/
+.claude/sessions/
+.claude/projects/
+.claude/agent-memory-local/
 .DS_Store
 Thumbs.db

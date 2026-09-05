@@ -12,4 +12,13 @@ Useful local environment actions:
 
 Configure these actions in Codex Desktop's local environment settings if you want toolbar buttons. The app generates its environment file under `.codex`; that generated file can be committed. This repository does not override your model, permission, trust, or hook settings.
 
-References: [Codex project instructions](https://developers.openai.com/codex/guides/agents-md) and [local environments](https://learn.chatgpt.com/docs/environments/local-environment).
+When Claude Code also works on this repository, follow
+[concurrent development and handoffs](../docs/sdlc.md#concurrent-development-and-handoffs).
+Keep each writable session in its assigned worktree. Before handing a Codex-managed
+worktree to another tool, make its retention explicit in Codex's worktree settings;
+do not archive its task while another session owns work there. To avoid that
+lifecycle dependency, use an explicitly managed worktree for a cross-tool handoff.
+
+References: [Codex project instructions](https://developers.openai.com/codex/guides/agents-md),
+[local environments](https://learn.chatgpt.com/docs/environments/local-environment),
+and [Codex worktree lifecycle](https://learn.chatgpt.com/docs/environments/git-worktrees).

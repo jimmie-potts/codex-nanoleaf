@@ -55,6 +55,13 @@ For fresh setup, follow [the integration guide](bridge/README.md). This version 
 
 Add this repository folder as a WSL project in Codex Desktop. The root [AGENTS.md](AGENTS.md) describes validation, state preservation, and runtime boundaries. [Codex setup notes](.codex/README.md) list test and demo commands for optional toolbar actions.
 
+## Claude Code
+
+Claude Code CLI in WSL can use the same source repository. [CLAUDE.md](CLAUDE.md)
+imports the shared project instructions. Follow [Claude setup](docs/claude-code.md)
+for prerequisites, shared skills, and launch commands. Concurrent Claude and
+Codex work uses a separate branch and worktree for each deliverable.
+
 ## Repository contents
 
 | Location | Purpose |
