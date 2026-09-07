@@ -6,11 +6,15 @@ Open the wall map with a brief assembly in which the structure unfolds outward f
 
 ### Requirement: Orb and assembly sequence
 
-The wall map SHALL draw a persistent decorative orb at the center of the layout's bounding box. The orb SHALL represent neither a physical device nor system status. After valid geometry first loads, the map SHALL play an assembly sequence of about two seconds in which the orb lights, each Line unfolds through hinged rotation into its actual position in outward order from the orb, joints glow briefly as Lines settle, and number tags appear last. Lines that are not connected to the orb's section SHALL assemble independently in their own outward order. Covers issue #38 criteria 1, 2, and 3.
+The wall map SHALL draw a persistent decorative orb at the layout's hub: the junction where the most Line ends meet, choosing the junction nearest the others when several tie, or the bounding-box center when no Lines meet. The orb SHALL represent neither a physical device nor system status. The map SHALL draw a connector node, shaped like the physical hexagonal connector, at every other junction; connectors SHALL never intercept selection. After valid geometry first loads, the map SHALL play an assembly sequence of about two seconds in which the orb lights, every Line meeting the hub unfolds first and together, each other Line unfolds through hinged rotation into its actual position in outward order, connectors light as the Lines meeting them settle, and number tags appear last. Lines that are not connected to the orb's section SHALL assemble independently in their own outward order. Covers issue #38 criteria 1, 2, and 3.
 
 #### Scenario: First load assembles outward
 - **WHEN** the page first receives geometry with the opening preference on
-- **THEN** the orb lights, Lines nearer the orb settle before Lines farther away, joints glow as Lines settle, and the sequence ends within about two seconds
+- **THEN** the orb lights at the hub, the Lines meeting it start together, Lines nearer the hub settle before Lines farther away, connectors light as their Lines settle, and the sequence ends within about two seconds
+
+#### Scenario: Hub and connectors
+- **WHEN** two junctions join the same number of Lines
+- **THEN** the orb sits at the one nearest the other junctions, every other junction shows a connector node, and clicking through a connector still selects the Line beneath it
 
 #### Scenario: Final geometry is exact
 - **WHEN** the assembly completes

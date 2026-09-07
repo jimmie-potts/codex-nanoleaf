@@ -53,6 +53,9 @@
     --number-edge: rgba(34, 211, 238, .6);
     --selection-dash: 12 8;
     --selection-anim: march 1s linear infinite;
+    --connector-fill: #060a14;
+    --connector-edge: #2f6bff;
+    --connector-ring: var(--accent);
     /* Type: Windows system fonts only; the map server's CSP blocks web and data-URI fonts. */
     --font-ui: Bahnschrift, "Segoe UI", system-ui, sans-serif;
     --font-head: Bahnschrift, "Segoe UI", system-ui, sans-serif;
@@ -248,10 +251,15 @@
   .wall-line .glow { stroke-width: var(--glow-width); stroke-linecap: round; opacity: var(--glow-opacity); fill: none; }
   .wall-line .zone { stroke-width: 12; stroke-linecap: round; fill: none; filter: var(--wall-filter); }
   .number-tag { cursor: pointer; }
-  .wall-line, .joint, #wall .numbers { transform-box: view-box; }
+  .wall-line, .connector, .orb-group, #wall .numbers { transform-box: view-box; }
   .orb { fill: var(--accent); pointer-events: none; }
   .orb-halo { fill: var(--accent); opacity: .16; pointer-events: none; }
-  .joint { fill: #ffffff; stroke: var(--accent); stroke-width: 2; opacity: 0; pointer-events: none; }
+  .orb-ring { fill: none; stroke: #ffffff; stroke-width: 1.5; opacity: .8; pointer-events: none; }
+  /* Connector nodes at every junction, like the physical hexagonal connectors and the tray icon's rings. */
+  .connector { pointer-events: none; }
+  .connector-hex { fill: var(--connector-fill); stroke: var(--connector-edge); stroke-width: 3; stroke-linejoin: round; }
+  .connector-ring { fill: none; stroke: var(--connector-ring); stroke-width: 1.5; }
+  .wall-line .sheen { stroke: #ffffff; stroke-width: 3; stroke-linecap: round; opacity: .22; fill: none; pointer-events: none; }
   .assembly-prefs { position: relative; }
   .assembly-prefs > summary { cursor: pointer; list-style: none; padding: 5px 10px; border: 1px solid var(--btn-edge); border-radius: 0 var(--radius) var(--radius) 0; margin-left: -1px; background: var(--btn-bg); font-size: 12px; color: var(--text); }
   .assembly-prefs > summary::-webkit-details-marker { display: none; }
@@ -413,6 +421,22 @@ function drawProjects(){
   if(focused?.isConnected&&document.activeElement!==focused)focused.focus({preventScroll:true});
   selectOptions($('assignProject'),'Shared pool');
 }
+/* Junctions: clusters of Line ends that nearly touch. The hub is the most connected one, nearest the others on ties. */
+function findJunctions(ends){
+  const clusters=[];
+  for(const point of ends.flat()){
+    const near=clusters.find(c=>Math.hypot(c.x-point[0],c.y-point[1])<=40);
+    if(near){near.points.push(point);near.x=near.points.reduce((s,p)=>s+p[0],0)/near.points.length;near.y=near.points.reduce((s,p)=>s+p[1],0)/near.points.length}
+    else clusters.push({x:point[0],y:point[1],points:[point]});
+  }
+  return clusters.filter(c=>c.points.length>=2).map(c=>({x:c.x,y:c.y,degree:c.points.length}));
+}
+function centralJunction(junctions,center){
+  if(!junctions.length)return null;
+  const spread=j=>junctions.reduce((s,o)=>s+Math.hypot(o.x-j.x,o.y-j.y),0);
+  return [...junctions].sort((a,b)=>b.degree-a.degree||spread(a)-spread(b)||Math.hypot(a.x-center[0],a.y-center[1])-Math.hypot(b.x-center[0],b.y-center[1]))[0];
+}
+function hexPath(x,y,r){return Array.from({length:6},(_,i)=>{const a=Math.PI/6+i*Math.PI/3;return(i?'L':'M')+(x+r*Math.cos(a)).toFixed(2)+' '+(y+r*Math.sin(a)).toFixed(2)}).join(' ')+' Z'}
 function transform(point){let[x,y]=point;const a=state.settings.rotation*Math.PI/180;return[(x*Math.cos(a)-y*Math.sin(a))*(state.settings.flip_x?-1:1),(x*Math.sin(a)+y*Math.cos(a))*(state.settings.flip_y?-1:1)]}
 function drawWall(){
   if(assembly.active||assembly.hold)return; // the wall waits for the assembly; the rest of the page keeps updating
@@ -425,6 +449,8 @@ function drawWall(){
   root.setAttribute('viewBox',`${minX} ${minY} ${maxX-minX} ${maxY-minY}`);
   const numbers=document.createElementNS(svgNS,'g');numbers.setAttribute('aria-hidden','true');numbers.setAttribute('class','numbers');
   const center=[(minX+maxX)/2,(minY+maxY)/2];
+  const junctions=findJunctions(state.lines.map(l=>[transform(l.points[0]),transform(l.points[2])]));
+  const hub=centralJunction(junctions,center)||{x:center[0],y:center[1]};
   for(const line of state.lines){
     const points=line.points.map(transform),task=lineTask(line);
     const colors=[statusColors[task?.status]||statusColors.unread,statusColors[task?.status]||statusColors.unread];
@@ -446,6 +472,7 @@ function drawWall(){
     group.append(hit);segment(points[0],points[2],'outline');
     segment(points[0],points[1],'glow',colors[0]);segment(points[1],points[2],'glow',colors[1]);
     segment(points[0],points[1],'zone',colors[0]);segment(points[1],points[2],'zone',colors[1]);
+    segment(points[0],points[2],'sheen');
     group.onclick=e=>choose(line.id,e.ctrlKey||e.metaKey||e.shiftKey);
     group.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();choose(line.id,e.ctrlKey||e.metaKey||e.shiftKey)}};
     root.append(group);if(focused===line.id)group.focus({preventScroll:true});
@@ -462,9 +489,19 @@ function drawWall(){
     tag.onclick=e=>{choose(line.id,e.ctrlKey||e.metaKey||e.shiftKey);[...root.querySelectorAll('.wall-line')].find(node=>node.dataset.line===line.id)?.focus({preventScroll:true})};
     numbers.append(tag);
   }
-  // A decorative orb marks the layout's center. It is not a device and shows no status.
-  const orbGroup=document.createElementNS(svgNS,'g');orbGroup.setAttribute('class','orb-group');orbGroup.setAttribute('aria-hidden','true');
-  for(const [cls,r] of [['orb-halo',28],['orb',11]]){const c=document.createElementNS(svgNS,'circle');c.setAttribute('class',cls);c.setAttribute('cx',center[0]);c.setAttribute('cy',center[1]);c.setAttribute('r',r);orbGroup.append(c)}
+  // Connector nodes at every junction except the hub, which the orb occupies.
+  const connectors=document.createElementNS(svgNS,'g');connectors.setAttribute('class','connectors');connectors.setAttribute('aria-hidden','true');
+  for(const j of junctions){
+    if(Math.hypot(j.x-hub.x,j.y-hub.y)<1)continue;
+    const node=document.createElementNS(svgNS,'g');node.setAttribute('class','connector');node.dataset.x=j.x;node.dataset.y=j.y;node.style.transformOrigin=`${j.x}px ${j.y}px`;
+    const hex=document.createElementNS(svgNS,'path');hex.setAttribute('class','connector-hex');hex.setAttribute('d',hexPath(j.x,j.y,15));
+    const ring=document.createElementNS(svgNS,'circle');ring.setAttribute('class','connector-ring');ring.setAttribute('cx',j.x);ring.setAttribute('cy',j.y);ring.setAttribute('r',6);
+    node.append(hex,ring);connectors.append(node);
+  }
+  root.append(connectors);
+  // A decorative orb marks the hub. It is not a device and shows no status.
+  const orbGroup=document.createElementNS(svgNS,'g');orbGroup.setAttribute('class','orb-group');orbGroup.setAttribute('aria-hidden','true');orbGroup.style.transformOrigin=`${hub.x}px ${hub.y}px`;
+  for(const [cls,r] of [['orb-halo',30],['orb',12],['orb-ring',16]]){const c=document.createElementNS(svgNS,'circle');c.setAttribute('class',cls);c.setAttribute('cx',hub.x);c.setAttribute('cy',hub.y);c.setAttribute('r',r);orbGroup.append(c)}
   root.append(orbGroup);
   // Number clicks must win over every Line's transparent hit stroke.
   root.append(numbers);sizeLineNumbers();anchorPulses();
@@ -491,9 +528,12 @@ function playAssembly(reason){
   for(const a of lines)for(const b of lines)if(a!==b&&a.ends.some(e=>b.ends.some(f=>gap(e,f)<=40)))adjacent.get(a.id).push(b);
   const depth=new Map(),hinge=new Map(),seen=new Set();
   const toOrb=l=>Math.min(...l.ends.map(e=>gap(e,[cx,cy])));
-  for(const start of [...lines].sort((a,b)=>toOrb(a)-toOrb(b))){
-    if(seen.has(start.id))continue;seen.add(start.id);
-    const queue=[[start,0,[[cx,cy]]]];
+  // Every Line that meets the hub unfolds first, together; each unconnected section starts from its own nearest Line.
+  const hubLines=lines.filter(l=>toOrb(l)<=40);
+  const starts=hubLines.length?[hubLines,...[...lines].sort((a,b)=>toOrb(a)-toOrb(b)).map(l=>[l])]:[...lines].sort((a,b)=>toOrb(a)-toOrb(b)).map(l=>[l]);
+  for(const roots of starts){
+    const fresh=roots.filter(l=>!seen.has(l.id));if(!fresh.length)continue;
+    const queue=fresh.map(l=>{seen.add(l.id);return [l,0,[[cx,cy]]]});
     while(queue.length){
       const [line,d,from]=queue.shift();depth.set(line.id,d);
       const h=line.ends.reduce((best,e)=>Math.min(...from.map(f=>gap(e,f)))<Math.min(...from.map(f=>gap(best,f)))?e:best);
@@ -503,8 +543,9 @@ function playAssembly(reason){
   }
   const maxDepth=Math.max(0,...depth.values()),duration=520,step=Math.min(450,Math.max(120,(2000-250-duration-320)/Math.max(1,maxDepth))),total=250+maxDepth*step+duration+320;
   const animations=[];
-  for(const node of root.querySelectorAll('.orb-group circle'))animations.push(node.animate([{opacity:0},{opacity:getComputedStyle(node).opacity}],{duration:300,fill:'both',id:'assembly'}));
-  const joints=document.createElementNS(svgNS,'g');joints.setAttribute('class','joints');joints.setAttribute('aria-hidden','true');
+  const orbGroup=root.querySelector('.orb-group');
+  animations.push(orbGroup.animate([{opacity:0,transform:'scale(.3)'},{opacity:1,transform:'scale(1.25)',offset:.7},{opacity:1,transform:'scale(1)'}],{duration:340,fill:'both',id:'assembly'}));
+  const settleAt=new Map();
   for(const line of lines){
     const group=root.querySelector(`[data-line="${line.id}"]`),h=hinge.get(line.id),d=depth.get(line.id),far=line.ends[0]===h?line.ends[1]:line.ends[0];
     // Fold the Line back toward the orb around its hinge, then swing it out to its true angle.
@@ -513,10 +554,15 @@ function playAssembly(reason){
     const delay=250+d*step;
     group.style.transformOrigin=`${h[0]}px ${h[1]}px`;
     animations.push(group.animate([{transform:`rotate(${fold}deg)`,opacity:0},{transform:`rotate(${fold*.45}deg)`,opacity:1,offset:.3},{transform:'rotate(0deg)',opacity:1}],{duration,delay,easing:'cubic-bezier(.2,.8,.3,1.05)',fill:'both',id:'assembly'}));
-    const joint=document.createElementNS(svgNS,'circle');joint.setAttribute('class','joint');joint.setAttribute('cx',h[0]);joint.setAttribute('cy',h[1]);joint.setAttribute('r',9);joint.style.transformOrigin=`${h[0]}px ${h[1]}px`;joints.append(joint);
-    animations.push(joint.animate([{opacity:0,transform:'scale(.4)'},{opacity:1,transform:'scale(1.2)',offset:.4},{opacity:0,transform:'scale(1.7)'}],{duration:380,delay:delay+duration-120,fill:'both',id:'assembly'}));
+    for(const end of line.ends)settleAt.set(end,delay+duration);
   }
-  root.insertBefore(joints,root.querySelector('.numbers'));
+  // Each connector lights, with a brief flare, when the first Line meeting it settles.
+  for(const node of root.querySelectorAll('.connector')){
+    const x=+node.dataset.x,y=+node.dataset.y;
+    let settle=Infinity;for(const [end,at] of settleAt)if(gap(end,[x,y])<=40)settle=Math.min(settle,at);
+    if(!isFinite(settle))settle=250;
+    animations.push(node.animate([{opacity:0,transform:'scale(.4)'},{opacity:1,transform:'scale(1.35)',offset:.45},{opacity:1,transform:'scale(1)'}],{duration:380,delay:Math.max(0,settle-140),fill:'both',id:'assembly'}));
+  }
   animations.push(root.querySelector('.numbers').animate([{opacity:0},{opacity:0,offset:Math.max(0,1-320/total)},{opacity:1}],{duration:total,fill:'both',id:'assembly'}));
   assembly.active=true;assembly.animations=animations;assembly.key=geometryKey();root.classList.add('assembling');
   Promise.all(animations.map(a=>a.finished.catch(()=>{}))).then(()=>{if(assembly.active&&assembly.animations===animations)endAssembly()});
@@ -526,7 +572,7 @@ function endAssembly(afterPointer=false){
   if(!assembly.active)return;
   for(const a of assembly.animations){try{a.finish()}catch{}a.cancel()}
   assembly.active=false;assembly.animations=[];
-  const root=$('wall');root.classList.remove('assembling');root.querySelector('.joints')?.remove();
+  const root=$('wall');root.classList.remove('assembling');
   for(const group of root.querySelectorAll('.wall-line'))group.style.transformOrigin='';
   const redraw=()=>{assembly.hold=false;if(!assembly.active){wallFingerprint='';drawWall();anchorPulses()}};
   if(!afterPointer)return redraw();

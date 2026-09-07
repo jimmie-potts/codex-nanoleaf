@@ -11,8 +11,22 @@ module.exports = async function(page, root) {
   const geometry = () => page.evaluate(() => ({
     groups: [...document.querySelectorAll('.wall-line')].map(g => [g.dataset.line, getComputedStyle(g).transform, getComputedStyle(g).opacity]),
     numbers: [...document.querySelectorAll('#wall .number')].map(n => [n.dataset.lineId, n.getAttribute('x'), n.getAttribute('y'), getComputedStyle(n.closest('.number-tag')).opacity]),
-    joints: document.querySelectorAll('#wall .joint').length,
+    joints: document.querySelectorAll('#wall .joints, #wall .joint').length,
   }));
+  // Junctions: clusters of Line ends within 40 units; the hub is the most connected one, nearest the box center on ties.
+  const junctions = () => page.evaluate(() => {
+    const clusters = [];
+    for (const line of state.lines) for (const point of [transform(line.points[0]), transform(line.points[2])]) {
+      const near = clusters.find(c => Math.hypot(c.x - point[0], c.y - point[1]) <= 40);
+      if (near) {near.points.push(point); near.x = near.points.reduce((s, p) => s + p[0], 0) / near.points.length; near.y = near.points.reduce((s, p) => s + p[1], 0) / near.points.length}
+      else clusters.push({x: point[0], y: point[1], points: [point]});
+    }
+    const box = document.getElementById('wall').viewBox.baseVal, cx = box.x + box.width / 2, cy = box.y + box.height / 2;
+    const joints = clusters.filter(c => c.points.length >= 2).map(c => ({x: c.x, y: c.y, degree: c.points.length}));
+    const spread = j => joints.reduce((s, o) => s + Math.hypot(o.x - j.x, o.y - j.y), 0);
+    joints.sort((a, b) => b.degree - a.degree || spread(a) - spread(b) || Math.hypot(a.x - cx, a.y - cy) - Math.hypot(b.x - cx, b.y - cy));
+    return {joints, hub: joints[0] || {x: cx, y: cy, degree: 0}};
+  });
   const setPref = async (id, on) => {
     if (await page.locator('#' + id).isChecked() === on) return;
     if (!await page.locator('.assembly-prefs').evaluate(node => node.open)) await page.locator('.assembly-prefs > summary').click();
@@ -26,9 +40,18 @@ module.exports = async function(page, root) {
   await check('C1-C3: first load assembles outward from the orb and lands on exact geometry', async () => {
     await page.reload(); await page.waitForSelector('.wall-line');
     assert.ok(await running() > 0, 'Assembly animations run right after geometry loads');
-    const orb = await page.evaluate(() => {const o = document.querySelector('#wall .orb'); const box = document.getElementById('wall').viewBox.baseVal; return o && {cx: +o.getAttribute('cx'), cy: +o.getAttribute('cy'), centerX: box.x + box.width / 2, centerY: box.y + box.height / 2}});
+    const orb = await page.evaluate(() => {const o = document.querySelector('#wall .orb'); return o && {cx: +o.getAttribute('cx'), cy: +o.getAttribute('cy')}});
     assert.ok(orb, 'A persistent orb exists on the wall');
-    assert.ok(Math.abs(orb.cx - orb.centerX) < 1 && Math.abs(orb.cy - orb.centerY) < 1, 'The orb sits at the bounding-box center');
+    const {joints, hub} = await junctions();
+    assert.ok(hub.degree >= 3, `The fixture has a central junction (degree ${hub.degree})`);
+    assert.ok(Math.hypot(orb.cx - hub.x, orb.cy - hub.y) < 1, `The orb sits at the most connected junction (${hub.x.toFixed(0)}, ${hub.y.toFixed(0)}), not the box center`);
+    const connectors = await page.evaluate(() => [...document.querySelectorAll('#wall .connector')].map(c => ({x: +c.dataset.x, y: +c.dataset.y, events: getComputedStyle(c).pointerEvents})));
+    assert.equal(connectors.length, joints.length - 1, 'A connector node marks every junction except the orb\'s');
+    assert.ok(connectors.every(c => joints.some(j => Math.hypot(j.x - c.x, j.y - c.y) < 1) && Math.hypot(hub.x - c.x, hub.y - c.y) >= 1), 'Connectors sit on junctions and never on the orb');
+    assert.ok(connectors.every(c => c.events === 'none'), 'Connectors never intercept clicks');
+    assert.ok(await page.evaluate(() => document.querySelectorAll('#wall .connector').length > 0 && [...document.querySelectorAll('#wall .connector')].every(c => c.getAnimations().some(a => a.id === 'assembly'))), 'Connectors take part in the assembly');
+    const hubStarts = await page.evaluate(([hx, hy]) => [...document.querySelectorAll('.wall-line')].filter(g => {const l = state.lines.find(l => l.id === g.dataset.line); return [transform(l.points[0]), transform(l.points[2])].some(p => Math.hypot(p[0] - hx, p[1] - hy) <= 40)}).map(g => g.getAnimations().find(a => a.id === 'assembly').effect.getTiming().delay), [hub.x, hub.y]);
+    assert.ok(hubStarts.length >= 3 && new Set(hubStarts).size === 1, `Every Line touching the hub starts together (${hubStarts.join(', ')})`);
     const order = await page.evaluate(() => {
       const o = document.querySelector('#wall .orb'), cx = +o.getAttribute('cx'), cy = +o.getAttribute('cy');
       return [...document.querySelectorAll('.wall-line')].map(g => {const a = g.getAnimations().find(x => x.id === 'assembly'); const l = state.lines.find(l => l.id === g.dataset.line); const p = l.points.map(transform); const d = Math.min(...p.map(q => Math.hypot(q[0] - cx, q[1] - cy))); return [d, a ? a.effect.getTiming().delay : null]});
@@ -36,14 +59,15 @@ module.exports = async function(page, root) {
     assert.ok(order.every(([, delay]) => delay !== null), 'Every Line has an assembly animation');
     const nearest = order.reduce((a, b) => a[0] < b[0] ? a : b), farthest = order.reduce((a, b) => a[0] > b[0] ? a : b);
     assert.ok(nearest[1] < farthest[1], `Lines near the orb start before far ones (near ${nearest[1]} ms, far ${farthest[1]} ms)`);
-    assert.ok((await geometry()).joints > 0, 'Joints glow during assembly');
+    assert.ok(await page.evaluate(() => [...document.querySelectorAll('#wall .connector')].some(c => c.getAnimations().some(a => a.id === 'assembly' && a.playState === 'running'))), 'Connectors light as Lines settle');
     const length = await page.evaluate(() => Math.max(...document.getElementById('wall').getAnimations({subtree: true}).filter(a => a.id === 'assembly').map(a => a.effect.getTiming().delay + a.effect.getTiming().duration)));
     assert.ok(length >= 1800 && length <= 2400, `The sequence is roughly two seconds long (${length} ms)`);
     const took = await untilIdle(); assert.ok(took !== false && took <= 2600, `Assembly finishes within about two seconds (${took} ms observed after load)`);
     const final = await geometry();
     assert.ok(final.groups.every(([, t, o]) => (t === 'none' || t === 'matrix(1, 0, 0, 1, 0, 0)') && o === '1'), 'Every Line settles at identity with full opacity');
     assert.ok(final.numbers.every(([, , , o]) => o === '1'), 'Number tags are fully visible after assembly');
-    assert.equal(final.joints, 0, 'Joints are removed after assembly');
+    assert.equal(final.joints, 0, 'No transient joint elements remain after assembly');
+    assert.equal(await page.locator('#wall .connector').count(), joints.length - 1, 'Connectors persist after assembly');
     const clean = await page.evaluate(() => {wallFingerprint = ''; drawWall(); return [...document.querySelectorAll('#wall .number')].map(n => [n.dataset.lineId, n.getAttribute('x'), n.getAttribute('y')])});
     assert.deepEqual(final.numbers.map(([id, x, y]) => [id, x, y]), clean, 'Assembly leaves the geometry exactly as a plain draw');
     assert.equal(await page.locator('.wall-line').count(), 15);

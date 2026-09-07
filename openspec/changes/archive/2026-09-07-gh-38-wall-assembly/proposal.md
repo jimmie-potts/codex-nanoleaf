@@ -4,8 +4,8 @@ The wall map now looks like the light installation it controls, but it appears f
 
 ## What Changes
 
-- Add a persistent decorative orb at the layout's bounding-box center of the wall map. It represents no device and no status.
-- Add an assembly sequence of about two seconds: the orb lights, Lines unfold outward from the orb through hinged rotation in outward order (each disconnected section from its own nearest Line), joints glow briefly as Lines settle, and the number tags fade in last. The sequence settles into the current mode's normal appearance and preserves numbering, orientation, selection, and associations.
+- Add a persistent decorative orb at the wall's hub, the most connected junction (nearest the others on ties), and hexagonal connector nodes at every other junction, echoing the physical connectors and the tray icon. The orb represents no device and no status; connectors never intercept selection.
+- Add an assembly sequence of about two seconds: the orb lights, the Lines meeting the hub unfold first and together, the rest unfold outward through hinged rotation (each disconnected section from its own nearest Line), connectors light as their Lines settle, and the number tags fade in last. The sequence settles into the current mode's normal appearance and preserves numbering, orientation, selection, and associations.
 - Add triggers: first valid geometry load (when the "play on opening" preference is on), a **Replay assembly** control, and a reusable view-entry integration point for future navigation (when the "play on view entry" preference is on). Both preferences are browser-local and default to on.
 - Polling, reconnecting, focus changes, Lively pause and resume, layout changes, and mode changes never trigger assembly. Any map interaction completes it immediately and performs its action; repeated Replay does not queue. A geometry change or connection failure ends it immediately. Reduced motion skips it.
 - Assembly sends no requests and changes no task, assignment, unread, scene, or pulse-epoch state, and neither restarts nor replays status animations.
