@@ -107,3 +107,34 @@ class ControllerHTTPTest(unittest.TestCase):
             self.assertEqual(client.recv(1024),b'')
         finally:client.close()
         self.assertEqual(self.app.snapshot()['nextRequestId'],before)
+
+    def test_deadline_expiry_while_waiting_for_sqlite_does_not_admit(self):
+        import contextlib
+        import time
+        from unittest.mock import patch
+        before=self.app.snapshot();body=json.dumps(self.request()).encode()
+        entered=threading.Event();finished=threading.Event();original=self.app.admit
+        def admit(*args,**kwargs):
+            entered.set()
+            try:return original(*args,**kwargs)
+            finally:finished.set()
+        connection=socket.create_connection(('127.0.0.1',self.server.server_port),timeout=7)
+        self.addCleanup(connection.close)
+        headers=(f'POST /controller/v1/commands HTTP/1.1\r\nHost: 127.0.0.1:{self.server.server_port}\r\n'
+                 f'Authorization: Bearer {self.token}\r\nContent-Type: application/json\r\nContent-Length: {len(body)}\r\n\r\n').encode()
+        with patch.object(self.app,'admit',admit),patch.object(self.app,'launch') as launch:
+            connection.sendall(headers+body[:1])
+            for index in (1,2):
+                time.sleep(1.3);connection.sendall(body[index:index+1])
+            with contextlib.closing(self.app.b.connect_state(self.directory)) as db:
+                db.execute('BEGIN IMMEDIATE')
+                time.sleep(1.3);connection.sendall(body[3:])
+                self.assertTrue(entered.wait(1))
+                time.sleep(1.7)
+                db.rollback()
+            self.assertTrue(finished.wait(3))
+            self.assertEqual(connection.recv(1),b'')
+            launch.assert_not_called()
+        after=self.app.snapshot()
+        for field in ('configurationRevision','generation','nextRequestId','cursor','state'):
+            self.assertEqual(after[field],before[field],field)

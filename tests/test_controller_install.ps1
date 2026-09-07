@@ -1,4 +1,5 @@
-param([string]$ScratchRoot = (Join-Path $PSScriptRoot '../test-results/controller-install'))
+param([string]$ScratchRoot = (Join-Path $PSScriptRoot '../test-results/controller-install'),
+      [ValidateSet('fixed','default','unrelated','invalid')][string]$ListenerCase = 'fixed')
 # Exercise upgrade copying against temporary Windows state. Process launch is replaced.
 $ErrorActionPreference = 'Stop'
 $source = (Resolve-Path (Join-Path $PSScriptRoot '../bridge')).Path
@@ -23,11 +24,16 @@ $global:LASTEXITCODE = 0
 '@ | Set-Content -LiteralPath $runtime
 $previousLocalAppData = $env:LOCALAPPDATA
 $global:NanoleafFixtureLaunches = @()
-function Get-CimInstance { param($ClassName) return @() }
-function Stop-Process { throw 'The fixture must not stop any real process.' }
+function Get-CimInstance {
+    param($ClassName)
+    $arguments = switch ($ListenerCase) { 'fixed' { '--port 43210' }; 'default' { '' }; 'unrelated' { '--port 43210' }; 'invalid' { '--port 99999' } }
+    $script = if ($ListenerCase -eq 'unrelated') { Join-Path $fixture 'other-install/bridge.py' } else { Join-Path $destination 'bridge.py' }
+    return @([pscustomobject]@{Name='python.exe'; ProcessId=987654321; CommandLine=('python.exe "' + $script + '" controller-serve ' + $arguments)})
+}
+function Stop-Process { param($Id,[switch]$Force) if ($Id -ne 987654321) { throw 'The fixture must not stop any real process.' } }
 function Start-Process {
     param($FilePath,$ArgumentList,[switch]$PassThru,$WindowStyle)
-    $global:NanoleafFixtureLaunches += [string]$FilePath
+    $global:NanoleafFixtureLaunches += [pscustomobject]@{FilePath=$FilePath; ArgumentList=$ArgumentList}
     $exitCode = 0
     if ($ArgumentList -match 'backup_install.py') {
         $arguments = @([regex]::Matches($ArgumentList, '"([^"]*)"') | ForEach-Object { $_.Groups[1].Value })
@@ -40,6 +46,17 @@ function Start-Process {
 }
 try {
     $env:LOCALAPPDATA = $fixture
+    if ($ListenerCase -eq 'invalid') {
+        try {
+            & (Join-Path $source 'install-modes.ps1') -SkipShortcuts -PythonRuntime $runtime
+            throw 'Invalid port was accepted.'
+        } catch {
+            if ($_.Exception.Message -ne 'Invalid active controller port. Upgrade restart stopped.') { throw }
+        }
+        if ($global:NanoleafFixtureLaunches.Count -ne 1) { throw 'Invalid listener was restarted.' }
+        Write-Output 'Invalid listener port rejected without a process restart.'
+        return
+    }
     & (Join-Path $source 'install-modes.ps1') -SkipShortcuts -PythonRuntime $runtime
     foreach ($name in @('controller_state.py','controller_contract.py','controller_server.py','requirements-controller.txt','bridge.py')) {
         if (-not (Test-Path (Join-Path $destination $name))) { throw "Missing installed source asset $name" }
@@ -49,7 +66,15 @@ try {
     if ((Get-Content -Raw (Join-Path $destination 'scene-state.json')) -notmatch 'preserve-scene') { throw 'Scene state changed.' }
     $backup = @(Get-ChildItem -Directory $destination -Filter 'backup-wall-map-*')
     if ($backup.Count -ne 1 -or -not (Test-Path (Join-Path $backup[0].FullName 'config.json'))) { throw 'Private state backup missing.' }
-    if ($global:NanoleafFixtureLaunches.Count -ne 2) { throw 'Unexpected process launch request.' }
+    $expectedLaunches = if ($ListenerCase -eq 'unrelated') { 2 } else { 3 }
+    if ($global:NanoleafFixtureLaunches.Count -ne $expectedLaunches) { throw 'Unexpected process launch request.' }
+    $restart = @($global:NanoleafFixtureLaunches | Where-Object { $_.ArgumentList -match 'controller-serve' })
+    if ($ListenerCase -eq 'unrelated') {
+        if ($restart.Count -ne 0) { throw 'Another installation was restarted.' }
+    } else {
+        $expectedPort = if ($ListenerCase -eq 'fixed') { 43210 } else { 0 }
+        if ($restart.Count -ne 1 -or $restart[0].ArgumentList -notmatch ('controller-serve --port ' + $expectedPort + '$')) { throw 'Active listener fixed port was not preserved.' }
+    }
     Write-Output 'Controller source upgrade fixture passed; no personal installation or process launch occurred.'
 } finally {
     $env:LOCALAPPDATA = $previousLocalAppData

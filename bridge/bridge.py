@@ -727,6 +727,8 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
             external_scene = scenes.observe() if scenes and (mode != 'free' or pending_mode) else False
             with contextlib.closing(connect_state(directory)) as db, db:
                 db.execute('BEGIN IMMEDIATE')
+                if controller_state.held(db, control['revision']):
+                    return
                 if control_state(db)['revision'] != control['revision']:
                     continue
                 preview = db.execute("SELECT value FROM meta WHERE key='preview'").fetchone()
@@ -734,10 +736,12 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
                     db.execute("DELETE FROM meta WHERE key='preview'")
             if preview and mode != 'free':
                 def preview_send(cfg, snap, instant, loop):
-                    with contextlib.closing(connect_state(directory)) as check:
-                        if control_state(check)['revision'] != control['revision']:
+                    with contextlib.closing(connect_state(directory)) as check, check:
+                        check.execute('BEGIN IMMEDIATE')
+                        if (controller_state.held(check, control['revision']) or
+                                control_state(check)['revision'] != control['revision']):
                             raise PreviewCancelled()
-                    sender(cfg, snap, instant, loop)
+                        sender(cfg, snap, instant, loop)
                 def preview_sleep(seconds):
                     deadline = now() + seconds
                     while now() < deadline:
@@ -756,6 +760,8 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
             unread = read_unread()
             with contextlib.closing(connect_state(directory)) as db, db:
                 db.execute('BEGIN IMMEDIATE')
+                if controller_state.held(db, control['revision']):
+                    return
                 if control_state(db)['revision'] != control['revision']:
                     continue
                 reconcile_read_state(db, unread, started)
@@ -768,6 +774,8 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
                 generation = db.execute("SELECT value FROM meta WHERE key='event_revision'").fetchone()
                 db.commit()
                 db.execute('BEGIN IMMEDIATE')
+                if controller_state.held(db, control['revision']):
+                    return
                 if (control_state(db)['revision'] != control['revision'] or
                         db.execute("SELECT value FROM meta WHERE key='event_revision'").fetchone() != generation):
                     continue
@@ -794,6 +802,8 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
                 finally:
                     active_execution[0] = None
                 # A concurrent decision can commit between journaled sends.
+                if controller_state.held(db, control['revision']):
+                    return
                 if control_state(db)['revision'] != control['revision']:
                     continue
                 db.execute("INSERT OR REPLACE INTO meta VALUES ('mode_applied', ?)", (str(control['revision']),))

@@ -138,7 +138,7 @@ class Cancelled(Exception):
 class Execution:
     """Journal each transport operation using the worker's transaction and lock."""
     def __init__(self,db,revision):
-        self.db=db;self.sequence=None;self.count=0
+        self.db=db;self.revision=revision;self.sequence=None;self.count=0
         if not present(db):return
         row=db.execute("SELECT sequence FROM controller_requests WHERE phase='queued' AND mode_revision=? ORDER BY sequence DESC LIMIT 1",(revision,)).fetchone()
         if row:self.sequence=row[0]
@@ -151,8 +151,11 @@ class Execution:
         return row[2]!='done' and active==(1,) and not data.get('stopped') and receipt['generation']==ticket(data,data['generation'])
 
     def call(self,send,*args,**kwargs):
-        if self.sequence is None:return send(*args,**kwargs)
         db=self.db
+        revision=db.execute("SELECT value FROM meta WHERE key='mode_revision'").fetchone()
+        if held(db,self.revision) or int(revision[0] if revision else '0')!=self.revision:
+            raise Cancelled()
+        if self.sequence is None:return send(*args,**kwargs)
         if not self.current():raise Cancelled()
         self.count+=1;operation='transport-'+str(self.count)
         receipt=json.loads(db.execute('SELECT receipt FROM controller_requests WHERE sequence=?',(self.sequence,)).fetchone()[0])
@@ -182,4 +185,6 @@ class Execution:
 
 
 def readonly(directory):
-    return sqlite3.connect((directory/'status.sqlite').resolve().as_uri()+'?mode=ro',uri=True,timeout=.2)
+    db=sqlite3.connect((directory/'status.sqlite').resolve().as_uri()+'?mode=ro',uri=True,timeout=.2)
+    db.execute('BEGIN')
+    return db

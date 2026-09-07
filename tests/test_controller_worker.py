@@ -87,3 +87,41 @@ class ControllerWorkerTest(unittest.TestCase):
         self.command('Quiet');server.revoke(self.directory,b,'client')
         self.run_worker()
         self.assertEqual(self.device.calls,[])
+
+    def test_revocation_during_observe_cannot_fall_back_to_legacy_send(self):
+        self.command('Quiet')
+        revoked=False
+        def request(config,method,endpoint='',payload=None):
+            nonlocal revoked
+            if method=='GET' and not revoked:
+                revoked=True
+                server.revoke(self.directory,b,'client')
+            return self.device.request(config,method,endpoint,payload)
+        with patch.object(b,'light_request',request):self.run_worker()
+        self.assertTrue(revoked)
+        self.assertEqual([call for call in self.device.calls if call[1]=='PUT'],[])
+        self.assertEqual(self.last()['priorEffects'],'none')
+
+    def test_expiry_during_unread_cannot_fall_back_to_legacy_send(self):
+        import controller_state as state
+        self.command('Quiet')
+        def unread():
+            with contextlib.closing(b.connect_state(self.directory)) as db,db:
+                state.recover(db,now=float('inf'))
+            return self.unread
+        b.run_worker(self.directory,sleep=self.clock.sleep,now=self.clock.now,read_unread=unread)
+        self.assertEqual([call for call in self.device.calls if call[1]=='PUT'],[])
+        self.assertEqual(self.last()['priorEffects'],'none')
+
+    def test_disable_during_observe_cannot_fall_back_to_legacy_send(self):
+        self.command('Quiet');disabled=False
+        def request(config,method,endpoint='',payload=None):
+            nonlocal disabled
+            if method=='GET' and not disabled:
+                disabled=True
+                server.command(['controller-disable','--state-dir',str(self.directory)],b)
+            return self.device.request(config,method,endpoint,payload)
+        with patch.object(b,'light_request',request):self.run_worker()
+        self.assertTrue(disabled)
+        self.assertEqual([call for call in self.device.calls if call[1]=='PUT'],[])
+        self.assertEqual(self.last()['priorEffects'],'none')

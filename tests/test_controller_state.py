@@ -142,3 +142,63 @@ class ControllerStateTest(unittest.TestCase):
                         data=self.state.read(db);data['stopped']=True;self.state.save(db,data)
                     thread.join(3)
                     self.assertFalse(thread.is_alive())
+
+    def test_snapshot_and_feed_use_one_read_transaction(self):
+        from unittest.mock import patch
+        # WAL lets the concurrent writer commit while the reader retains its snapshot.
+        with contextlib.closing(b.connect_state(self.directory)) as db:db.execute('PRAGMA journal_mode=WAL')
+        for observe in (self.app.snapshot,lambda:self.app.feed(None)[0]['snapshot']):
+            before=self.app.snapshot();request=self.request('Quiet' if before['state']['desired']['mode']['value']=='Work' else 'Work')
+            original=self.state.read;written=False
+            def read_then_write(db):
+                nonlocal written
+                result=original(db)
+                if not written:
+                    written=True
+                    self.app.admit(self.token,request)
+                return result
+            with patch.object(self.state,'read',read_then_write):observed=observe()
+            for field in ('configurationRevision','generation','nextRequestId','cursor','state'):
+                self.assertEqual(observed[field],before[field],field)
+            self.assertNotEqual(self.app.snapshot()['generation'],before['generation'])
+
+    def test_deadline_during_validation_or_before_commit_rolls_back(self):
+        from unittest.mock import patch
+        for hook in ('validation','commit'):
+            with self.subTest(hook=hook):
+                before=self.app.snapshot();request=self.request();clock=[0]
+                target=self.app.contract if hook=='validation' else self.state
+                name='admit' if hook=='validation' else 'event'
+                original=getattr(target,name)
+                def expire(*args,**kwargs):
+                    result=original(*args,**kwargs);clock[0]=6;return result
+                with patch.object(self.service.time,'monotonic',lambda:clock[0]),patch.object(target,name,expire),patch.object(self.app,'launch') as launch:
+                    with self.assertRaises(TimeoutError):self.app.admit(self.token,request,deadline=5)
+                    launch.assert_not_called()
+                after=self.app.snapshot()
+                for field in ('configurationRevision','generation','nextRequestId','cursor','state'):
+                    self.assertEqual(after[field],before[field],field)
+
+    def test_committed_admission_survives_deadline_before_launch_returns(self):
+        from unittest.mock import patch
+        request=self.request();clock=[0]
+        def launch(_):clock[0]=6
+        with patch.object(self.service.time,'monotonic',lambda:clock[0]),patch.object(self.app,'launch',launch):
+            code,receipt=self.app.admit(self.token,request,deadline=5)
+        self.assertEqual(code,202);self.assertEqual(receipt['outcome'],'queued')
+        self.assertEqual(self.app.snapshot()['state']['pending'][0]['requestId'],request['requestId'])
+
+    def test_commit_wait_respects_remaining_admission_budget(self):
+        import sqlite3
+        import time
+        from unittest.mock import patch
+        before=self.app.snapshot();request=self.request()
+        with contextlib.closing(self.state.readonly(self.directory)) as reader:
+            self.state.read(reader)  # Keep a rollback-journal reader across commit.
+            with patch.object(self.app,'launch') as launch:
+                with self.assertRaises(sqlite3.OperationalError):
+                    self.app.admit(self.token,request,deadline=time.monotonic()+.1)
+                launch.assert_not_called()
+        after=self.app.snapshot()
+        for field in ('configurationRevision','generation','nextRequestId','cursor','state'):
+            self.assertEqual(after[field],before[field],field)

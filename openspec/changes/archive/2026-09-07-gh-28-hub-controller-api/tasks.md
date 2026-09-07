@@ -44,7 +44,7 @@ offline status claiming readiness and a Windows 3.14 overload connection reset.
 Their fixes preserve unknown offline health and return overload responses before
 a bounded connection drain.
 
-The final Python source passes 131 tests on Linux 3.12/3.14 and 130 tests on
+The final Python source passes 139 tests on Linux 3.12/3.14 and 138 tests on
 Windows 3.12/3.14, where the WSL-only forwarding test is inapplicable. Each suite
 executes all 220 shared contract cases. Browser checks, 10 workflow fixtures and
 the isolated Windows source-upgrade fixture pass. Runtime dependencies and state
@@ -52,3 +52,7 @@ are isolated; source results do not imply personal installation, real-client
 connectivity or physical light acceptance. Exact revisions, per-host logs and the
 user-approved temporary local-validation exception remain in the delivery record
 and PR rather than this source commit.
+
+Review regressions verify held mode intent after intervening reads, coherent
+read-only snapshot/feed transactions, deadline-limited admission and commit, and
+preservation of validated controller ports during an isolated source upgrade.

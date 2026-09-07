@@ -32,12 +32,22 @@ foreach ($name in @('tray-icon.ico', 'tray-icon.ps1', 'controller_state.py', 'co
 # Restart only this installation's worker, map server, and tray.
 $bridge = Join-Path $destination 'bridge.py'
 $tray = Join-Path $destination 'tray.ps1'
-$controllerRunning = @(Get-CimInstance Win32_Process | Where-Object { $_.Name -in @('python.exe','pythonw.exe') -and $_.CommandLine -match ([regex]::Escape($bridge) + '"?\s+controller-serve(?:\s|$)') }).Count -gt 0
+$controllerProcesses = @(Get-CimInstance Win32_Process | Where-Object { $_.Name -in @('python.exe','pythonw.exe') -and $_.CommandLine -match ('(?:^|["\s])' + [regex]::Escape($bridge) + '"?\s+controller-serve(?:\s|$)') })
+$controllerPort = 0
+foreach ($process in $controllerProcesses) {
+    # Rebuild the allowed arguments. Never replay arbitrary process arguments.
+    $configuration = [regex]::Match($process.CommandLine, ('(?:^|["\s])' + [regex]::Escape($bridge) + '"?\s+controller-serve(?:\s+--port(?:\s+|=)"?([0-9]{1,5})"?)?\s*$'))
+    if (-not $configuration.Success) { throw 'Cannot safely preserve active controller arguments. Upgrade restart stopped.' }
+    $port = if ($configuration.Groups[1].Success) { [int]$configuration.Groups[1].Value } else { 0 }
+    if ($port -gt 65535) { throw 'Invalid active controller port. Upgrade restart stopped.' }
+    $controllerPort = $port
+}
+$controllerRunning = $controllerProcesses.Count -gt 0
 Get-CimInstance Win32_Process | Where-Object {
     ($_.Name -in @('python.exe', 'pythonw.exe') -and $_.CommandLine -match ([regex]::Escape($bridge) + '"?\s+(?:worker|serve|controller-serve)(?:\s|$)')) -or
     ($_.Name -eq 'powershell.exe' -and $_.CommandLine -match ([regex]::Escape($tray) + '(?:"|$)'))
 } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
-if ($controllerRunning) { Start-Process -FilePath $python -WindowStyle Hidden -ArgumentList ('"' + $bridge + '" controller-serve') }
+if ($controllerRunning) { Start-Process -FilePath $python -WindowStyle Hidden -ArgumentList ('"' + $bridge + '" controller-serve --port ' + $controllerPort) }
 if (-not $SkipShortcuts) {
     $shell = New-Object -ComObject WScript.Shell
     foreach ($folder in @([Environment]::GetFolderPath('Startup'), [Environment]::GetFolderPath('Programs'))) {

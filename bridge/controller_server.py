@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 import secrets
+import sqlite3
 import time
 import controller_state as state
 
@@ -11,6 +12,27 @@ ID=re.compile(r'[A-Za-z0-9_.-]{1,128}\Z')
 HTTP={'invalid-request':400,'unauthenticated':401,'forbidden':403,'unknown-device':404,
       'revision-conflict':409,'stale-generation':409,'request-conflict':409,'request-order':409,
       'request-expired':410,'unsupported-capability':422,'capacity':429,'transport-failure':503}
+
+
+def check_deadline(deadline):
+    if deadline is not None and time.monotonic()>=deadline:
+        raise TimeoutError('Admission deadline expired.')
+
+
+@contextlib.contextmanager
+def admission_transaction(directory,deadline):
+    check_deadline(deadline)
+    remaining=2.5 if deadline is None else max(0,deadline-time.monotonic())
+    # The configured database already exists. Admission must not run migrations.
+    with contextlib.closing(sqlite3.connect((directory/'status.sqlite').resolve().as_uri()+'?mode=rw',uri=True,timeout=remaining)) as db,db:
+        db.execute('BEGIN IMMEDIATE')
+        check_deadline(deadline)
+        yield db
+        check_deadline(deadline)
+        if deadline is not None:
+            db.execute('PRAGMA busy_timeout='+str(max(0,int((deadline-time.monotonic())*1000))))
+        # Commit may wait for readers; its busy timeout is the remaining budget.
+        db.commit()
 
 
 def configure(directory,b,controller_id,device_id,source_id):
@@ -73,10 +95,10 @@ class App:
             snapshot=state.snapshot(db);snapshot['serviceHealth']='ready'
             return self.contract.evaluate(dict(operation='feed',cursor=cursor,snapshot=snapshot,events=events))['events']
 
-    def admit(self,token,request,body_bytes=None,**checks):
+    def admit(self,token,request,body_bytes=None,deadline=None,**checks):
         launch=False
-        with contextlib.closing(self.b.connect_state(self.directory)) as db,db:
-            db.execute('BEGIN IMMEDIATE');data=state.read(db)
+        with admission_transaction(self.directory,deadline) as db:
+            data=state.read(db)
             auth=self.facts(db,token,scope='control',**checks)
             rows=list(db.execute('SELECT request,receipt,phase FROM controller_requests ORDER BY sequence'))
             admission=dict(controllerId=data['identity']['controllerId'],deviceId=data['identity']['deviceId'],epoch=data['epoch'],nextSequence=data['nextSequence'],
@@ -89,6 +111,7 @@ class App:
                 receipt=json.loads(db.execute('SELECT receipt FROM controller_requests WHERE sequence=?',(request['requestId']['sequence'],)).fetchone()[0])
                 return (202 if receipt['outcome']=='queued' else 200),receipt
             if not result['reserved']:return HTTP.get(decision,400),{'failure':{'code':decision}}
+            check_deadline(deadline)
             receipt=result['receipt'];sequence=request['requestId']['sequence']
             data['nextSequence']=result['nextSequence'];data['revision']=receipt['configurationRevision'];state.save(db,data)
             control=self.b.control_state(db)
@@ -139,6 +162,7 @@ def make_server(app,port=0):
 
         def setup(self):
             super().setup();self.connection.settimeout(2)
+            self.admission_deadline=time.monotonic()+5
             self.deadline=threading.Timer(5,self.expire);self.deadline.daemon=True;self.deadline.start()
 
         def expire(self):
@@ -151,6 +175,9 @@ def make_server(app,port=0):
             except OSError:pass
 
         def respond(self,code,value):
+            if time.monotonic()>=self.admission_deadline:
+                self.close_connection=True
+                return
             raw=state.encoded(value).encode()
             self.send_response(code);self.send_header('Content-Type','application/json')
             self.send_header('Content-Length',str(len(raw)));self.send_header('Cache-Control','no-store')
@@ -187,7 +214,7 @@ def make_server(app,port=0):
                     raw=self.rfile.read(length)
                     if len(raw)!=length:raise ValueError('Incomplete body.')
                     body=strict_json(raw)
-                    code,result=app.admit(token,body,length,**checks)
+                    code,result=app.admit(token,body,length,deadline=self.admission_deadline,**checks)
                     return self.respond(code,result)
                 if parts.path=='/controller/v1/devices' and not query:
                     return self.respond(200,dict(apiVersion='1.0',devices=[app.snapshot()]))
