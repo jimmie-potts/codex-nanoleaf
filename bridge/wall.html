@@ -482,7 +482,7 @@ function playAssembly(reason){
   if(reason==='opening'&&!assemblyPref('opening'))return false;
   if(reason==='entry'&&!assemblyPref('entry'))return false;
   if(reducedMotion())return false;
-  wallFingerprint='';drawWall();
+  assembly.hold=false;wallFingerprint='';drawWall();
   const root=$('wall'),orb=root.querySelector('.orb'),cx=+orb.getAttribute('cx'),cy=+orb.getAttribute('cy');
   // Connect Lines whose ends nearly touch, then walk outward from each section's Line nearest the orb.
   const lines=state.lines.map(l=>({id:l.id,ends:[transform(l.points[0]),transform(l.points[2])]}));
@@ -533,8 +533,9 @@ function endAssembly(afterPointer=false){
   // The finished nodes are already in place. Hold the redraw until the press's click has landed,
   // so the click reaches the node it pressed; a click that never comes releases the hold shortly.
   assembly.hold=true;
-  const release=()=>{document.removeEventListener('click',release,true);clearTimeout(timer);setTimeout(redraw,0)};
-  const timer=setTimeout(release,400);document.addEventListener('click',release,true);
+  // Release on the pointer's own release (the click that follows runs before the queued redraw), or after 400 ms if it never comes.
+  const release=()=>{for(const type of ['click','pointerup','pointercancel'])document.removeEventListener(type,release,true);clearTimeout(timer);setTimeout(redraw,0)};
+  const timer=setTimeout(release,400);for(const type of ['click','pointerup','pointercancel'])document.addEventListener(type,release,true);
 }
 function anchorPulses(){
   // Every pulse shares the document timeline's phase, so rebuilds and mode changes never restart it.
@@ -681,6 +682,6 @@ for(const type of ['pointerdown','keydown'])document.addEventListener(type,e=>{i
 // The Playback menu closes on Escape or a click elsewhere.
 const prefsMenu=document.querySelector('.assembly-prefs');
 document.addEventListener('pointerdown',e=>{if(prefsMenu.open&&!e.target.closest?.('.assembly-prefs'))prefsMenu.open=false},true);
-document.addEventListener('keydown',e=>{if(e.key==='Escape'&&prefsMenu.open){prefsMenu.open=false;prefsMenu.querySelector('summary').focus()}});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&prefsMenu.open&&prefsMenu.contains(document.activeElement)){prefsMenu.open=false;prefsMenu.querySelector('summary').focus()}});
 window.wallAssembly={play:playAssembly,active:()=>assembly.active};
 </script></body></html>

@@ -113,7 +113,7 @@ module.exports = async function(page, root) {
     const ids = await page.locator('.wall-line').evaluateAll(nodes => nodes.map(node => node.dataset.line));
     await page.locator('#replay').click(); await page.waitForTimeout(150);
     assert.ok(await running() > 0);
-    await page.locator(`[data-line="${ids[3]}"]`).click({delay: 120}); // a human-speed press
+    await page.locator(`[data-line="${ids[3]}"]`).click({delay: 600}); // a deliberate long press
     assert.equal(await running(), 0, 'Interaction completes the assembly immediately');
     await settle();
     assert.equal(await page.locator('.wall-line.selected').getAttribute('data-line', {timeout: 2000}), ids[3], 'The intended selection happens for a held click');
