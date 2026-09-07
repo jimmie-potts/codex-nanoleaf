@@ -28,11 +28,18 @@ module.exports = async function(page, root) {
 
   });
   await check('AC3: pending edits appear beside the wall, above the fold, with the same text', async () => {
-  await page.evaluate(() => {state.pending = {settings: {}, lines: {[state.lines.find(l => l.number === 8).id]: {project: 'a'}}, tasks: {}}; render()});
-  assert.equal(await page.locator('.canvas #busy').count(), 1, 'Pending text renders inside the wall canvas');
-  assert.equal(await page.locator('#busy').isVisible(), true);
-  assert.match(await page.locator('#busy').textContent(), /Line 8 → Notification Service/);
-  assert.ok((await rect('#busy')).bottom <= 1000, 'Pending banner is visible without scrolling');
+  // Hold the pending edit in the polled state so the one-second poll cannot clear it mid-check.
+  const pendingSnapshot = await page.evaluate(() => structuredClone(state));
+  pendingSnapshot.pending = {settings: {}, lines: {[pendingSnapshot.lines.find(l => l.number === 8).id]: {project: 'a'}}, tasks: {}};
+  const pendingRoute = request => request.fulfill({json: pendingSnapshot});
+  await page.route('**/api/state', pendingRoute);
+  try {
+    await refresh();
+    assert.equal(await page.locator('.canvas #busy').count(), 1, 'Pending text renders inside the wall canvas');
+    assert.equal(await page.locator('#busy').isVisible(), true, 'Pending banner is visible');
+    assert.match(await page.locator('#busy').textContent(), /Line 8 → Notification Service/);
+    assert.ok((await rect('#busy')).bottom <= 1000, 'Pending banner is visible without scrolling');
+  } finally {await page.unroute('**/api/state', pendingRoute)}
   await refresh();
   assert.equal(await page.locator('#busy').isVisible(), false, 'No banner without a pending edit');
 

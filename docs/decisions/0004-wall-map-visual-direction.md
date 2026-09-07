@@ -28,6 +28,20 @@ and is never presented as a mirror of controller frames; exact mirroring belongs
 to the authoritative rendering work in issues #15 and #17. Presentation sends no
 light requests and changes no task, assignment, epoch, or scene state.
 
+### Addendum (2026-09-07): opening assembly
+
+Issue #38 adds a decorative orb at the wall's hub (the most connected junction,
+nearest the others on ties), hexagonal connector nodes at every other junction to
+echo the physical connectors and the tray icon, a light sheen along each Line, and
+a two-second opening assembly in which the Lines meeting the hub unfold first and
+the rest follow outward through hinged rotation, connectors lighting as their
+Lines settle. The orb represents neither a device nor status. Playback on opening and on view entry are browser-local preferences,
+both on by default, with a manual Replay; nothing else triggers it. Any
+interaction completes it, reduced motion skips it, a geometry change or lost
+connection ends it, and it sends no requests and alters no task, assignment,
+unread, scene, or pulse state. It is a presentation flourish kept apart from
+physical effects, celebrations, and status animations.
+
 ## Consequences
 
 The page matches the product it controls and the tray icon. Motion is confined

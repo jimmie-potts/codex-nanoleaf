@@ -23,6 +23,7 @@ await page.setViewportSize({width:800,height:1000});await page.screenshot({path:
 await require('./line_identity_checks.cjs')(page,root);
 await require('./foundation_checks.cjs')(page,root);
 await require('./presentation_checks.cjs')(page,root);
+await require('./assembly_checks.cjs')(page,root);
 if(errors.length)throw Error(errors.join('\n'));console.log('Browser checks passed: map geometry, multi-select, assignments, colors, half swaps, coverage, rotation, flip, Locate, modes, profiles, and title escaping.');
 
 };
