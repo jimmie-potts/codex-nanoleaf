@@ -6,7 +6,9 @@ This repository is the source for a Windows bridge that maps Codex task status t
 
 Before shared monitoring, MCP, controller APIs or collector migration, read
 [the hub integration plan](docs/hub-integration.md) for ownership and the
-canonical cross-repository contracts. Shared adoption remains planned.
+canonical cross-repository contracts. The optional machine API adopts the shared
+controller contract; MCP bindings and shared monitoring remain planned. Before
+controller API or credential changes, read [the controller API guide](docs/controller-api.md).
 
 - Read `README.md` for setup and commands. Before changing lights, task allocation, hooks, or scene handling, read `bridge/README.md` for the existing behavior contract.
 - Run `python3 scripts/check.py` from the repository root after Python changes. On Windows, use `python scripts/check.py`. The suite uses isolated state and must pass without a device or Codex credentials.

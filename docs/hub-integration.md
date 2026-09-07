@@ -17,7 +17,7 @@ of monitored Claude compatibility.
 
 ## Adoption and independent work
 
-- [codex-nanoleaf#28](https://github.com/jimmie-potts/codex-nanoleaf/issues/28) adds an authenticated machine-client API over the existing
+- [codex-nanoleaf#28](https://github.com/jimmie-potts/codex-nanoleaf/issues/28) owns the authenticated machine-client API over the existing
   worker and Windows state coordination using [agent-device-hub#4](https://github.com/jimmie-potts/agent-device-hub/issues/4).
 - [codex-nanoleaf#29](https://github.com/jimmie-potts/codex-nanoleaf/issues/29) consumes the shared core's versioned feed, initially available
   from Pixoo [divoom-app-upgrade#31](https://github.com/jimmie-potts/divoom-app-upgrade/issues/31). It maps shared state into existing presentation and
@@ -83,3 +83,7 @@ and use the supported upgrade path, not fresh setup.
 
 [ADR 0003](decisions/0003-shared-agent-device-hub.md) records local adoption.
 No current product specification is changed by this planning-only delivery.
+
+## Protected controller API adoption
+
+The [controller API guide](controller-api.md) records the pinned Hub #4 release, mode-only capabilities, local route wrappers, optional Python dependencies and source validation. Native reads use a separate pure projection. This adoption does not activate shared ingestion, a personal listener or physical previews.

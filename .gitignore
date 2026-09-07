@@ -6,6 +6,7 @@ hooks.json
 scene-state.json
 layout.json
 map-server.json
+controller-server.json
 *.sqlite
 *.sqlite-*
 *.sqlite3

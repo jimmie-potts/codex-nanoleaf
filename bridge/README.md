@@ -359,3 +359,7 @@ Quiet Locate, and scene brightness restoration. The installed map loaded all
 scene choices stayed in isolated state; live settings and task records were
 preserved. Map geometry follows the controller's orientation. Rotate, flip, and
 Locate let you adjust it to your viewing position.
+
+## Optional native controller API
+
+The [controller API guide](../docs/controller-api.md) describes opt-in local machine authentication, mode-only control, pure snapshots, bounded recovery and verified dependency adoption. The [protected controller specification](../openspec/specs/protected-controller-api/spec.md) owns the machine contract. Existing wall-map authentication and the animation/scene behavior above remain unchanged. Source delivery does not enable the listener or install credentials.
