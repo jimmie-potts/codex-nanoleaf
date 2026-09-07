@@ -13,7 +13,13 @@ module.exports = async function(page, root) {
     numbers: [...document.querySelectorAll('#wall .number')].map(n => [n.dataset.lineId, n.getAttribute('x'), n.getAttribute('y'), getComputedStyle(n.closest('.number-tag')).opacity]),
     joints: document.querySelectorAll('#wall .joint').length,
   }));
-  const setPref = (id, on) => page.evaluate(([i, v]) => {const box = document.getElementById(i); if (box.checked !== v) box.click()}, [id, on]);
+  const setPref = async (id, on) => {
+    if (await page.locator('#' + id).isChecked() === on) return;
+    if (!await page.locator('.assembly-prefs').evaluate(node => node.open)) await page.locator('.assembly-prefs > summary').click();
+    await page.locator('#' + id).click(); // a real pointer click, so a covered control fails here
+    assert.equal(await page.locator('#' + id).isChecked(), on, `${id} toggles with a mouse click`);
+    await page.keyboard.press('Escape');
+  };
   await page.setViewportSize({width: 1440, height: 1000});
   await page.evaluate(() => {try {localStorage.removeItem('wall.assembly.opening'); localStorage.removeItem('wall.assembly.entry')} catch {}});
 
@@ -31,6 +37,8 @@ module.exports = async function(page, root) {
     const nearest = order.reduce((a, b) => a[0] < b[0] ? a : b), farthest = order.reduce((a, b) => a[0] > b[0] ? a : b);
     assert.ok(nearest[1] < farthest[1], `Lines near the orb start before far ones (near ${nearest[1]} ms, far ${farthest[1]} ms)`);
     assert.ok((await geometry()).joints > 0, 'Joints glow during assembly');
+    const length = await page.evaluate(() => Math.max(...document.getElementById('wall').getAnimations({subtree: true}).filter(a => a.id === 'assembly').map(a => a.effect.getTiming().delay + a.effect.getTiming().duration)));
+    assert.ok(length >= 1800 && length <= 2400, `The sequence is roughly two seconds long (${length} ms)`);
     const took = await untilIdle(); assert.ok(took !== false && took <= 2600, `Assembly finishes within about two seconds (${took} ms observed after load)`);
     const final = await geometry();
     assert.ok(final.groups.every(([, t, o]) => (t === 'none' || t === 'matrix(1, 0, 0, 1, 0, 0)') && o === '1'), 'Every Line settles at identity with full opacity');
@@ -66,6 +74,12 @@ module.exports = async function(page, root) {
   await check('C5: polling, mode, and layout changes never trigger assembly', async () => {
     await untilIdle();
     await refresh(); await settle(); assert.equal(await running(), 0, 'A poll does not start assembly');
+    const failing = request => request.fulfill({status: 503, json: {error: 'Local map status unavailable. Retrying shortly.'}});
+    await page.route('**/api/state', failing); await refresh(); await page.unroute('**/api/state', failing);
+    await page.evaluate(() => {errorUntil = 0}); await refresh(); await settle();
+    assert.equal(await running(), 0, 'Reconnecting after a failed poll does not start assembly');
+    await page.evaluate(() => {window.dispatchEvent(new Event('focus')); document.dispatchEvent(new Event('visibilitychange'))}); await settle();
+    assert.equal(await running(), 0, 'Returning focus or visibility does not start assembly');
     await page.evaluate(() => action('/api/mode', {mode: 'quiet'})); await page.waitForFunction(() => state.mode === 'quiet'); await settle();
     assert.equal(await running(), 0, 'A mode change does not start assembly');
     await page.evaluate(() => action('/api/settings', {style: 'classic'})); await page.waitForFunction(() => state.settings.style === 'classic'); await settle();
@@ -87,16 +101,28 @@ module.exports = async function(page, root) {
       assert.equal(await running(), 0, 'Reduced motion skips assembly');
       assert.equal(await page.locator('#wall .orb').count(), 1, 'The orb is still present');
       assert.ok((await geometry()).groups.every(([, t, o]) => (t === 'none' || t === 'matrix(1, 0, 0, 1, 0, 0)') && o === '1'), 'Structure is complete immediately');
+      await page.reload(); await page.waitForSelector('.wall-line'); await page.waitForTimeout(300);
+      assert.equal(await running(), 0, 'Reduced motion skips the opening assembly too');
+      assert.equal(await page.locator('#wall .orb').count(), 1, 'The orb is drawn at load under reduced motion');
     } finally {await page.emulateMedia({reducedMotion: 'no-preference'})}
+    await page.evaluate(async () => {while (refreshing) await new Promise(resolve => setTimeout(resolve, 10)); await refresh()});
+    await page.evaluate(() => action('/api/mode', {mode: 'work'})); await page.waitForFunction(() => state.mode === 'work'); await untilIdle();
   });
 
   await check('C7: an interaction completes assembly and acts; repeated Replay does not queue', async () => {
     const ids = await page.locator('.wall-line').evaluateAll(nodes => nodes.map(node => node.dataset.line));
     await page.locator('#replay').click(); await page.waitForTimeout(150);
     assert.ok(await running() > 0);
-    await page.locator(`[data-line="${ids[3]}"]`).click();
+    await page.locator(`[data-line="${ids[3]}"]`).click({delay: 120}); // a human-speed press
     assert.equal(await running(), 0, 'Interaction completes the assembly immediately');
-    assert.equal(await page.locator('.wall-line.selected').getAttribute('data-line'), ids[3], 'The intended selection happens');
+    await settle();
+    assert.equal(await page.locator('.wall-line.selected').getAttribute('data-line', {timeout: 2000}), ids[3], 'The intended selection happens for a held click');
+    await page.locator('#clear').click();
+    await page.locator('#replay').click(); await page.waitForTimeout(150);
+    await page.locator(`[data-line="${ids[4]}"]`).focus(); await page.keyboard.press('Enter');
+    assert.equal(await running(), 0, 'A key press completes the assembly');
+    await settle();
+    assert.equal(await page.locator('.wall-line.selected').getAttribute('data-line', {timeout: 2000}), ids[4], 'The intended selection happens for a key press');
     assert.ok((await geometry()).groups.every(([, t, o]) => (t === 'none' || t === 'matrix(1, 0, 0, 1, 0, 0)') && o === '1'), 'Structure is complete after the interaction');
     await page.locator('#clear').click();
     await page.locator('#replay').click(); await page.waitForTimeout(100);
@@ -106,6 +132,39 @@ module.exports = async function(page, root) {
     assert.equal(after, first, 'Repeated Replay does not add sequences');
     await untilIdle(); await page.waitForTimeout(600);
     assert.equal(await running(), 0, 'No queued sequence plays afterwards');
+  });
+
+  await check('C8: lists update during assembly and disconnected sections assemble independently', async () => {
+    const snapshot = await page.evaluate(() => structuredClone(state));
+    const renamed = structuredClone(snapshot); renamed.tasks[0].title = 'Renamed during assembly';
+    const route = request => request.fulfill({json: renamed});
+    await page.locator('#replay').click(); await page.waitForTimeout(100);
+    await page.route('**/api/state', route);
+    try {
+      await refresh(); await settle();
+      assert.ok(await running() > 0, 'Assembly keeps playing through a non-geometry poll');
+      assert.match(await page.locator('#taskList').textContent(), /Renamed during assembly/, 'The task list updates during assembly');
+      await untilIdle();
+      assert.match(await page.locator(`.wall-line[data-line="${renamed.tasks[0].line}"] title`).textContent(), /Renamed during assembly/, 'The wall finishes into the latest state');
+    } finally {await page.unroute('**/api/state', route)}
+    const split = structuredClone(snapshot);
+    split.lines.forEach((line, i) => {if (i >= 8) line.points = line.points.map(([x, y]) => [x + 3000, y])});
+    const splitRoute = request => request.fulfill({json: split});
+    await page.route('**/api/state', splitRoute);
+    try {
+      await refresh(); await settle(); await untilIdle();
+      await page.locator('#replay').click(); await page.waitForTimeout(50);
+      const sections = await page.evaluate(() => {
+        const o = document.querySelector('#wall .orb'), cx = +o.getAttribute('cx');
+        return [...document.querySelectorAll('.wall-line')].map(g => {const l = state.lines.find(l => l.id === g.dataset.line); const p = l.points.map(transform); const a = g.getAnimations().find(x => x.id === 'assembly'); return {right: p[1][0] > cx + 1000, delay: a.effect.getTiming().delay, near: Math.min(...p.map(q => Math.hypot(q[0] - cx, q[1] - +o.getAttribute('cy'))))}});
+      });
+      const left = sections.filter(s => !s.right), right = sections.filter(s => s.right);
+      assert.ok(left.length && right.length, 'The synthetic layout has two sections');
+      assert.equal(Math.min(...right.map(s => s.delay)), Math.min(...left.map(s => s.delay)), 'Each section starts from its own root at the same time');
+      const rightRoot = right.reduce((a, b) => a.delay < b.delay ? a : b), rightFar = right.reduce((a, b) => a.near > b.near ? a : b);
+      assert.ok(rightRoot.near <= rightFar.near && rightRoot.delay < rightFar.delay, 'The far section assembles outward from its nearest Line');
+      await untilIdle();
+    } finally {await page.unroute('**/api/state', splitRoute); await refresh(); await untilIdle()}
   });
 
   await check('C8: geometry changes and connection failures end assembly and the map shows the latest state', async () => {
