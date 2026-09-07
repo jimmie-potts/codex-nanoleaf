@@ -1,21 +1,318 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Nanoleaf · Wall map</title>
 <style>
-:root{color-scheme:dark;--bg:#0c1019;--panel:#141b27;--edge:#273145;--text:#eaf0fb;--muted:#94a3ba;--accent:#a9c3ff}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 system-ui,sans-serif}button,select,input{font:inherit}button,select{color:var(--text);background:#1d283a;border:1px solid #35435c;border-radius:8px;padding:8px 12px}button{cursor:pointer}button:hover{background:#2a3b54}button:disabled{opacity:.4;cursor:default}button.active{background:#bdd0ff;color:#122039;border-color:#bdd0ff}button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid #e5bc78;outline-offset:3px}header{padding:24px 30px 20px;border-bottom:1px solid var(--edge);display:flex;align-items:center;gap:24px;justify-content:space-between}h1{font-size:24px;margin:0;letter-spacing:-.7px}h2{font-size:15px;margin:0 0 14px}p{margin:6px 0}.eyebrow{color:#9bbcff;font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase}.muted{color:var(--muted)}.controls{display:flex;align-items:center;gap:18px;flex-wrap:wrap}.group{display:flex;gap:4px}.control-label{font-size:11px;color:var(--muted);display:block;margin-bottom:5px}main{display:grid;grid-template-columns:245px minmax(300px,1fr) 295px;min-height:calc(100vh - 134px)}aside{padding:22px 20px;background:var(--panel)}#projectList{max-height:440px;overflow:auto;padding-right:6px;scrollbar-width:thin}#projects{border-right:1px solid var(--edge)}#inspector{border-left:1px solid var(--edge)}.project{display:grid;grid-template-columns:30px 1fr;gap:10px;padding:12px 0;border-bottom:1px solid var(--edge)}input[type=color]{width:27px;height:30px;padding:0;background:none;border:0;cursor:pointer}.project-name{overflow-wrap:anywhere;font-weight:600}.small{font-size:12px;color:var(--muted)}.project-stats{font-size:11px;color:var(--muted);margin-top:4px}.canvas{position:relative;display:flex;flex-direction:column;min-width:0;padding:20px;background:radial-gradient(ellipse at 50% 45%,#162139 0,#0c1019 75%)}.canvas-head{display:flex;justify-content:space-between;gap:10px;align-items:center}.canvas-head button{padding:5px 9px;font-size:12px}svg{width:100%;height:560px;min-height:320px;flex:1;overflow:visible}.wall-line{cursor:pointer;outline:none}.wall-line.pending .outline{stroke:#eac58e;stroke-dasharray:5 4}.wall-line .hit{fill:transparent;pointer-events:all}.wall-line .outline{stroke:#283954;stroke-width:20;stroke-linecap:round}.wall-line.selected .outline,.wall-line:focus .outline{stroke:#f4d29d;stroke-width:24}.zone{stroke-width:12;stroke-linecap:round;filter:drop-shadow(0 0 5px currentColor)}.number{fill:#edf2ff;font:11px system-ui;paint-order:stroke;stroke:#0c1019;stroke-width:4px;text-anchor:middle;pointer-events:all}.legend{display:flex;justify-content:center;gap:16px;flex-wrap:wrap;color:var(--muted);font-size:11px;padding:12px}.dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px}.box{padding:16px 0;border-bottom:1px solid var(--edge)}.box:first-child{padding-top:0}label{display:block;font-size:12px;color:var(--muted);margin:12px 0 5px}select{width:100%}.actions{display:flex;gap:7px;margin-top:10px;flex-wrap:wrap}.task{padding:10px 0;border-bottom:1px solid var(--edge);cursor:pointer}.task-title{font-size:12px;overflow-wrap:anywhere}.badge{display:inline-block;font-size:10px;padding:2px 7px;border-radius:12px;background:#27364a;color:#b8cff3;margin:4px 4px 0 0}#notice{padding:10px 30px;background:#243047;color:#d9e5ff;font-size:12px;display:none}#notice.error{background:#482b30;color:#ffdce0}.empty{color:var(--muted);padding:16px 0;font-size:12px}footer{border-top:1px solid var(--edge);padding:10px 30px;color:var(--muted);font-size:11px;display:flex;justify-content:space-between}.kv{display:grid;grid-template-columns:70px 1fr;gap:8px;font-size:12px;margin:8px 0}.kv span:first-child{color:var(--muted)}.tasklist{max-height:300px;overflow:auto}#busy{color:#eac58e}.status-key{display:flex;gap:6px;align-items:center}@media(max-width:1050px){main{grid-template-columns:200px 1fr}#inspector{grid-column:1 / -1;border-left:0;border-top:1px solid var(--edge);display:grid;grid-template-columns:1fr 1fr;gap:25px}svg{height:480px}}@media(max-width:680px){header{padding:18px;align-items:flex-start;flex-direction:column}main{display:flex;flex-direction:column}#projectList{max-height:440px;overflow:auto;padding-right:6px;scrollbar-width:thin}#projects{border-right:0;order:2}#inspector{display:block;order:3}.canvas{min-height:450px}.canvas-head{align-items:flex-start}.legend{gap:8px}svg{height:400px}footer{padding:10px 18px}}
-.line-group{margin-top:8px}.line-group-label{font-size:11px;color:var(--muted);display:block;margin-bottom:4px}.line-badges{display:flex;gap:5px;flex-wrap:wrap}.line-badge{min-width:30px;padding:3px 7px;font-size:12px;border-radius:6px}.line-badge.reserved,.line-badge.available{background:transparent;border-style:dashed}.line-badge.in-use{background:#293e5c;border-color:#56739c}.shared-mark{color:var(--muted);text-align:center;padding-top:2px}
-.project.selected,.task.selected{background:#233047;box-shadow:inset 3px 0 #f4d29d}.project.selected{padding-left:8px}.task.selected{padding-left:8px}.line-badge.selected{background:#f4d29d;color:#172236;border-color:#f4d29d;border-style:solid}.task-title{display:block;width:100%;padding:0;text-align:left;background:transparent;border:0;border-radius:3px;color:var(--text)}.task-title:hover{background:transparent;text-decoration:underline}.task-placement{margin-top:6px}
-footer{flex-wrap:wrap;gap:8px}#busy{flex:1 1 240px;overflow-wrap:anywhere}
+@layer tokens, base, layout, components, states;
+
+@layer tokens {
+  :root {
+    color-scheme: dark;
+    /* Physical light hues. The wall, the legend, and task badges share them. */
+    --wall-working: #00ff00;
+    --wall-question: #ffff00;
+    --wall-blocked: #ff0000;
+    --wall-unread: #193cff;
+    --dur-fast: 150ms;
+    --dur-pulse: 2s;
+    /* Surfaces and text. */
+    --bg: #0c1019;
+    --panel: #141b27;
+    --panel-solid: #141b27;
+    --raised: #1d283a;
+    --edge: #273145;
+    --edge-strong: #35435c;
+    --text: #eaf0fb;
+    --muted: #94a3ba;
+    --accent: #bdd0ff;
+    --accent-ink: #122039;
+    --focus: #ffffff;
+    --selection: #f4d29d;
+    --selection-ink: #172236;
+    --pending: #eac58e;
+    /* Status chips are readable versions of the wall hues. */
+    --chip-working: #3ad27b;
+    --chip-question: #f2c53d;
+    --chip-blocked: #ff6262;
+    --chip-unread: #5b93ff;
+    /* Wall rendering. */
+    --canvas-bg: radial-gradient(ellipse at 50% 45%, #162139 0, #0c1019 75%);
+    --wall-track: #283954;
+    --wall-filter: drop-shadow(0 0 5px currentColor);
+    --glow-width: 0;
+    --glow-opacity: 0;
+    --glow-quiet: 0;
+    --dim-quiet: .8;
+    --free-filter: saturate(.25) brightness(.5);
+    --pulse-anim: none;
+    --pulse-core-anim: none;
+    --p-min: 1;
+    --p-max: 1;
+    --core-min: 1;
+    --number-size: 12;
+    --number-bg: #edf2ff;
+    --number-ink: #0c1019;
+    --number-edge: transparent;
+    --selection-dash: none;
+    --selection-anim: none;
+    /* Type. */
+    --font-ui: system-ui, sans-serif;
+    --font-head: system-ui, sans-serif;
+    --font-num: system-ui, sans-serif;
+    --label-font: var(--font-ui);
+    --label-transform: none;
+    --label-size: 11px;
+    --label-tracking: .02em;
+    --brand-font: var(--font-head);
+    --brand-transform: none;
+    --brand-tracking: 0;
+    --brand-color: var(--text);
+    --head-stretch: 100%;
+    /* Shapes. */
+    --radius: 8px;
+    --radius-pill: 999px;
+    --btn-bg: #1d283a;
+    --btn-edge: #35435c;
+    --btn-hover: #2a3b54;
+    --btn-active-bg: var(--accent);
+    --btn-active-ink: var(--accent-ink);
+    --btn-active-edge: var(--accent);
+    --btn-glow: none;
+    --card-bg: transparent;
+    --card-edge: var(--edge);
+    --card-edge-side: transparent;
+    --card-pad: 14px 0;
+    --card-gap: 0;
+    --bracket-opacity: 0;
+    --badge-bg: var(--raised);
+    --badge-edge: transparent;
+    --grid-image: none;
+    --grid-size: 32px 32px;
+    --scanline-image: none;
+    --vignette: none;
+  }
+}
+
+@layer base {
+  * { box-sizing: border-box; }
+  html { background: var(--bg); }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 var(--font-ui); }
+  h1, h2, h3, p { margin: 0; }
+  h2 { font: 600 14px/1.3 var(--font-head); font-stretch: var(--head-stretch); }
+  .small { font-size: 12px; color: var(--muted); }
+  .label { font: 600 var(--label-size)/1.2 var(--label-font); text-transform: var(--label-transform); letter-spacing: var(--label-tracking); color: var(--muted); }
+  button, select, input { font: inherit; }
+  button {
+    cursor: pointer; color: var(--text); background: var(--btn-bg); border: 1px solid var(--btn-edge);
+    border-radius: var(--radius); padding: 6px 12px; line-height: 1.3;
+    transition: background var(--dur-fast), border-color var(--dur-fast), color var(--dur-fast), box-shadow var(--dur-fast);
+  }
+  button:hover { background: var(--btn-hover); }
+  button:disabled { opacity: .4; cursor: default; }
+  button.active, button[aria-pressed="true"] { background: var(--btn-active-bg); color: var(--btn-active-ink); border-color: var(--btn-active-edge); box-shadow: var(--btn-glow); }
+  select { color: var(--text); background: var(--panel-solid); border: 1px solid var(--btn-edge); border-radius: var(--radius); padding: 6px 10px; }
+  select:disabled { opacity: .45; }
+  :is(button, select, input, [tabindex]):focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+}
+
+@layer layout {
+  .app { display: flex; flex-direction: column; height: 100dvh; min-height: 620px; background: var(--bg); background-image: var(--grid-image); background-size: var(--grid-size); }
+  header { flex: none; display: flex; align-items: center; gap: 22px; padding: 0 20px; height: 56px; border-bottom: 1px solid var(--edge); background: var(--panel); }
+  .brand { display: flex; align-items: baseline; gap: 9px; margin-right: auto; }
+  .brand-mark { font: 700 13px/1.2 var(--brand-font); text-transform: var(--brand-transform); letter-spacing: var(--brand-tracking); color: var(--brand-color); }
+  .brand-sub { color: var(--muted); font-size: 12px; }
+  .controls { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+  .control { display: flex; align-items: center; gap: 9px; }
+  .group { display: inline-flex; }
+  .group > button { border-radius: 0; margin-left: -1px; white-space: nowrap; }
+  .group > button:first-child { border-radius: var(--radius) 0 0 var(--radius); margin-left: 0; }
+  .group > button:last-child { border-radius: 0 var(--radius) var(--radius) 0; }
+  .group > button.active, .group > button[aria-pressed="true"] { position: relative; z-index: 1; }
+
+  main { display: grid; grid-template-columns: 264px minmax(320px, 1fr) 320px; flex: 1; min-height: 0; }
+  aside { overflow: auto; padding: 12px 18px 20px; background: var(--panel); scrollbar-width: thin; min-height: 0; }
+  #projects { border-right: 1px solid var(--edge); }
+  #inspector { border-left: 1px solid var(--edge); }
+  .aside-head { position: sticky; top: -12px; z-index: 1; background: var(--panel-solid); padding: 12px 0 10px; margin-top: -12px; display: flex; align-items: baseline; justify-content: space-between; gap: 10px; border-bottom: 1px solid var(--edge); }
+
+  .canvas { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 12px 20px 10px; background: var(--canvas-bg); }
+  .canvas::before { content: ""; position: absolute; inset: 0; background-image: var(--grid-image); background-size: var(--grid-size); pointer-events: none; }
+  .canvas::after { content: ""; position: absolute; inset: 0; background: var(--vignette), var(--scanline-image); pointer-events: none; }
+  .canvas > * { position: relative; z-index: 1; }
+  .canvas-head { display: flex; align-items: center; gap: 12px 16px; flex-wrap: wrap; }
+  .canvas-head .spacer { flex: 1; }
+  .canvas-head .group > button { padding: 5px 10px; font-size: 12px; }
+  .wall-frame { flex: 1; min-height: 240px; position: relative; }
+  #wall { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+  .legend { display: flex; justify-content: center; align-items: center; gap: 18px; flex-wrap: wrap; color: var(--muted); font-size: 11.5px; padding-top: 8px; }
+  footer { flex: none; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 7px 20px; border-top: 1px solid var(--edge); color: var(--muted); font-size: 11px; background: var(--panel); }
+
+  @media (max-width: 1049.98px) {
+    main { grid-template-columns: 236px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
+    #inspector { grid-column: 1 / -1; border-left: 0; border-top: 1px solid var(--edge); display: grid; grid-template-columns: 1fr 1fr; gap: 0 24px; align-content: start; max-height: 40vh; }
+    header { height: auto; padding: 10px 16px; flex-wrap: wrap; gap: 10px 18px; }
+    header #connection { order: 1; margin-left: auto; }
+    header .controls { order: 2; flex-basis: 100%; }
+  }
+  @media (max-width: 680px) {
+    .app { height: auto; min-height: 0; }
+    main { display: flex; flex-direction: column; }
+    aside { overflow: visible; max-height: none; }
+    #projects { order: 2; border-right: 0; border-top: 1px solid var(--edge); }
+    #inspector { order: 3; display: block; max-height: none; border-top: 1px solid var(--edge); }
+    .aside-head { position: static; margin-top: 0; padding-top: 0; }
+    .wall-frame { min-height: 340px; }
+    .brand { width: 100%; }
+    .canvas { padding: 12px 14px 10px; }
+    footer { padding: 8px 14px; }
+  }
+}
+
+@layer components {
+  .hint { font-size: 12px; color: var(--muted); }
+  .project { display: grid; grid-template-columns: 26px 1fr; gap: 4px 10px; padding: 12px 0; border-bottom: 1px solid var(--edge); transition: background var(--dur-fast); }
+  .project.selected, .task.selected { background: color-mix(in srgb, var(--selection) 9%, transparent); box-shadow: inset 3px 0 var(--selection); padding-left: 8px; }
+  input[type="color"] { width: 24px; height: 24px; padding: 0; border: 2px solid var(--edge-strong); border-radius: 50%; background: none; cursor: pointer; overflow: hidden; }
+  input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+  input[type="color"]::-webkit-color-swatch { border: 0; border-radius: 50%; }
+  .project-name { overflow-wrap: anywhere; font-weight: 600; }
+  .project-stats { font-size: 11.5px; color: var(--muted); }
+  .line-group { margin-top: 8px; }
+  .line-group-label { display: block; margin-bottom: 5px; }
+  .line-badges { display: flex; gap: 5px; flex-wrap: wrap; }
+  .line-badge { font: 12px/1 var(--font-num); font-variant-numeric: tabular-nums; min-width: 28px; padding: 5px 7px; border-radius: var(--radius); background: var(--raised); border: 1px solid var(--edge-strong); color: var(--text); }
+  .line-badge.reserved, .line-badge.available { background: transparent; border-style: dashed; }
+  .line-badge.selected { background: var(--selection); color: var(--selection-ink); border-color: var(--selection); border-style: solid; }
+  .shared-mark { color: var(--muted); text-align: center; padding-top: 2px; }
+  .empty { color: var(--muted); padding: 12px 0; font-size: 12px; }
+
+  .card { position: relative; background: var(--card-bg); border: 1px solid var(--card-edge-side); border-bottom: 1px solid var(--card-edge); padding: var(--card-pad); margin-bottom: var(--card-gap); }
+  .card.selection::before, .card.selection::after { content: ""; position: absolute; width: 14px; height: 14px; border: 2px solid var(--accent); opacity: var(--bracket-opacity); pointer-events: none; }
+  .card.selection::before { top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
+  .card.selection::after { bottom: -1px; right: -1px; border-left: 0; border-top: 0; }
+  .card h2 + .hint { margin-top: 4px; }
+  .field { display: block; margin: 12px 0 5px; }
+  select.full { width: 100%; }
+  .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+  .actions button { padding: 7px 8px; font-size: 13px; white-space: nowrap; }
+  #assign { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+  #assign:hover { filter: brightness(1.08); }
+  #locateHint { margin-top: 8px; }
+  .detail-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+  .kv { display: grid; grid-template-columns: 70px 1fr; gap: 8px; font-size: 12px; margin: 8px 0; }
+  .kv span:first-child { color: var(--muted); }
+
+  .task { display: grid; grid-template-columns: 8px 1fr auto; gap: 4px 10px; padding: 10px 0; border-bottom: 1px solid var(--edge); align-items: start; cursor: pointer; }
+  .task .dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; background: var(--chip-unread); }
+  .task-title { display: block; width: 100%; padding: 0; text-align: left; background: transparent; border: 0; border-radius: 3px; color: var(--text); font-size: 13px; line-height: 1.35; overflow-wrap: anywhere; }
+  .task-title:hover { background: transparent; text-decoration: underline; }
+  .task-meta { grid-column: 2 / 4; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+  .task .line-badge { padding: 3px 7px; }
+  .badge { display: inline-flex; align-items: center; gap: 5px; font: 600 var(--label-size)/1 var(--label-font); text-transform: var(--label-transform); letter-spacing: var(--label-tracking); padding: 3px 8px; border-radius: var(--radius-pill); border: 1px solid var(--badge-edge); background: var(--badge-bg); color: var(--muted); }
+  .badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .dot[data-status="working"], .badge[data-status="working"] { color: var(--chip-working); }
+  .dot[data-status="question"], .badge[data-status="question"] { color: var(--chip-question); }
+  .dot[data-status="blocked"], .badge[data-status="blocked"] { color: var(--chip-blocked); }
+  .dot[data-status="unread"], .badge[data-status="unread"] { color: var(--chip-unread); }
+  .dot[data-status] { background: currentColor; }
+
+  #notice { display: none; padding: 8px 20px; background: #243047; color: #d9e5ff; font-size: 12px; }
+  #notice.error { background: #482b30; color: #ffdce0; }
+  #busy { display: flex; align-items: center; gap: 10px; margin-top: 10px; padding: 8px 12px; border: 1px dashed var(--pending); color: var(--pending); font-size: 12px; border-radius: var(--radius); overflow-wrap: anywhere; }
+  #busy:empty { display: none; }
+  #busy::before { content: "◷" / ""; font-size: 14px; flex: none; }
+  .pill { display: inline-flex; align-items: center; gap: 7px; padding: 4px 10px; border-radius: var(--radius-pill); border: 1px solid var(--edge-strong); background: var(--raised); font: 600 var(--label-size)/1.2 var(--label-font); text-transform: var(--label-transform); letter-spacing: var(--label-tracking); color: var(--muted); white-space: nowrap; }
+  .pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: none; }
+  #connection { color: var(--chip-working); }
+  #connection.offline { color: var(--chip-blocked); }
+  body[data-mode="work"] #wallNote { color: var(--chip-working); }
+  body[data-mode="quiet"] #wallNote { color: var(--chip-unread); }
+  body[data-mode="free"] #wallNote { color: var(--muted); }
+  #wallNote::before { box-shadow: 0 0 6px currentColor; }
+  .legend .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; }
+  .legend .halves { display: none; align-items: center; gap: 7px; }
+  body[data-style="project"] .legend .halves { display: inline-flex; }
+  .legend .halves i { display: inline-block; width: 24px; height: 8px; border-radius: 4px; background: linear-gradient(90deg, #ad8dff 50%, var(--wall-unread) 50%); }
+
+  .wall-line { cursor: pointer; outline: none; }
+  .wall-line .hit { fill: transparent; pointer-events: all; }
+  .wall-line .outline { stroke: var(--wall-track); stroke-width: 20; stroke-linecap: round; fill: none; transition: stroke var(--dur-fast); }
+  .wall-line .glow { stroke-width: var(--glow-width); stroke-linecap: round; opacity: var(--glow-opacity); fill: none; }
+  .wall-line .zone { stroke-width: 12; stroke-linecap: round; fill: none; filter: var(--wall-filter); }
+  .number-tag { cursor: pointer; }
+  .number-bg { fill: var(--number-bg); stroke: var(--number-edge); }
+  .number { fill: var(--number-ink); font-family: var(--font-num); font-weight: 600; font-variant-numeric: tabular-nums; text-anchor: middle; dominant-baseline: central; pointer-events: all; }
+}
+
+@layer states {
+  .wall-line.selected .outline { stroke: var(--selection); stroke-width: 24; stroke-dasharray: var(--selection-dash); animation: var(--selection-anim); }
+  .wall-line:focus-visible:not(.selected) .outline { stroke: var(--focus); stroke-width: 22; }
+  .wall-line.selected:focus-visible .outline { filter: drop-shadow(0 0 3px var(--focus)) drop-shadow(0 0 3px var(--focus)); }
+  .wall-line.pending .outline { stroke: var(--pending); stroke-dasharray: 7 5; animation: none; }
+  body[data-mode="work"] .wall-line[data-status] .glow { animation: var(--pulse-anim); }
+  body[data-mode="work"] .wall-line[data-status] .zone { animation: var(--pulse-core-anim); }
+  body[data-mode="quiet"] .wall-line .glow { opacity: var(--glow-quiet); }
+  body[data-mode="quiet"] .wall-line .zone { opacity: var(--dim-quiet); }
+  body[data-mode="free"] #wall { filter: var(--free-filter); }
+  @keyframes pulse { 0% { opacity: var(--p-min); } 20% { opacity: var(--p-max); } 30% { opacity: var(--p-max); } 50% { opacity: var(--p-min); } 100% { opacity: var(--p-min); } }
+  @keyframes pulseCore { 0% { opacity: var(--core-min); } 20% { opacity: 1; } 30% { opacity: 1; } 50% { opacity: var(--core-min); } 100% { opacity: var(--core-min); } }
+  @media (prefers-reduced-motion: reduce) { #wall * { animation: none !important; } }
+}
 </style></head>
-<body><header><div><div class="eyebrow">CODEX × NANOLEAF</div><h1>Your wall, at a glance.</h1><div class="small">Projects have a place. Every task has a signal.</div></div><div class="controls"><div><span class="control-label">Layout</span><div class="group"><button id="classic">Classic</button><button id="project">Project</button></div></div><div><span class="control-label">Mode</span><div class="group"><button id="work">Work</button><button id="quiet">Quiet</button><button id="free">Free</button></div></div></div></header>
+<body><div class="app">
+<header>
+  <div class="brand"><span class="brand-mark">Codex × Nanoleaf</span><span class="brand-sub">Wall map</span></div>
+  <div class="controls">
+    <div class="control" role="group" aria-labelledby="layoutLabel"><span id="layoutLabel" class="label">Layout</span><div class="group"><button type="button" id="classic">Classic</button><button type="button" id="project">Project</button></div></div>
+    <div class="control" role="group" aria-labelledby="modeLabel"><span id="modeLabel" class="label">Mode</span><div class="group"><button type="button" id="work">Work</button><button type="button" id="quiet">Quiet</button><button type="button" id="free">Free</button></div></div>
+    <div class="control"><span class="label" aria-hidden="true">Coverage</span><select id="coverage" aria-label="Animation coverage" title="Waves and comets return to the project color after passing. Both halves lets them cover the project half; Status half only keeps project identity steady."><option value="whole">Both halves</option><option value="status">Status half only</option></select></div>
+  </div>
+  <span class="pill" id="connection">Connecting</span>
+</header>
 <div id="notice" role="status"></div>
-<main><aside id="projects"><h2>Projects</h2><p class="small">Choose a color. Assign its Lines on the map.</p><div id="projectList"></div><div class="box"><h2>Animation coverage</h2><select id="coverage" aria-label="Animation coverage"><option value="whole">Both halves</option><option value="status">Status half only</option></select><p class="small">Waves and comets return to the project color after passing.</p></div><div class="small">Shared Lines are available for overflow. Reserved Lines stay with their project.</div></aside>
-<section class="canvas"><div class="canvas-head"><div><h2>The wall <span class="small" id="lineCount"></span></h2><div class="small">Click to select · Ctrl/⌘ or Shift to select several</div></div><div class="group"><button id="rotate" title="Rotate map 90 degrees">Rotate</button><button id="flipX">Flip H</button><button id="flipY">Flip V</button></div></div><svg id="wall" aria-label="Nanoleaf wall map" role="group"></svg><div class="legend"><span><i class="dot" style="background:#00ff00"></i>Working</span><span><i class="dot" style="background:#ffff00"></i>Question</span><span><i class="dot" style="background:#ff0000"></i>Blocked</span><span><i class="dot" style="background:#193cff"></i>Unread</span></div><p class="small" id="wallNote" style="text-align:center"></p></section>
-<aside id="inspector"><div><div class="box"><h2 id="selectionTitle">Select a Line</h2><p class="small" id="selectionHint">Choose one or more Lines to assign them to a project.</p><label for="assignProject">Reservation project</label><select id="assignProject"></select><div class="actions"><button id="assign">Assign selected</button><button id="clear">Clear selection</button></div><div class="actions"><button id="swap">Swap halves</button><button id="locate">Locate</button></div><p class="small" id="locateHint"></p></div><div class="box" id="taskDetail"></div></div><div><div class="box"><h2>Tasks <span class="small" id="taskCount"></span></h2><div class="tasklist" id="taskList"></div></div><div class="box"><h2>Waiting for a Line</h2><div id="waiting"></div></div></div></aside></main>
-<footer><span id="connection">Connecting…</span><span id="busy"></span><span>Local to this PC · Opening a task here does not mark it read</span></footer>
+<main>
+  <aside id="projects">
+    <div class="aside-head"><h2>Projects</h2><span class="hint" title="Shared Lines are available for overflow. Reserved Lines stay with their project.">Pick a color, assign Lines on the map</span></div>
+    <div id="projectList"></div>
+  </aside>
+  <section class="canvas">
+    <div class="canvas-head">
+      <div><h2>The wall <span class="small" id="lineCount"></span></h2><div class="small">Click to select · Ctrl/⌘ or Shift for several</div></div>
+      <span class="pill" id="wallNote"></span>
+      <span class="spacer"></span>
+      <div class="group" role="group" aria-label="Map orientation"><button type="button" id="rotate" title="Rotate map 90 degrees">Rotate</button><button type="button" id="flipX">Flip H</button><button type="button" id="flipY">Flip V</button></div>
+    </div>
+    <div id="busy" role="status" aria-live="polite"></div>
+    <div class="wall-frame"><svg id="wall" aria-label="Nanoleaf wall map" role="group"></svg></div>
+    <div class="legend">
+      <span><i class="dot" style="background:var(--wall-working)"></i>Working</span>
+      <span><i class="dot" style="background:var(--wall-question)"></i>Question</span>
+      <span><i class="dot" style="background:var(--wall-blocked)"></i>Blocked</span>
+      <span><i class="dot" style="background:var(--wall-unread)"></i>Unread</span>
+      <span class="halves"><i></i>Project half · status half</span>
+    </div>
+  </section>
+  <aside id="inspector">
+    <div class="card selection">
+      <h2 id="selectionTitle" tabindex="-1">Select a Line</h2>
+      <p class="hint" id="selectionHint">Choose one or more Lines to assign them to a project.</p>
+      <div id="selectionBody">
+        <label class="label field" for="assignProject">Reservation project</label>
+        <select id="assignProject" class="full"></select>
+        <div class="actions"><button type="button" id="assign">Assign selected</button><button type="button" id="clear">Clear selection</button><button type="button" id="swap">Swap halves</button><button type="button" id="locate">Locate</button></div>
+        <p class="small" id="locateHint"></p>
+      </div>
+    </div>
+    <div class="card" id="taskDetail"></div>
+    <div class="card"><h2>Tasks <span class="small" id="taskCount"></span></h2><div class="tasklist" id="taskList"></div></div>
+    <div class="card"><h2>Waiting for a Line</h2><div id="waiting"></div></div>
+  </aside>
+</main>
+<footer><span>Local to this PC · Opening a task here does not mark it read</span><span>Refreshes once a second</span></footer>
+</div>
 <script>
 const token='__CSRF__', $=id=>document.getElementById(id), svgNS='http://www.w3.org/2000/svg';
-let state=null, selected=new Set(), projectFingerprint='', taskFingerprint='', taskFocus=null, wallFingerprint='', errorUntil=0, refreshing=false;
-const statusColors={working:'#00ff00',question:'#ffff00',blocked:'#ff0000',unread:'#193cff'};
+let state=null, selected=new Set(), projectFingerprint='', taskFingerprint='', taskFocus=null, wallFingerprint='', detailFingerprint='', errorUntil=0, refreshing=false;
+const statusColors={working:'var(--wall-working)',question:'var(--wall-question)',blocked:'var(--wall-blocked)',unread:'var(--wall-unread)'};
+const modeNotes={work:['Work · indicators on','Task indicators pulse on the wall at 30% brightness.'],quiet:['Quiet · steady at 10%','Steady task colors without pulses or outward waves.'],free:['Free · lights released','The lights follow the Nanoleaf app. The map shows saved task assignments.']};
 function el(tag,text,cls){const node=document.createElement(tag);if(text!==undefined)node.textContent=text;if(cls)node.className=cls;return node}
 function message(text,error=false){$('notice').textContent=text;$('notice').style.display=text?'block':'none';$('notice').classList.toggle('error',error);if(error)errorUntil=Date.now()+6000}
 async function action(path,payload){try{const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-Wall-Token':token},body:JSON.stringify(payload)});const data=await r.json();if(!r.ok)throw Error(data.error);errorUntil=0;await refresh()}catch(e){message(e.message,true)}}
@@ -46,7 +343,7 @@ function replaceKeepingFocus(root,...nodes){
 }
 function lineGroup(label,kind,lines,showShared=false){
   const group=el('div',undefined,'line-group'),badges=el('div',undefined,'line-badges');
-  group.dataset.lineGroup=kind;group.append(el('span',label,'line-group-label'));
+  group.dataset.lineGroup=kind;group.append(el('span',label,'label line-group-label'));
   badges.append(...(lines.length?lines.map(line=>lineBadge(line,kind,label,showShared)):[el('span','None','small')]));
   group.append(badges);return group;
 }
@@ -95,49 +392,76 @@ function drawWall(){
   const all=state.lines.flatMap(l=>l.points.map(transform)),xs=all.map(p=>p[0]),ys=all.map(p=>p[1]);
   const minX=Math.min(...xs)-55,minY=Math.min(...ys)-55,maxX=Math.max(...xs)+55,maxY=Math.max(...ys)+55;
   root.setAttribute('viewBox',`${minX} ${minY} ${maxX-minX} ${maxY-minY}`);
+  // Any animation on a rebuilt node resumes the page-global phase instead of restarting.
+  const phase=-(document.timeline.currentTime%2000)+'ms';
   const numbers=document.createElementNS(svgNS,'g');numbers.setAttribute('aria-hidden','true');
+  const center=[(minX+maxX)/2,(minY+maxY)/2];
   for(const line of state.lines){
     const points=line.points.map(transform),task=lineTask(line);
-    const colors=[statusColors[task?.status]||'#193cff',statusColors[task?.status]||'#193cff'];
-    if(state.settings.style==='project'){const owner=state.projects.find(p=>p.id===(task?.project||line.project));colors[line.signature]=owner?.color||'#193cff'}
+    const colors=[statusColors[task?.status]||statusColors.unread,statusColors[task?.status]||statusColors.unread];
+    if(state.settings.style==='project'){const owner=state.projects.find(p=>p.id===(task?.project||line.project));colors[line.signature]=owner?.color||statusColors.unread}
     const group=document.createElementNS(svgNS,'g');
     group.setAttribute('class','wall-line'+(selected.has(line.id)?' selected':'')+(state.pending?.lines?.[line.id]?' pending':''));
     group.setAttribute('tabindex','0');group.setAttribute('role','button');
-    group.setAttribute('aria-label',`Line ${line.number} · ${lineDescription(line)}`);group.dataset.line=line.id;
+    group.setAttribute('aria-label',`Line ${line.number} · ${lineDescription(line)}`);group.dataset.line=line.id;if(task)group.dataset.status=task.status;
     const title=document.createElementNS(svgNS,'title');title.textContent=`Line ${line.number} · ${lineDescription(line)}`;group.append(title);
     function segment(a,b,cls,color){
       const node=document.createElementNS(svgNS,'line');node.setAttribute('x1',a[0]);node.setAttribute('y1',a[1]);node.setAttribute('x2',b[0]);node.setAttribute('y2',b[1]);node.setAttribute('class',cls);
-      if(color){node.setAttribute('stroke',color);node.style.color=color}group.append(node);
+      if(color){node.style.stroke=color;node.style.color=color;node.style.animationDelay=phase}
+      group.append(node);
     }
     const hit=document.createElementNS(svgNS,'rect'),dx=points[2][0]-points[0][0],dy=points[2][1]-points[0][1];
     hit.setAttribute('class','hit');hit.setAttribute('x',-22);hit.setAttribute('y',-22);
     hit.setAttribute('width',Math.hypot(dx,dy)+44);hit.setAttribute('height',44);hit.setAttribute('rx',22);
     hit.setAttribute('transform',`translate(${points[0][0]} ${points[0][1]}) rotate(${Math.atan2(dy,dx)*180/Math.PI})`);
     group.append(hit);segment(points[0],points[2],'outline');
+    segment(points[0],points[1],'glow',colors[0]);segment(points[1],points[2],'glow',colors[1]);
     segment(points[0],points[1],'zone',colors[0]);segment(points[1],points[2],'zone',colors[1]);
     group.onclick=e=>choose(line.id,e.ctrlKey||e.metaKey||e.shiftKey);
     group.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();choose(line.id,e.ctrlKey||e.metaKey||e.shiftKey)}};
     root.append(group);if(focused===line.id)group.focus({preventScroll:true});
-    const label=document.createElementNS(svgNS,'text');label.setAttribute('x',points[1][0]);label.setAttribute('class','number');
-    label.dataset.midY=points[1][1];label.dataset.lineId=line.id;label.textContent=line.number;
-    label.onclick=e=>{choose(line.id,e.ctrlKey||e.metaKey||e.shiftKey);[...root.querySelectorAll('.wall-line')].find(node=>node.dataset.line===line.id)?.focus({preventScroll:true})};
-    numbers.append(label);
+    // The number tag sits beside the Line on the side facing away from the wall's center,
+    // so labels on converging Lines diverge instead of stacking.
+    const len=Math.hypot(dx,dy)||1;let nx=-dy/len,ny=dx/len;
+    const outward=nx*(points[1][0]-center[0])+ny*(points[1][1]-center[1]);
+    if(outward<0||(outward===0&&ny>0)){nx=-nx;ny=-ny}
+    const tag=document.createElementNS(svgNS,'g');tag.setAttribute('class','number-tag');
+    tag.dataset.mx=points[1][0];tag.dataset.my=points[1][1];tag.dataset.nx=nx;tag.dataset.ny=ny;
+    const bg=document.createElementNS(svgNS,'rect');bg.setAttribute('class','number-bg');
+    const label=document.createElementNS(svgNS,'text');label.setAttribute('class','number');label.dataset.lineId=line.id;label.textContent=line.number;
+    tag.append(bg,label);
+    tag.onclick=e=>{choose(line.id,e.ctrlKey||e.metaKey||e.shiftKey);[...root.querySelectorAll('.wall-line')].find(node=>node.dataset.line===line.id)?.focus({preventScroll:true})};
+    numbers.append(tag);
   }
   // Number clicks must win over every Line's transparent hit stroke.
   root.append(numbers);sizeLineNumbers();
 }
 function sizeLineNumbers(){
   const scale=$('wall').getScreenCTM()?.a;if(!scale)return;
-  for(const label of $('wall').querySelectorAll('.number')){label.style.fontSize=12/scale+'px';label.style.strokeWidth=3/scale+'px';label.setAttribute('y',Number(label.dataset.midY)-16/scale)}
+  const px=parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--number-size'))||12;
+  const size=px/scale,h=size*1.55;
+  for(const tag of $('wall').querySelectorAll('.number-tag')){
+    const label=tag.querySelector('.number'),bg=tag.querySelector('.number-bg');
+    label.style.fontSize=size+'px';
+    const w=label.getComputedTextLength()+12/scale;
+    // The pill is axis-aligned, so on a diagonal Line its nearer end cap sits closer than its half-height.
+    const off=Math.max(18/scale,12+h/2+Math.abs(+tag.dataset.nx)*(w/2-h/2)+3/scale);
+    const x=+tag.dataset.mx+tag.dataset.nx*off,y=+tag.dataset.my+tag.dataset.ny*off;
+    label.setAttribute('x',x);label.setAttribute('y',y);
+    bg.setAttribute('x',x-w/2);bg.setAttribute('y',y-h/2);bg.setAttribute('width',w);bg.setAttribute('height',h);bg.setAttribute('rx',h/2);
+    bg.style.strokeWidth=1/scale+'px';
+  }
 }
 function elapsed(start){if(!start)return 'Start time unavailable';let s=Math.max(0,Math.floor(state.now-start));return s>=3600?`${Math.floor(s/3600)}h ${Math.floor(s%3600/60)}m`:s>=60?`${Math.floor(s/60)}m ${s%60}s`:`${s}s`}
+function statusBadge(status){const badge=el('span',status,'badge');badge.dataset.status=status;return badge}
 function taskRow(t){
   const row=el('div',undefined,'task'),title=el('button',t.title,'task-title');row.dataset.task=t.id;title.type='button';title.dataset.focusKey=JSON.stringify([t.id,'title']);
-  row.append(title,el('span',t.status,'badge'),el('span',projectName(t.project),'small'));
+  const dot=el('span',undefined,'dot');dot.dataset.status=t.status;
   const placement=el('div',undefined,'task-placement'),line=lineById(t.line);
   if(line){const badge=lineBadge(line,'in-use','Current task placement');badge.textContent='Line '+line.number;badge.dataset.focusKey=JSON.stringify([t.id,'line']);placement.append(badge)}
   else placement.append(el('span','Waiting for a Line','small'));
-  row.append(placement);
+  const meta=el('div',undefined,'task-meta');meta.append(statusBadge(t.status),el('span',projectName(t.project)));
+  row.append(dot,title,placement,meta);
   row.onclick=()=>{if(lineById(t.line))choose(t.line);else{selected.clear();taskFocus=t.id;drawWall();inspect();highlightAssociations()}};
   return row;
 }
@@ -166,7 +490,8 @@ function highlightAssociations(){
 function inspect(){
   const chosen=state.lines.filter(l=>selected.has(l.id)).sort((a,b)=>a.number-b.number);
   $('selectionTitle').textContent=chosen.length===1?'Line '+chosen[0].number:chosen.length?'Lines '+chosen.map(l=>l.number).join(', '):'Select a Line';
-  $('selectionHint').textContent=chosen.length===1?lineDescription(chosen[0]):chosen.length?chosen.length+' physical Lines selected.':'Choose one or more Lines to assign them to a project.';
+  $('selectionHint').textContent=chosen.length===1?lineDescription(chosen[0]):chosen.length?chosen.length+' physical Lines selected.':'Click a Line on the wall, or a numbered badge, to reserve it for a project.';
+  $('selectionBody').hidden=!chosen.length&&!taskFocus;
   for(const id of ['assign','swap'])$(id).disabled=!chosen.length;
   $('clear').disabled=!chosen.length&&!taskFocus;
   $('locate').textContent=chosen.length===1?'Locate Line '+chosen[0].number:'Locate';
@@ -174,13 +499,23 @@ function inspect(){
   $('locateHint').textContent=state.mode==='free'?'Switch to Work or Quiet to locate a Line.':'Locate briefly highlights the selected physical Line.';
   const task=state.tasks.find(t=>t.id===(taskFocus||(chosen.length===1?chosen[0].task:null))),detail=$('taskDetail');
   if(detail.contains(document.activeElement)&&document.activeElement.tagName==='SELECT')return;
+  const fingerprint=JSON.stringify([chosen.length,task&&[task.id,task.title,task.status,task.project,task.manual,task.started],state.projects.map(p=>[p.id,p.name])]);
+  if(fingerprint===detailFingerprint){
+    // Keep the elapsed time and the override select in step with saved state without rebuilding the card.
+    const clock=detail.querySelector('[data-elapsed]');if(clock&&task)clock.textContent=elapsed(task.started);
+    const select=detail.querySelector('select');if(select&&task&&document.activeElement!==select)select.value=task.manual||'';
+    return;
+  }
+  detailFingerprint=fingerprint;
   detail.replaceChildren();
   if(!task){detail.append(el('p',chosen.length>1?'Select one Line to inspect its task.':chosen.length?'No task on this Line.':'Select a Line or task for details.','small'));return}
-  detail.append(el('h2',task.title),el('div',task.status,'badge'));
-  for(const [key,value]of[['Project',projectName(task.project)],['Elapsed',elapsed(task.started)]]){const row=el('div',undefined,'kv');row.append(el('span',key),el('span',value));detail.append(row)}
-  detail.append(el('label','Override project for this task'));
-  const select=el('select');select.setAttribute('aria-label','Task project override');selectOptions(select,'Use Codex assignment');select.value=task.manual||'';
-  select.onchange=()=>action('/api/task',{id:task.id,project:select.value||null});detail.append(select);
+  const head=el('div',undefined,'detail-head');head.append(el('h2',task.title),statusBadge(task.status));detail.append(head);
+  for(const [key,value]of[['Project',projectName(task.project)],['Elapsed',elapsed(task.started)]]){const row=el('div',undefined,'kv'),node=el('span',value);if(key==='Elapsed')node.dataset.elapsed='';row.append(el('span',key),node);detail.append(row)}
+  detail.append(el('label','Override project for this task','label field'));
+  const select=el('select',undefined,'full');select.setAttribute('aria-label','Task project override');selectOptions(select,'Use Codex assignment');select.value=task.manual||'';
+  select.onchange=()=>action('/api/task',{id:task.id,project:select.value||null});
+  // A rejected override must not linger once the select loses focus.
+  select.onblur=()=>{detailFingerprint=''};detail.append(select);
 }
 function pendingText(){
   const p=state.pending,parts=[];
@@ -198,7 +533,24 @@ function pendingText(){
   }
   return 'After this comet: '+parts.join(' · ');
 }
-function render(){selected=new Set([...selected].filter(id=>lineById(id)));if(taskFocus){const task=state.tasks.find(t=>t.id===taskFocus);if(!task)taskFocus=null;else if(lineById(task.line)){selected=new Set([task.line]);taskFocus=null}}for(const id of ['classic','project'])$(id).classList.toggle('active',id===state.settings.style);for(const id of ['work','free','quiet'])$(id).classList.toggle('active',id===state.mode);$('coverage').value=state.settings.coverage;$('coverage').disabled=state.settings.style==='classic';$('flipX').classList.toggle('active',!!state.settings.flip_x);$('flipY').classList.toggle('active',!!state.settings.flip_y);$('lineCount').textContent=state.lines.length+' Lines';$('taskCount').textContent=state.tasks.length;drawProjects();drawWall();inspect();drawTasks();highlightAssociations();$('busy').textContent=state.pending?pendingText():state.mode_pending?'Mode change pending.':'';$('connection').textContent='Connected · '+new Date().toLocaleTimeString();$('wallNote').textContent=state.mode==='free'?'Free mode: the lights follow the Nanoleaf app. The map shows saved task assignments.':state.tasks.length?'Colors show project identity and current task status.':'No active indicators. Your remembered scene plays on the wall.';if(Date.now()>errorUntil)message(state.error||state.geometry_error||'',!!(state.error||state.geometry_error))}
-async function refresh(){if(refreshing)return;refreshing=true;try{const r=await fetch('/api/state');const data=await r.json();if(!r.ok)throw Error(data.error);state=data;render()}catch(e){$('connection').textContent='Disconnected · retrying';message(e.message,true)}finally{refreshing=false}}
-for(const id of ['classic','project'])$(id).onclick=()=>action('/api/settings',{style:id});for(const mode of ['work','free','quiet'])$(mode).onclick=()=>action('/api/mode',{mode});$('coverage').onchange=()=>action('/api/settings',{coverage:$('coverage').value});$('assign').onclick=()=>action('/api/assign',{lines:Object.fromEntries([...selected].map(id=>[id,{project:$('assignProject').value||null}]))});$('clear').onclick=()=>{selected.clear();taskFocus=null;const owners=state.lines.filter(l=>selected.has(l.id)).map(l=>l.project||'');if(owners.length&&owners.every(p=>p===owners[0]))$('assignProject').value=owners[0];drawWall();inspect();highlightAssociations()};$('swap').onclick=()=>action('/api/assign',{lines:Object.fromEntries(state.lines.filter(l=>selected.has(l.id)).map(l=>[l.id,{signature:1-l.signature}]))});$('locate').onclick=()=>action('/api/locate',{line:[...selected][0]});$('rotate').onclick=()=>action('/api/settings',{rotation:(state.settings.rotation+90)%360});$('flipX').onclick=()=>action('/api/settings',{flip_x:1-state.settings.flip_x});$('flipY').onclick=()=>action('/api/settings',{flip_y:1-state.settings.flip_y});new ResizeObserver(sizeLineNumbers).observe($('wall'));refresh();setInterval(refresh,1000);
+function render(){
+  selected=new Set([...selected].filter(id=>lineById(id)));
+  if(taskFocus){const task=state.tasks.find(t=>t.id===taskFocus);if(!task)taskFocus=null;else if(lineById(task.line)){selected=new Set([task.line]);taskFocus=null}}
+  if(document.body.dataset.mode!==state.mode)document.body.dataset.mode=state.mode;
+  if(document.body.dataset.style!==state.settings.style)document.body.dataset.style=state.settings.style;
+  for(const id of ['classic','project']){const on=id===state.settings.style;$(id).classList.toggle('active',on);$(id).setAttribute('aria-pressed',String(on))}
+  for(const id of ['work','free','quiet']){const on=id===state.mode;$(id).classList.toggle('active',on);$(id).setAttribute('aria-pressed',String(on))}
+  $('coverage').value=state.settings.coverage;$('coverage').disabled=state.settings.style==='classic';
+  $('flipX').setAttribute('aria-pressed',String(!!state.settings.flip_x));$('flipY').setAttribute('aria-pressed',String(!!state.settings.flip_y));
+  $('lineCount').textContent=state.lines.length+' Lines';$('taskCount').textContent=state.tasks.length;
+  drawProjects();drawWall();inspect();drawTasks();highlightAssociations();
+  const busy=state.pending?pendingText():state.mode_pending?'Mode change pending.':'';if($('busy').textContent!==busy)$('busy').textContent=busy;
+  const [note,detail]=modeNotes[state.mode]||['',''];
+  $('wallNote').textContent=state.mode!=='free'&&!state.tasks.length?note.split(' · ')[0]+' · scene playing':note;
+  $('wallNote').title=state.mode!=='free'&&!state.tasks.length?'No active indicators. Your remembered scene plays on the wall.':detail;
+  $('connection').textContent='Live';$('connection').classList.remove('offline');
+  if(Date.now()>errorUntil)message(state.error||state.geometry_error||'',!!(state.error||state.geometry_error));
+}
+async function refresh(){if(refreshing)return;refreshing=true;try{const r=await fetch('/api/state');const data=await r.json();if(!r.ok)throw Error(data.error);state=data;render()}catch(e){$('connection').textContent='Disconnected · retrying';$('connection').classList.add('offline');message(e.message,true)}finally{refreshing=false}}
+for(const id of ['classic','project'])$(id).onclick=()=>action('/api/settings',{style:id});for(const mode of ['work','free','quiet'])$(mode).onclick=()=>action('/api/mode',{mode});$('coverage').onchange=()=>action('/api/settings',{coverage:$('coverage').value});$('assign').onclick=()=>action('/api/assign',{lines:Object.fromEntries([...selected].map(id=>[id,{project:$('assignProject').value||null}]))});$('clear').onclick=()=>{selected.clear();taskFocus=null;$('selectionTitle').focus({preventScroll:true});drawWall();inspect();highlightAssociations()};$('swap').onclick=()=>action('/api/assign',{lines:Object.fromEntries(state.lines.filter(l=>selected.has(l.id)).map(l=>[l.id,{signature:1-l.signature}]))});$('locate').onclick=()=>action('/api/locate',{line:[...selected][0]});$('rotate').onclick=()=>action('/api/settings',{rotation:(state.settings.rotation+90)%360});$('flipX').onclick=()=>action('/api/settings',{flip_x:1-state.settings.flip_x});$('flipY').onclick=()=>action('/api/settings',{flip_y:1-state.settings.flip_y});new ResizeObserver(sizeLineNumbers).observe($('wall'));refresh();setInterval(refresh,1000);
 </script></body></html>
