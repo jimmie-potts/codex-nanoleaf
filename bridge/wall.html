@@ -145,7 +145,7 @@
   .legend { display: flex; justify-content: center; align-items: center; gap: 18px; flex-wrap: wrap; color: var(--muted); font-size: 11.5px; padding-top: 8px; }
   footer { flex: none; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 7px 20px; border-top: 1px solid var(--edge); color: var(--muted); font-size: 11px; background: var(--panel); }
 
-  @media (max-width: 1050px) {
+  @media (max-width: 1049.98px) {
     main { grid-template-columns: 236px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
     #inspector { grid-column: 1 / -1; border-left: 0; border-top: 1px solid var(--edge); display: grid; grid-template-columns: 1fr 1fr; gap: 0 24px; align-content: start; max-height: 40vh; }
     header { height: auto; padding: 10px 16px; flex-wrap: wrap; gap: 10px 18px; }
@@ -218,7 +218,7 @@
   #notice.error { background: #482b30; color: #ffdce0; }
   #busy { display: flex; align-items: center; gap: 10px; margin-top: 10px; padding: 8px 12px; border: 1px dashed var(--pending); color: var(--pending); font-size: 12px; border-radius: var(--radius); overflow-wrap: anywhere; }
   #busy:empty { display: none; }
-  #busy::before { content: "◷"; font-size: 14px; flex: none; }
+  #busy::before { content: "◷" / ""; font-size: 14px; flex: none; }
   .pill { display: inline-flex; align-items: center; gap: 7px; padding: 4px 10px; border-radius: var(--radius-pill); border: 1px solid var(--edge-strong); background: var(--raised); font: 600 var(--label-size)/1.2 var(--label-font); text-transform: var(--label-transform); letter-spacing: var(--label-tracking); color: var(--muted); white-space: nowrap; }
   .pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: none; }
   #connection { color: var(--chip-working); }
@@ -245,6 +245,7 @@
 @layer states {
   .wall-line.selected .outline { stroke: var(--selection); stroke-width: 24; stroke-dasharray: var(--selection-dash); animation: var(--selection-anim); }
   .wall-line:focus-visible:not(.selected) .outline { stroke: var(--focus); stroke-width: 22; }
+  .wall-line.selected:focus-visible .outline { filter: drop-shadow(0 0 3px var(--focus)) drop-shadow(0 0 3px var(--focus)); }
   .wall-line.pending .outline { stroke: var(--pending); stroke-dasharray: 7 5; animation: none; }
   body[data-mode="work"] .wall-line[data-status] .glow { animation: var(--pulse-anim); }
   body[data-mode="work"] .wall-line[data-status] .zone { animation: var(--pulse-core-anim); }
@@ -277,9 +278,9 @@
       <div><h2>The wall <span class="small" id="lineCount"></span></h2><div class="small">Click to select · Ctrl/⌘ or Shift for several</div></div>
       <span class="pill" id="wallNote"></span>
       <span class="spacer"></span>
-      <div class="group"><button type="button" id="rotate" title="Rotate map 90 degrees">Rotate</button><button type="button" id="flipX">Flip H</button><button type="button" id="flipY">Flip V</button></div>
+      <div class="group" role="group" aria-label="Map orientation"><button type="button" id="rotate" title="Rotate map 90 degrees">Rotate</button><button type="button" id="flipX">Flip H</button><button type="button" id="flipY">Flip V</button></div>
     </div>
-    <div id="busy"></div>
+    <div id="busy" role="status" aria-live="polite"></div>
     <div class="wall-frame"><svg id="wall" aria-label="Nanoleaf wall map" role="group"></svg></div>
     <div class="legend">
       <span><i class="dot" style="background:var(--wall-working)"></i>Working</span>
@@ -291,7 +292,7 @@
   </section>
   <aside id="inspector">
     <div class="card selection">
-      <h2 id="selectionTitle">Select a Line</h2>
+      <h2 id="selectionTitle" tabindex="-1">Select a Line</h2>
       <p class="hint" id="selectionHint">Choose one or more Lines to assign them to a project.</p>
       <div id="selectionBody">
         <label class="label field" for="assignProject">Reservation project</label>
@@ -305,7 +306,7 @@
     <div class="card"><h2>Waiting for a Line</h2><div id="waiting"></div></div>
   </aside>
 </main>
-<footer><span>Local to this PC · Opening a task here does not mark it read</span><span id="updated"></span></footer>
+<footer><span>Local to this PC · Opening a task here does not mark it read</span><span>Refreshes once a second</span></footer>
 </div>
 <script>
 const token='__CSRF__', $=id=>document.getElementById(id), svgNS='http://www.w3.org/2000/svg';
@@ -438,7 +439,7 @@ function drawWall(){
 function sizeLineNumbers(){
   const scale=$('wall').getScreenCTM()?.a;if(!scale)return;
   const px=parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--number-size'))||12;
-  const size=px/scale,off=18/scale;
+  const size=px/scale,off=Math.max(18/scale,12+size*1.55/2+3/scale);
   for(const tag of $('wall').querySelectorAll('.number-tag')){
     const label=tag.querySelector('.number'),bg=tag.querySelector('.number-bg');
     const x=+tag.dataset.mx+tag.dataset.nx*off,y=+tag.dataset.my+tag.dataset.ny*off;
@@ -495,15 +496,23 @@ function inspect(){
   $('locateHint').textContent=state.mode==='free'?'Switch to Work or Quiet to locate a Line.':'Locate briefly highlights the selected physical Line.';
   const task=state.tasks.find(t=>t.id===(taskFocus||(chosen.length===1?chosen[0].task:null))),detail=$('taskDetail');
   if(detail.contains(document.activeElement)&&document.activeElement.tagName==='SELECT')return;
-  const fingerprint=JSON.stringify([chosen.length,task&&[task.id,task.title,task.status,task.project,task.manual,elapsed(task.started)],state.projects.map(p=>[p.id,p.name])]);
-  if(fingerprint===detailFingerprint)return;detailFingerprint=fingerprint;
+  const fingerprint=JSON.stringify([chosen.length,task&&[task.id,task.title,task.status,task.project,task.manual,task.started],state.projects.map(p=>[p.id,p.name])]);
+  if(fingerprint===detailFingerprint){
+    // Keep the elapsed time and the override select in step with saved state without rebuilding the card.
+    const clock=detail.querySelector('[data-elapsed]');if(clock&&task)clock.textContent=elapsed(task.started);
+    const select=detail.querySelector('select');if(select&&task&&document.activeElement!==select)select.value=task.manual||'';
+    return;
+  }
+  detailFingerprint=fingerprint;
   detail.replaceChildren();
   if(!task){detail.append(el('p',chosen.length>1?'Select one Line to inspect its task.':chosen.length?'No task on this Line.':'Select a Line or task for details.','small'));return}
   const head=el('div',undefined,'detail-head');head.append(el('h2',task.title),statusBadge(task.status));detail.append(head);
-  for(const [key,value]of[['Project',projectName(task.project)],['Elapsed',elapsed(task.started)]]){const row=el('div',undefined,'kv');row.append(el('span',key),el('span',value));detail.append(row)}
+  for(const [key,value]of[['Project',projectName(task.project)],['Elapsed',elapsed(task.started)]]){const row=el('div',undefined,'kv'),node=el('span',value);if(key==='Elapsed')node.dataset.elapsed='';row.append(el('span',key),node);detail.append(row)}
   detail.append(el('label','Override project for this task','label field'));
   const select=el('select',undefined,'full');select.setAttribute('aria-label','Task project override');selectOptions(select,'Use Codex assignment');select.value=task.manual||'';
-  select.onchange=()=>action('/api/task',{id:task.id,project:select.value||null});detail.append(select);
+  select.onchange=()=>action('/api/task',{id:task.id,project:select.value||null});
+  // A rejected override must not linger once the select loses focus.
+  select.onblur=()=>{detailFingerprint=''};detail.append(select);
 }
 function pendingText(){
   const p=state.pending,parts=[];
@@ -536,9 +545,9 @@ function render(){
   const [note,detail]=modeNotes[state.mode]||['',''];
   $('wallNote').textContent=state.mode!=='free'&&!state.tasks.length?note.split(' · ')[0]+' · scene playing':note;
   $('wallNote').title=state.mode!=='free'&&!state.tasks.length?'No active indicators. Your remembered scene plays on the wall.':detail;
-  $('connection').textContent='Live';$('connection').classList.remove('offline');$('updated').textContent='Updated '+new Date().toLocaleTimeString();
+  $('connection').textContent='Live';$('connection').classList.remove('offline');
   if(Date.now()>errorUntil)message(state.error||state.geometry_error||'',!!(state.error||state.geometry_error));
 }
 async function refresh(){if(refreshing)return;refreshing=true;try{const r=await fetch('/api/state');const data=await r.json();if(!r.ok)throw Error(data.error);state=data;render()}catch(e){$('connection').textContent='Disconnected · retrying';$('connection').classList.add('offline');message(e.message,true)}finally{refreshing=false}}
-for(const id of ['classic','project'])$(id).onclick=()=>action('/api/settings',{style:id});for(const mode of ['work','free','quiet'])$(mode).onclick=()=>action('/api/mode',{mode});$('coverage').onchange=()=>action('/api/settings',{coverage:$('coverage').value});$('assign').onclick=()=>action('/api/assign',{lines:Object.fromEntries([...selected].map(id=>[id,{project:$('assignProject').value||null}]))});$('clear').onclick=()=>{selected.clear();taskFocus=null;drawWall();inspect();highlightAssociations()};$('swap').onclick=()=>action('/api/assign',{lines:Object.fromEntries(state.lines.filter(l=>selected.has(l.id)).map(l=>[l.id,{signature:1-l.signature}]))});$('locate').onclick=()=>action('/api/locate',{line:[...selected][0]});$('rotate').onclick=()=>action('/api/settings',{rotation:(state.settings.rotation+90)%360});$('flipX').onclick=()=>action('/api/settings',{flip_x:1-state.settings.flip_x});$('flipY').onclick=()=>action('/api/settings',{flip_y:1-state.settings.flip_y});new ResizeObserver(sizeLineNumbers).observe($('wall'));refresh();setInterval(refresh,1000);
+for(const id of ['classic','project'])$(id).onclick=()=>action('/api/settings',{style:id});for(const mode of ['work','free','quiet'])$(mode).onclick=()=>action('/api/mode',{mode});$('coverage').onchange=()=>action('/api/settings',{coverage:$('coverage').value});$('assign').onclick=()=>action('/api/assign',{lines:Object.fromEntries([...selected].map(id=>[id,{project:$('assignProject').value||null}]))});$('clear').onclick=()=>{selected.clear();taskFocus=null;$('selectionTitle').focus({preventScroll:true});drawWall();inspect();highlightAssociations()};$('swap').onclick=()=>action('/api/assign',{lines:Object.fromEntries(state.lines.filter(l=>selected.has(l.id)).map(l=>[l.id,{signature:1-l.signature}]))});$('locate').onclick=()=>action('/api/locate',{line:[...selected][0]});$('rotate').onclick=()=>action('/api/settings',{rotation:(state.settings.rotation+90)%360});$('flipX').onclick=()=>action('/api/settings',{flip_x:1-state.settings.flip_x});$('flipY').onclick=()=>action('/api/settings',{flip_y:1-state.settings.flip_y});new ResizeObserver(sizeLineNumbers).observe($('wall'));refresh();setInterval(refresh,1000);
 </script></body></html>
