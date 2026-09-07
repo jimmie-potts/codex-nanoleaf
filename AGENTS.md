@@ -4,6 +4,10 @@ This repository is the source for a Windows bridge that maps Codex task status t
 
 ## Development
 
+Before shared monitoring, MCP, controller APIs or collector migration, read
+[the hub integration plan](docs/hub-integration.md) for ownership and the
+canonical cross-repository contracts. Shared adoption remains planned.
+
 - Read `README.md` for setup and commands. Before changing lights, task allocation, hooks, or scene handling, read `bridge/README.md` for the existing behavior contract.
 - Run `python3 scripts/check.py` from the repository root after Python changes. On Windows, use `python scripts/check.py`. The suite uses isolated state and must pass without a device or Codex credentials.
 - After changing the map or its API, also run `npm run test:browser`. Use `python3 scripts/demo.py` for manual UI work. It uses synthetic tasks and never sends light requests.
