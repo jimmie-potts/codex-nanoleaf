@@ -102,12 +102,17 @@ module.exports = async function(page, root) {
     await page.evaluate(async () => {while (refreshing) await new Promise(resolve => setTimeout(resolve, 10)); await refresh()});
     assert.match((await page.locator('#readout').textContent()).toLowerCase(), /pending/, 'Readout reports a pending edit');
     // The whole readout, pending state included, stays visible in one 56 px toolbar at common desktop widths.
-    for (const width of [1440, 1310, 1280, 1100]) {
-      await page.setViewportSize({width, height: 1000}); await settle();
-      const fit = await page.evaluate(() => {const r = document.getElementById('readout'); return {clipped: r.scrollWidth > r.clientWidth + 1 || r.scrollHeight > r.clientHeight + 1, header: document.querySelector('header').getBoundingClientRect().height}});
-      assert.equal(fit.clipped, false, `Readout is not truncated at ${width}px`);
-      assert.ok(fit.header <= 60, `Toolbar stays one row at ${width}px`);
+    for (const mode of ['work', 'free']) {
+      pendingSnapshot.mode = mode; await page.evaluate(async () => {while (refreshing) await new Promise(resolve => setTimeout(resolve, 10)); await refresh()});
+      for (const width of [1600, 1536, 1440, 1310, 1280, 1100, 1050]) {
+        await page.setViewportSize({width, height: 1000}); await settle();
+        const fit = await page.evaluate(() => {const r = document.getElementById('readout'); return {clipped: r.scrollWidth > r.clientWidth + 1 || r.scrollHeight > r.clientHeight + 1, header: document.querySelector('header').getBoundingClientRect().height, overflow: document.documentElement.scrollWidth > innerWidth}});
+        assert.equal(fit.clipped, false, `Readout is not truncated at ${width}px in ${mode} with a pending edit`);
+        assert.ok(fit.header <= 60, `Toolbar stays one row at ${width}px in ${mode}`);
+        assert.equal(fit.overflow, false, `No horizontal overflow at ${width}px in ${mode}`);
+      }
     }
+    pendingSnapshot.mode = 'work'; await page.evaluate(async () => {while (refreshing) await new Promise(resolve => setTimeout(resolve, 10)); await refresh()});
     await page.setViewportSize({width: 1440, height: 1000}); await settle();
     const pendingRing = await page.evaluate(() => {const o = document.querySelector('.wall-line.pending .outline'); const s = getComputedStyle(o); return {stroke: s.stroke, dash: s.strokeDasharray, running: o.getAnimations().filter(a => a.playState === 'running').length}});
     assert.equal(pendingRing.stroke, 'rgb(232, 121, 249)', 'Pending ring is magenta');
