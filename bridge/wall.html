@@ -248,6 +248,16 @@
   .wall-line .glow { stroke-width: var(--glow-width); stroke-linecap: round; opacity: var(--glow-opacity); fill: none; }
   .wall-line .zone { stroke-width: 12; stroke-linecap: round; fill: none; filter: var(--wall-filter); }
   .number-tag { cursor: pointer; }
+  .wall-line, .joint, #wall .numbers { transform-box: view-box; }
+  .orb { fill: var(--accent); pointer-events: none; }
+  .orb-halo { fill: var(--accent); opacity: .16; pointer-events: none; }
+  .joint { fill: #ffffff; stroke: var(--accent); stroke-width: 2; opacity: 0; pointer-events: none; }
+  .assembly-prefs { position: relative; }
+  .assembly-prefs > summary { cursor: pointer; list-style: none; padding: 5px 10px; border: 1px solid var(--btn-edge); border-radius: 0 var(--radius) var(--radius) 0; margin-left: -1px; background: var(--btn-bg); font-size: 12px; color: var(--text); }
+  .assembly-prefs > summary::-webkit-details-marker { display: none; }
+  .assembly-prefs[open] > summary { background: var(--btn-hover); }
+  .assembly-prefs > div { position: absolute; right: 0; top: calc(100% + 6px); z-index: 3; min-width: 190px; padding: 10px 12px; background: var(--panel-solid); border: 1px solid var(--edge-strong); border-radius: var(--radius); display: grid; gap: 8px; font-size: 12px; }
+  .assembly-prefs label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
   .number-bg { fill: var(--number-bg); stroke: var(--number-edge); }
   .number { fill: var(--number-ink); font-family: var(--font-num); font-weight: 600; font-variant-numeric: tabular-nums; text-anchor: middle; dominant-baseline: central; pointer-events: all; }
 }
@@ -298,6 +308,7 @@
       <span class="pill" id="wallNote"></span>
       <span class="spacer"></span>
       <div class="group" role="group" aria-label="Map orientation"><button type="button" id="rotate" title="Rotate map 90 degrees">Rotate</button><button type="button" id="flipX">Flip H</button><button type="button" id="flipY">Flip V</button></div>
+      <div class="group" role="group" aria-label="Assembly"><button type="button" id="replay" title="Replay the opening assembly. Decorative only; it changes nothing on the lights.">Replay assembly</button><details class="assembly-prefs"><summary aria-label="Assembly playback settings">Playback</summary><div><label><input type="checkbox" id="assemblyOnOpen"> Play on opening</label><label><input type="checkbox" id="assemblyOnEntry"> Play on view entry</label></div></details></div>
     </div>
     <div id="busy" role="status" aria-live="polite"></div>
     <div class="wall-frame"><svg id="wall" aria-label="Nanoleaf wall map" role="group"></svg></div>
@@ -334,7 +345,7 @@ const statusColors={working:'var(--wall-working)',question:'var(--wall-question)
 const modeNotes={work:['Work · indicators on','Task indicators pulse on the wall at 30% brightness. The on-screen pulse follows task status, not the controller.'],quiet:['Quiet · steady at 10%','Steady task colors without pulses or outward waves.'],free:['Free · lights released','The lights follow the Nanoleaf app. The map shows saved task assignments.']};
 function el(tag,text,cls){const node=document.createElement(tag);if(text!==undefined)node.textContent=text;if(cls)node.className=cls;return node}
 function message(text,error=false){$('notice').textContent=text;$('notice').style.display=text?'block':'none';$('notice').classList.toggle('error',error);if(error)errorUntil=Date.now()+6000}
-async function action(path,payload){try{const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-Wall-Token':token},body:JSON.stringify(payload)});const data=await r.json();if(!r.ok)throw Error(data.error);errorUntil=0;await refresh()}catch(e){message(e.message,true)}}
+async function action(path,payload){endAssembly();try{const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-Wall-Token':token},body:JSON.stringify(payload)});const data=await r.json();if(!r.ok)throw Error(data.error);errorUntil=0;await refresh()}catch(e){message(e.message,true)}}
 function projectName(id){return state.projects.find(p=>p.id===id)?.name||'No project'}
 function choose(id,multi=false){if(!lineById(id))return;if(!multi)selected.clear();if(multi&&selected.has(id))selected.delete(id);else selected.add(id);taskFocus=null;const owners=state.lines.filter(l=>selected.has(l.id)).map(l=>l.project||'');if(owners.length&&owners.every(p=>p===owners[0]))$('assignProject').value=owners[0];drawWall();inspect();highlightAssociations()}
 function selectOptions(select,sharedLabel){const value=select.value;select.replaceChildren();let opt=el('option',sharedLabel);opt.value='';select.append(opt);for(const p of state.projects){opt=el('option',p.name);opt.value=p.id;select.append(opt)}select.value=value}
@@ -404,6 +415,7 @@ function drawProjects(){
 }
 function transform(point){let[x,y]=point;const a=state.settings.rotation*Math.PI/180;return[(x*Math.cos(a)-y*Math.sin(a))*(state.settings.flip_x?-1:1),(x*Math.sin(a)+y*Math.cos(a))*(state.settings.flip_y?-1:1)]}
 function drawWall(){
+  if(assembly.active)return; // the wall waits for the assembly; the rest of the page keeps updating
   const fingerprint=JSON.stringify([state.lines,state.tasks.map(t=>[t.id,t.status,t.project,t.title]),state.projects.map(p=>[p.id,p.name,p.color]),state.settings,state.pending,[...selected]]);
   if(fingerprint===wallFingerprint)return;wallFingerprint=fingerprint;
   const root=$('wall'),focused=root.contains(document.activeElement)?document.activeElement.dataset.line:null;
@@ -411,7 +423,7 @@ function drawWall(){
   const all=state.lines.flatMap(l=>l.points.map(transform)),xs=all.map(p=>p[0]),ys=all.map(p=>p[1]);
   const minX=Math.min(...xs)-55,minY=Math.min(...ys)-55,maxX=Math.max(...xs)+55,maxY=Math.max(...ys)+55;
   root.setAttribute('viewBox',`${minX} ${minY} ${maxX-minX} ${maxY-minY}`);
-  const numbers=document.createElementNS(svgNS,'g');numbers.setAttribute('aria-hidden','true');
+  const numbers=document.createElementNS(svgNS,'g');numbers.setAttribute('aria-hidden','true');numbers.setAttribute('class','numbers');
   const center=[(minX+maxX)/2,(minY+maxY)/2];
   for(const line of state.lines){
     const points=line.points.map(transform),task=lineTask(line);
@@ -450,8 +462,73 @@ function drawWall(){
     tag.onclick=e=>{choose(line.id,e.ctrlKey||e.metaKey||e.shiftKey);[...root.querySelectorAll('.wall-line')].find(node=>node.dataset.line===line.id)?.focus({preventScroll:true})};
     numbers.append(tag);
   }
+  // A decorative orb marks the layout's center. It is not a device and shows no status.
+  const orbGroup=document.createElementNS(svgNS,'g');orbGroup.setAttribute('class','orb-group');orbGroup.setAttribute('aria-hidden','true');
+  for(const [cls,r] of [['orb-halo',28],['orb',11]]){const c=document.createElementNS(svgNS,'circle');c.setAttribute('class',cls);c.setAttribute('cx',center[0]);c.setAttribute('cy',center[1]);c.setAttribute('r',r);orbGroup.append(c)}
+  root.append(orbGroup);
   // Number clicks must win over every Line's transparent hit stroke.
   root.append(numbers);sizeLineNumbers();anchorPulses();
+}
+/* Opening assembly: the structure unfolds outward from the orb. Presentation only; it never writes. */
+const assembly={active:false,animations:[],key:'',seen:false};
+const assemblyPrefs={opening:'wall.assembly.opening',entry:'wall.assembly.entry'};
+function assemblyPref(name){try{return localStorage.getItem(assemblyPrefs[name])!=='0'}catch{return true}}
+function setAssemblyPref(name,on){try{if(on)localStorage.removeItem(assemblyPrefs[name]);else localStorage.setItem(assemblyPrefs[name],'0')}catch{}}
+function geometryKey(){return JSON.stringify([state.lines.map(l=>[l.id,l.points]),state.settings.rotation,state.settings.flip_x,state.settings.flip_y])}
+function reducedMotion(){return !!window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches}
+function playAssembly(reason){
+  if(assembly.active||!state?.lines.length)return false;
+  if(reason==='opening'&&!assemblyPref('opening'))return false;
+  if(reason==='entry'&&!assemblyPref('entry'))return false;
+  if(reducedMotion())return false;
+  wallFingerprint='';drawWall();
+  const root=$('wall'),orb=root.querySelector('.orb'),cx=+orb.getAttribute('cx'),cy=+orb.getAttribute('cy');
+  // Connect Lines whose ends nearly touch, then walk outward from each section's Line nearest the orb.
+  const lines=state.lines.map(l=>({id:l.id,ends:[transform(l.points[0]),transform(l.points[2])]}));
+  const gap=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1]);
+  const adjacent=new Map(lines.map(l=>[l.id,[]]));
+  for(const a of lines)for(const b of lines)if(a!==b&&a.ends.some(e=>b.ends.some(f=>gap(e,f)<=40)))adjacent.get(a.id).push(b);
+  const depth=new Map(),hinge=new Map(),seen=new Set();
+  const toOrb=l=>Math.min(...l.ends.map(e=>gap(e,[cx,cy])));
+  for(const start of [...lines].sort((a,b)=>toOrb(a)-toOrb(b))){
+    if(seen.has(start.id))continue;seen.add(start.id);
+    const queue=[[start,0,[[cx,cy]]]];
+    while(queue.length){
+      const [line,d,from]=queue.shift();depth.set(line.id,d);
+      const h=line.ends.reduce((best,e)=>Math.min(...from.map(f=>gap(e,f)))<Math.min(...from.map(f=>gap(best,f)))?e:best);
+      hinge.set(line.id,h);
+      for(const next of adjacent.get(line.id))if(!seen.has(next.id)){seen.add(next.id);queue.push([next,d+1,line.ends])}
+    }
+  }
+  const maxDepth=Math.max(0,...depth.values()),step=Math.min(240,1200/Math.max(1,maxDepth)),duration=520,total=250+maxDepth*step+duration+320;
+  const animations=[];
+  for(const node of root.querySelectorAll('.orb-group circle'))animations.push(node.animate([{opacity:0},{opacity:getComputedStyle(node).opacity}],{duration:300,fill:'both',id:'assembly'}));
+  const joints=document.createElementNS(svgNS,'g');joints.setAttribute('class','joints');joints.setAttribute('aria-hidden','true');
+  for(const line of lines){
+    const group=root.querySelector(`[data-line="${line.id}"]`),h=hinge.get(line.id),d=depth.get(line.id),far=line.ends[0]===h?line.ends[1]:line.ends[0];
+    // Fold the Line back toward the orb around its hinge, then swing it out to its true angle.
+    const toFar=Math.atan2(far[1]-h[1],far[0]-h[0]),toOrbAngle=Math.atan2(cy-h[1],cx-h[0]);
+    let fold=(toOrbAngle-toFar)*180/Math.PI;fold=((fold+540)%360)-180;if(Math.abs(fold)<25)fold=fold<0?-70:70;fold*=.85;
+    const delay=250+d*step;
+    group.style.transformOrigin=`${h[0]}px ${h[1]}px`;
+    animations.push(group.animate([{transform:`rotate(${fold}deg)`,opacity:0},{transform:`rotate(${fold*.45}deg)`,opacity:1,offset:.3},{transform:'rotate(0deg)',opacity:1}],{duration,delay,easing:'cubic-bezier(.2,.8,.3,1.05)',fill:'both',id:'assembly'}));
+    const joint=document.createElementNS(svgNS,'circle');joint.setAttribute('class','joint');joint.setAttribute('cx',h[0]);joint.setAttribute('cy',h[1]);joint.setAttribute('r',9);joint.style.transformOrigin=`${h[0]}px ${h[1]}px`;joints.append(joint);
+    animations.push(joint.animate([{opacity:0,transform:'scale(.4)'},{opacity:1,transform:'scale(1.2)',offset:.4},{opacity:0,transform:'scale(1.7)'}],{duration:380,delay:delay+duration-120,fill:'both',id:'assembly'}));
+  }
+  root.insertBefore(joints,root.querySelector('.numbers'));
+  animations.push(root.querySelector('.numbers').animate([{opacity:0},{opacity:0,offset:Math.max(0,1-320/total)},{opacity:1}],{duration:total,fill:'both',id:'assembly'}));
+  assembly.active=true;assembly.animations=animations;assembly.key=geometryKey();root.classList.add('assembling');
+  Promise.all(animations.map(a=>a.finished.catch(()=>{}))).then(()=>{if(assembly.active&&assembly.animations===animations)endAssembly()});
+  return true;
+}
+function endAssembly(){
+  if(!assembly.active)return;
+  for(const a of assembly.animations){try{a.finish()}catch{}a.cancel()}
+  assembly.active=false;assembly.animations=[];
+  const root=$('wall');root.classList.remove('assembling');root.querySelector('.joints')?.remove();
+  for(const group of root.querySelectorAll('.wall-line'))group.style.transformOrigin='';
+  // Redraw on the next tick so an interrupting click still lands on the node it pressed.
+  wallFingerprint='';setTimeout(()=>{if(!assembly.active)drawWall()},0);anchorPulses();
 }
 function anchorPulses(){
   // Every pulse shares the document timeline's phase, so rebuilds and mode changes never restart it.
@@ -565,7 +642,9 @@ function render(){
   $('coverage').value=state.settings.coverage;$('coverage').disabled=state.settings.style==='classic';
   $('flipX').setAttribute('aria-pressed',String(!!state.settings.flip_x));$('flipY').setAttribute('aria-pressed',String(!!state.settings.flip_y));
   $('lineCount').textContent=state.lines.length+' Lines';$('taskCount').textContent=state.tasks.length;
+  if(assembly.active&&geometryKey()!==assembly.key)endAssembly();
   drawProjects();drawWall();inspect();drawTasks();highlightAssociations();anchorPulses();
+  if(!assembly.seen&&state.lines.length){assembly.seen=true;playAssembly('opening')}
   const busy=state.pending?pendingText():state.mode_pending?'Mode change pending.':'';if($('busy').textContent!==busy)$('busy').textContent=busy;
   const [note,detail]=modeNotes[state.mode]||['',''];
   $('wallNote').textContent=state.mode!=='free'&&!state.tasks.length?note.split(' · ')[0]+' · scene playing':note;
@@ -586,7 +665,12 @@ function readout(){
   const node=$('readout');node.replaceChildren();
   parts.forEach(([text,strong],i)=>{if(i)node.append(' · ');node.append(strong?el('b',text):text)});
 }
-async function refresh(){if(refreshing)return;refreshing=true;try{const r=await fetch('/api/state');const data=await r.json();if(!r.ok)throw Error(data.error);state=data;render()}catch(e){$('connection').textContent='Disconnected · retrying';$('connection').classList.add('offline');message(e.message,true)}finally{refreshing=false}}
+async function refresh(){if(refreshing)return;refreshing=true;try{const r=await fetch('/api/state');const data=await r.json();if(!r.ok)throw Error(data.error);state=data;render()}catch(e){endAssembly();$('connection').textContent='Disconnected · retrying';$('connection').classList.add('offline');message(e.message,true)}finally{refreshing=false}}
 for(const id of ['classic','project'])$(id).onclick=()=>action('/api/settings',{style:id});for(const mode of ['work','free','quiet'])$(mode).onclick=()=>action('/api/mode',{mode});$('coverage').onchange=()=>action('/api/settings',{coverage:$('coverage').value});$('assign').onclick=()=>action('/api/assign',{lines:Object.fromEntries([...selected].map(id=>[id,{project:$('assignProject').value||null}]))});$('clear').onclick=()=>{selected.clear();taskFocus=null;$('selectionTitle').focus({preventScroll:true});drawWall();inspect();highlightAssociations()};$('swap').onclick=()=>action('/api/assign',{lines:Object.fromEntries(state.lines.filter(l=>selected.has(l.id)).map(l=>[l.id,{signature:1-l.signature}]))});$('locate').onclick=()=>{const id=[...selected][0],group=$('wall').querySelector(`[data-line="${id}"]`);if(group){group.classList.remove('locating');void group.getBBox();group.classList.add('locating');setTimeout(()=>group.classList.remove('locating'),1000)}action('/api/locate',{line:id})};$('rotate').onclick=()=>action('/api/settings',{rotation:(state.settings.rotation+90)%360});$('flipX').onclick=()=>action('/api/settings',{flip_x:1-state.settings.flip_x});$('flipY').onclick=()=>action('/api/settings',{flip_y:1-state.settings.flip_y});new ResizeObserver(sizeLineNumbers).observe($('wall'));refresh();setInterval(refresh,1000);
 window.matchMedia?.('(prefers-reduced-motion: reduce)')?.addEventListener('change',()=>requestAnimationFrame(anchorPulses));
+// Assembly controls. Any other interaction completes a running assembly before its own action.
+$('replay').onclick=()=>playAssembly('replay');
+for(const [id,name] of [['assemblyOnOpen','opening'],['assemblyOnEntry','entry']]){$(id).checked=assemblyPref(name);$(id).onchange=()=>setAssemblyPref(name,$(id).checked)}
+for(const type of ['pointerdown','keydown'])document.addEventListener(type,e=>{if(assembly.active&&!e.target.closest?.('#replay,.assembly-prefs'))endAssembly()},true);
+window.wallAssembly={play:playAssembly,active:()=>assembly.active};
 </script></body></html>

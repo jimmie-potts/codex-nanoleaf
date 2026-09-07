@@ -112,10 +112,10 @@ module.exports = async function(page, root) {
     const snapshot = await page.evaluate(() => structuredClone(state));
     const rotated = structuredClone(snapshot); rotated.settings.rotation = 90;
     const route = request => request.fulfill({json: rotated});
+    await page.locator('#replay').click();
+    assert.ok(await running() > 0, 'Assembly is running before the geometry changes');
     await page.route('**/api/state', route);
     try {
-      await page.locator('#replay').click(); await page.waitForTimeout(150);
-      assert.ok(await running() > 0);
       await refresh(); await settle();
       assert.equal(await running(), 0, 'A geometry change ends assembly immediately');
       assert.equal(await page.evaluate(() => state.settings.rotation), 90);
@@ -124,10 +124,10 @@ module.exports = async function(page, root) {
     } finally {await page.unroute('**/api/state', route)}
     await refresh(); await untilIdle();
     const failing = request => request.fulfill({status: 503, json: {error: 'Local map status unavailable. Retrying shortly.'}});
+    await page.locator('#replay').click();
+    assert.ok(await running() > 0, 'Assembly is running before the connection fails');
     await page.route('**/api/state', failing);
     try {
-      await page.locator('#replay').click(); await page.waitForTimeout(150);
-      assert.ok(await running() > 0);
       await refresh(); await settle();
       assert.equal(await running(), 0, 'A connection failure ends assembly immediately');
       assert.match(await page.locator('#connection').textContent(), /Disconnected/);

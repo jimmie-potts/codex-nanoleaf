@@ -28,6 +28,18 @@ and is never presented as a mirror of controller frames; exact mirroring belongs
 to the authoritative rendering work in issues #15 and #17. Presentation sends no
 light requests and changes no task, assignment, epoch, or scene state.
 
+### Addendum (2026-09-07): opening assembly
+
+Issue #38 adds a decorative orb at the layout's bounding-box center and a
+two-second opening assembly in which Lines unfold outward from it through hinged
+rotation, with joints glowing as they settle. The orb represents neither a device
+nor status. Playback on opening and on view entry are browser-local preferences,
+both on by default, with a manual Replay; nothing else triggers it. Any
+interaction completes it, reduced motion skips it, a geometry change or lost
+connection ends it, and it sends no requests and alters no task, assignment,
+unread, scene, or pulse state. It is a presentation flourish kept apart from
+physical effects, celebrations, and status animations.
+
 ## Consequences
 
 The page matches the product it controls and the tray icon. Motion is confined

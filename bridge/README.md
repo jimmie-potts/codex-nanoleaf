@@ -85,7 +85,14 @@ Lines, with both zones drawn separately, in a neon HUD style that uses only Wind
 system fonts. It updates once a second. In Work, Lines with a task pulse on screen
 on a two-second rhythm like the lights'; Quiet shows them steady with a fainter
 halo, and Free dims the wall. A toolbar readout names the mode and counts Lines,
-tasks, blocked and question alerts, and pending edits. The
+tasks, blocked and question alerts, and pending edits. When the map opens, its
+structure unfolds outward from a decorative orb at the layout's center in a
+two-second assembly; **Replay assembly** plays it again, and the **Playback**
+menu beside it holds two browser-local switches for playing on opening and on
+entering the map. Any click or key completes the assembly at once, reduced-motion
+settings skip it, and it never touches the lights or task state. The
+[wall assembly specification](../openspec/specs/wall-assembly-animation/spec.md)
+owns that behavior. The
 [wall Line identification specification](../openspec/specs/wall-line-identification/spec.md)
 defines numbered project/task badges, Shared pool identification, selection,
 pending labels, and the explicit Locate boundary. After selecting Lines, choose
