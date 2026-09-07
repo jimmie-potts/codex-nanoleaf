@@ -69,7 +69,7 @@ module.exports = async function(page, root) {
   });
   await check('AC7: number tags never overlap; Rotate and Flip stay on one row at 390px', async () => {
   for (const width of [1440, 800, 390]) {
-    await page.setViewportSize({width, height: width === 390 ? 844 : 1000}); await settle();
+    await page.setViewportSize({width, height: width === 1440 ? 1000 : 844}); await settle();
     const overlaps = await page.locator('#wall .number').evaluateAll(nodes => {
       const boxes = nodes.map(node => [node.textContent, node.getBoundingClientRect()]), hits = [];
       for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
