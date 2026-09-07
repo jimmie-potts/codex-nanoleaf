@@ -1,0 +1,24 @@
+{
+  "name": "@jimmie-potts/nanoleaf-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test tests/*.test.mjs",
+    "start": "node dist/main.js",
+    "verify": "node scripts/verify.mjs"
+  },
+  "dependencies": {
+    "@jimmie-potts/device-mcp": "file:../vendor/jimmie-potts-device-mcp-1.0.0.tgz",
+    "@jimmie-potts/device-contracts": "file:../bridge/vendor/device-contracts-1.0.0/jimmie-potts-device-contracts-1.0.0.tgz"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.3",
+    "typescript": "5.9.3"
+  }
+}

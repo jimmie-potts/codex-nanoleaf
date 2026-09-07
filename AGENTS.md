@@ -7,7 +7,7 @@ This repository is the source for a Windows bridge that maps Codex task status t
 Before shared monitoring, MCP, controller APIs or collector migration, read
 [the hub integration plan](docs/hub-integration.md) for ownership and the
 canonical cross-repository contracts. The optional machine API adopts the shared
-controller contract; MCP bindings and shared monitoring remain planned. Before
+controller contract; Local MCP bindings adopt the shared module; shared monitoring remains planned. Read [the local MCP guide](docs/local-mcp.md) before changing that optional host. Before
 controller API or credential changes, read [the controller API guide](docs/controller-api.md).
 
 - Read `README.md` for setup and commands. Before changing lights, task allocation, hooks, or scene handling, read `bridge/README.md` for the existing behavior contract.
