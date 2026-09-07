@@ -31,10 +31,11 @@ module.exports = async function(page, root) {
     const ids = await page.locator('.wall-line').evaluateAll(nodes => nodes.map(node => node.dataset.line));
     const before = await page.evaluate(() => document.timeline.currentTime % 2000);
     await page.locator(`[data-line="${ids[0]}"]`).click(); await settle();
-    // The pulse's active time is its current time minus the negative delay that set its phase.
-    const [pageNow, animTime] = await page.evaluate(() => {const a = document.querySelector('.wall-line[data-status] .glow').getAnimations()[0]; return [document.timeline.currentTime % 2000, ((a.currentTime - a.effect.getTiming().delay) % 2000 + 2000) % 2000]});
+    // Pulses are anchored to the document timeline, so their current time is the page time exactly.
+    const [pageNow, animTime, coreRunning] = await page.evaluate(() => {const line = document.querySelector('.wall-line[data-status]'); const a = line.querySelector('.glow').getAnimations()[0]; return [document.timeline.currentTime % 2000, ((a.currentTime - a.effect.getTiming().delay) % 2000 + 2000) % 2000, line.querySelector('.zone').getAnimations().filter(x => x.playState === 'running').map(x => x.animationName)]});
     const skew = Math.abs(((pageNow - animTime) % 2000 + 2000) % 2000);
-    assert.ok(Math.min(skew, 2000 - skew) <= 50, `Rebuilt pulse phase within 50 ms of the page phase (skew ${skew.toFixed(1)} ms; page phase before click ${before.toFixed(0)})`);
+    assert.ok(Math.min(skew, 2000 - skew) <= 5, `Rebuilt pulse phase matches the page phase (skew ${skew.toFixed(1)} ms; page phase before click ${before.toFixed(0)})`);
+    assert.ok(coreRunning.includes('pulseCore'), 'The core stroke pulses too');
     await page.locator('#clear').click();
   });
 
@@ -52,7 +53,8 @@ module.exports = async function(page, root) {
     await setMode('quiet');
     const quiet = await halo('.glow');
     assert.equal(quiet.running.length, 0, 'No running animation in Quiet');
-    assert.ok(quiet.opacity < work.opacity || work.running.length > 0, 'Quiet halo is fainter than Work');
+    const workStatic = await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--glow-opacity')));
+    assert.ok(quiet.opacity < workStatic, `Quiet halo (${quiet.opacity}) is fainter than the Work halo (${workStatic})`);
     assert.equal(await allAnimations(), 0, 'No wall animation at all in Quiet');
     await setMode('free');
     assert.notEqual(await page.locator('#wall').evaluate(node => getComputedStyle(node).filter), 'none', 'Free filters the wall');
@@ -66,11 +68,20 @@ module.exports = async function(page, root) {
     try {
       assert.equal(await allAnimations(), 0, 'No running wall animation under reduced motion in Work');
       const workHalo = (await halo('.glow')).opacity;
+      const ids = await page.locator('.wall-line').evaluateAll(nodes => nodes.map(node => node.dataset.line));
+      await page.locator(`[data-line="${ids[1]}"]`).click(); await settle();
+      assert.equal(await allAnimations(), 0, 'The selection ring is static under reduced motion');
+      await page.locator('#locate').click(); await page.waitForTimeout(250); // stroke transition settles
+      const locating = await page.evaluate(id => {const o = document.querySelector(`[data-line="${id}"] .outline`); return {stroke: getComputedStyle(o).stroke, width: parseFloat(getComputedStyle(o).strokeWidth)}}, ids[1]);
+      assert.equal(locating.stroke, 'rgb(255, 255, 255)', 'Locate still shows static on-screen feedback under reduced motion');
+      await page.waitForTimeout(1100); await page.locator('#clear').click();
       await setMode('quiet');
       const quietHalo = (await halo('.glow')).opacity;
       assert.ok(workHalo > quietHalo, `Static Work halo (${workHalo}) is stronger than Quiet (${quietHalo})`);
-      await setMode('work');
-    } finally {await page.emulateMedia({reducedMotion: 'no-preference'}); await settle()}
+      assert.equal(await allAnimations(), 0, 'No wall animation in Quiet under reduced motion');
+      await setMode('free');
+      assert.equal(await allAnimations(), 0, 'No wall animation in Free under reduced motion');
+    } finally {await page.emulateMedia({reducedMotion: 'no-preference'}); await setMode('work')}
   });
 
   await check('AC7: the readout follows state counts', async () => {
@@ -79,12 +90,30 @@ module.exports = async function(page, root) {
     assert.match(text, /work/, 'Readout names the mode');
     assert.match(text, new RegExp(`${expected.lines} lines`), 'Readout names the Line count');
     assert.match(text, new RegExp(`${expected.tasks} tasks`), 'Readout names the task count');
-    assert.match(text, new RegExp(`${expected.blocked} blocked`), 'Readout names the blocked count');
-    assert.match(text, new RegExp(`${expected.question} question`), 'Readout names the question count');
+    assert.match(text, new RegExp(`(^|· )${expected.blocked} blocked`), 'Readout names the blocked count');
+    assert.match(text, new RegExp(`(^|· )${expected.question} question`), 'Readout names the question count');
     assert.doesNotMatch(text, /pending/, 'No pending edit reported when none exists');
-    await page.evaluate(() => {state.pending = {settings: {}, lines: {[state.lines[0].id]: {project: 'a'}}, tasks: {}}; render()});
+    // Hold a pending edit in the polled state for the rest of this check.
+    const pendingSnapshot = await page.evaluate(() => structuredClone(state));
+    pendingSnapshot.pending = {settings: {}, lines: {[pendingSnapshot.lines[0].id]: {project: 'a'}}, tasks: {}};
+    const pendingRoute = request => request.fulfill({json: pendingSnapshot});
+    await page.route('**/api/state', pendingRoute);
+    try {
+    await page.evaluate(async () => {while (refreshing) await new Promise(resolve => setTimeout(resolve, 10)); await refresh()});
     assert.match((await page.locator('#readout').textContent()).toLowerCase(), /pending/, 'Readout reports a pending edit');
-    await page.evaluate(() => refresh());
+    // The whole readout, pending state included, stays visible in one 56 px toolbar at common desktop widths.
+    for (const width of [1440, 1280, 1100]) {
+      await page.setViewportSize({width, height: 1000}); await settle();
+      const fit = await page.evaluate(() => {const r = document.getElementById('readout'); return {clipped: r.scrollWidth > r.clientWidth + 1 || r.scrollHeight > r.clientHeight + 1, header: document.querySelector('header').getBoundingClientRect().height}});
+      assert.equal(fit.clipped, false, `Readout is not truncated at ${width}px`);
+      assert.ok(fit.header <= 60, `Toolbar stays one row at ${width}px`);
+    }
+    await page.setViewportSize({width: 1440, height: 1000}); await settle();
+    const pendingRing = await page.evaluate(() => {const o = document.querySelector('.wall-line.pending .outline'); const s = getComputedStyle(o); return {stroke: s.stroke, dash: s.strokeDasharray, running: o.getAnimations().filter(a => a.playState === 'running').length}});
+    assert.equal(pendingRing.stroke, 'rgb(232, 121, 249)', 'Pending ring is magenta');
+    assert.notEqual(pendingRing.dash, 'none', 'Pending ring is dashed');
+    assert.equal(pendingRing.running, 0, 'Pending ring does not march');
+    } finally {await page.unroute('**/api/state', pendingRoute); await page.evaluate(() => refresh())}
   });
 
   await check('AC5: watching and selecting the wall sends no write requests', async () => {
