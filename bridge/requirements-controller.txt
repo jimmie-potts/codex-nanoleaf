@@ -1,0 +1,7 @@
+# Optional listener dependency; legacy bridge startup remains standard-library only.
+jsonschema==4.19.2
+attrs==25.4.0
+jsonschema-specifications==2023.12.1
+referencing==0.36.2
+rpds-py==0.27.1
+typing-extensions==4.15.0

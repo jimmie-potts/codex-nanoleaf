@@ -1,0 +1,25 @@
+{
+  "artifact": "@jimmie-potts/device-contracts",
+  "version": "1.0.0",
+  "apiVersion": "1.0",
+  "schemaDraft": "2020-12",
+  "fixtureFormat": 1,
+  "files": {
+    "dist/index.d.ts": "8dbae380749bf8609683ec75aa5dbe9a72b3281e1d0a6551415c88ac403c7344",
+    "dist/index.js": "9d409097c591918494433f5cb7eec2c346e6565e4849c0fbf205304a53c5e168",
+    "dist/types.d.ts": "287d0fc61c55b14da5f24a1638c08c6c3aa7279f68982737650b9b230820b2e3",
+    "dist/types.js": "8e609bb71c20b858c77f0e9f90bb1319db8477b13f9f965f1a1e18524bf50881",
+    "fixtures/controller-v1.json": "67d0dd808850e887b62eab6fd7412c99b4bba992fba3e7f6b9cf7c69af7c5976",
+    "package.json": "b6ebd300f77e98a7d936f7f27580bff7ebc384fe8b0b16a88355ca6ba3716c0b",
+    "python/agent_device_hub_contracts/__init__.py": "c9b791d9d054d03feb19fb5fb01fc335f353b9e19e02c0a85b32d05389ccb65c",
+    "README.md": "3cfa5bfdd74ebc5399304785b119ff1006739296688226bfbcb03e0ff92b374c",
+    "requirements-contracts.txt": "49026b67905a6c42bd426e6f8b3d2d08dc24ec6fe51cb2f706aea0a3fb5f8e08",
+    "schemas/controller-v1.schema.json": "ce5835782c18549da6bb2706be51d3b3d3bccda357a3d7c4be7d3f0c12f4ab8b",
+    "src/index.ts": "3eb7e3c4c6981e6b2d05ec92ff8519524101a42f171ba386f65427fd8c1601b0",
+    "src/types.ts": "8543fb5b8b540324ede220cc50d2aa3948d6dec5c0bbb85c19aa31833fbf2938",
+    "tests/contracts.test.mjs": "2bcf9296e4c43237fcc986c6e8a3e49aceb70dbfe7ecf1e975538adaf5d541fd",
+    "tests/regressions.test.mjs": "f35d7c22182c5d7f9a54a0f1bcc394f7c4420d42f5565c9d39840ed40db4e03b",
+    "tests/test_contracts.py": "265ca51dbab979e2c96f43fb4b95e0df49dfb774d9dc01d493fbd839707814d6",
+    "tests/test_regressions.py": "f8c2a35ba98109cdcefa23c8886ecfa5f7adc35c8577b3353d6b98d54fabf615"
+  }
+}

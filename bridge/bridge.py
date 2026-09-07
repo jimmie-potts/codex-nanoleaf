@@ -320,8 +320,9 @@ def effect_payload(config, snapshot, instant, loop):
 
 
 def render(config, snapshot, instant, loop):
-    light_request(config, 'PUT', '/effects', effect_payload(config, snapshot, instant, loop))
-    light_request(config, 'PUT', '/state', {'on': {'value': True},
+    request = config.get('_controller_request', light_request)
+    request(config, 'PUT', '/effects', effect_payload(config, snapshot, instant, loop))
+    request(config, 'PUT', '/state', {'on': {'value': True},
                                            'brightness': {'value': 10 if config.get('_mode') == 'quiet' else 30, 'duration': 0}})
 
 
@@ -468,24 +469,34 @@ def control_state(db):
             'error': meta.get('control_error')}
 
 
+def change_mode(db, mode, instant, notify=True):
+    import controller_state
+    state = control_state(db)
+    if state['mode'] != mode:
+        values = {'mode': mode, 'mode_revision': str(state['revision'] + 1)}
+        if mode == 'work':
+            values['wave_cutoff'] = str(instant)
+        db.executemany('INSERT OR REPLACE INTO meta VALUES (?, ?)', values.items())
+        db.execute("DELETE FROM meta WHERE key='preview'")
+        db.execute('DELETE FROM comets')
+        db.execute('DELETE FROM locate')
+        mark_dirty(db)
+        if notify:
+            controller_state.changed(db, mode=True)
+        return True
+    if notify:
+        controller_state.changed(db, mode=True)
+    return state['revision'] != state['applied'] or bool(state['error'])
+
+
 def set_mode(directory, mode, launch=None, now=time.time):
     if mode not in MODES:
         raise ValueError('Unknown lighting mode.')
     with contextlib.closing(connect_state(directory)) as db, db:
         db.execute('BEGIN IMMEDIATE')
-        state = control_state(db)
-        if state['mode'] != mode:
-            values = {'mode': mode, 'mode_revision': str(state['revision'] + 1)}
-            if mode == 'work':
-                values['wave_cutoff'] = str(now())
-            db.executemany('INSERT OR REPLACE INTO meta VALUES (?, ?)', values.items())
-            db.execute("DELETE FROM meta WHERE key='preview'")
-            db.execute('DELETE FROM comets')
-            db.execute('DELETE FROM locate')
-            mark_dirty(db)
-        elif state['revision'] == state['applied'] and not state['error']:
-            return
-    (launch or launch_worker)(directory)
+        needed = change_mode(db, mode, now())
+    if needed:
+        (launch or launch_worker)(directory)
 
 
 def get_status(directory):
@@ -681,16 +692,34 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
             if error.sqlite_errorcode == sqlite3.SQLITE_BUSY:
                 return
             raise
+        import controller_state
+        with contextlib.closing(connect_state(directory)) as db, db:
+            db.execute('BEGIN IMMEDIATE')
+            controller_state.recover(db, attempts=True)
+            if controller_state.held(db, control_state(db)['revision']):
+                return
         config = load_config(directory)
         read_unread = read_unread or unread_reader(config)
         scenes = scene_factory(directory, config) if scene_factory else None
         metadata = wall.Metadata(directory, config)
         sender = send or (scenes.send if scenes else render)
+        active_execution = [None]
+        request = scenes.request if scenes else light_request
+        def controller_request(*args, **kwargs):
+            execution = active_execution[0]
+            if execution is not None and args[1] != 'GET':
+                return execution.call(request, *args, **kwargs)
+            return request(*args, **kwargs)
+        config['_controller_request'] = controller_request
+        if scenes:
+            scenes.request = controller_request
         while True:
             metadata.refresh()
             with contextlib.closing(connect_state(directory)) as db, db:
                 if metadata.sync(db): mark_dirty(db)
                 control = control_state(db)
+                if controller_state.held(db, control['revision']):
+                    return
             mode = control['mode']
             pending_mode = control['revision'] != control['applied']
             config.update(_mode=mode, _wave_cutoff=control['wave_cutoff'])
@@ -747,12 +776,26 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
                 if pending_mode or (scenes and mode != 'free' and
                         (external_scene or (bool(any(snapshot) or config['_comet'] or config['_locate']) or mode == 'quiet') != scenes.state['owned'])):
                     db.execute('DELETE FROM display_v3')
-                if mode == 'free':
-                    if pending_mode:
-                        sender(config, [None] * len(snapshot), started, True)
-                    db.execute('DELETE FROM display_v3')
-                else:
-                    update_display(db, config, snapshot, started, loop, sender)
+                execution = controller_state.Execution(db, control['revision'])
+                active_execution[0] = execution
+                def guarded_sender(*args):
+                    return execution.call(sender, *args) if send else sender(*args)
+                try:
+                    if mode == 'free':
+                        if pending_mode:
+                            guarded_sender(config, [None] * len(snapshot), started, True)
+                        db.execute('DELETE FROM display_v3')
+                    else:
+                        update_display(db, config, snapshot, started, loop, guarded_sender)
+                    execution.complete()
+                except controller_state.Cancelled:
+                    db.commit()
+                    continue
+                finally:
+                    active_execution[0] = None
+                # A concurrent decision can commit between journaled sends.
+                if control_state(db)['revision'] != control['revision']:
+                    continue
                 db.execute("INSERT OR REPLACE INTO meta VALUES ('mode_applied', ?)", (str(control['revision']),))
                 db.execute("DELETE FROM meta WHERE key IN ('dirty','control_error')")
                 watching = (bool(db.execute('SELECT 1 FROM receipts LIMIT 1').fetchone()) or
@@ -906,7 +949,8 @@ def setup(args):
     write_json(config_file, config)
     installed_script = directory / 'bridge.py'
     if Path(__file__).resolve() != installed_script.resolve():
-        for name in ('project_map.py', 'wall_server.py', 'wall.html', 'tray.ps1', 'remove-modes.ps1', 'install-modes.ps1', 'backup_install.py', 'README.md'):
+        shutil.copytree(Path(__file__).parent / 'vendor', directory / 'vendor', dirs_exist_ok=True)
+        for name in ('project_map.py', 'wall_server.py', 'wall.html', 'tray.ps1', 'remove-modes.ps1', 'install-modes.ps1', 'backup_install.py', 'controller_state.py', 'controller_server.py', 'controller_contract.py', 'requirements-controller.txt', 'README.md'):
             shutil.copyfile(Path(__file__).with_name(name), directory / name)
         shutil.copyfile(__file__, installed_script)
     codex_dir.mkdir(parents=True, exist_ok=True)
@@ -936,7 +980,7 @@ def main():
     # Windows and WSL SQLite locks on the same mounted file do not exclude
     # each other. Installed WSL hooks delegate before opening any state files,
     # so all live state writes and workers use Windows Python and its locks.
-    if os.name != 'nt' and sys.argv[1:2] and sys.argv[1] in ('hook', 'worker', 'setup', 'mode', 'status', 'tray', 'map', 'serve', 'style', 'map-status'):
+    if os.name != 'nt' and sys.argv[1:2] and sys.argv[1] in ('hook', 'worker', 'setup', 'mode', 'status', 'tray', 'map', 'serve', 'style', 'map-status', 'controller-configure', 'controller-token', 'controller-revoke', 'controller-serve', 'controller-status', 'controller-disable'):
         installed = Path(__file__).resolve()
         if installed.parent.name == 'CodexNanoleaf' and installed.parent.parent.name == 'Local':
             account = installed.parent.parents[2]
@@ -949,6 +993,9 @@ def main():
             command = [str(runtime), windows_path(str(installed)),
                        *(windows_path(arg) for arg in sys.argv[1:])]
             raise SystemExit(subprocess.call(command))
+    if sys.argv[1:2] and sys.argv[1].startswith('controller-'):
+        import controller_server
+        return controller_server.command(sys.argv[1:], sys.modules[__name__])
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('mode', choices=['setup', 'hook', 'worker', 'mode', 'status', 'tray', 'map', 'serve', 'style', 'map-status'])
     parser.add_argument('--state-dir', type=Path, help=argparse.SUPPRESS)

@@ -91,6 +91,8 @@ class App:
                 db.execute('INSERT OR REPLACE INTO locate VALUES (1,?,NULL)',(payload['line'],))
             else: raise ValueError('Unknown action.')
             if patch: wall.request_patch(db,patch,self.config)
+            import controller_state
+            controller_state.changed(db)
             self.b.mark_dirty(db)
         self.launch(self.directory)
         return {'ok':True}

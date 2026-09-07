@@ -118,3 +118,7 @@ The geometry fixture retains the tested arrangement with arbitrary panel IDs. It
 ## Source import evidence
 
 The starting implementation passed 100 tests in WSL and Windows. Prior physical readback covered split zones, overflow, both animation coverage choices, deferred comet edits, Quiet Locate, and scene restoration. Those historical results are context for the import. CI and new local runs provide evidence for later commits.
+
+## Optional controller development
+
+For controller API fixtures, install the pinned source dependencies with `python -m pip install -r requirements-controller.txt`, then run the normal Python suite. The listener imports the verified shared Python consumer; legacy commands remain usable without these packages. Run the existing browser and workflow checks for API/OPSX changes. See [the controller guide](controller-api.md) for the immutable release receipt, source-only activation commands and separate installation/physical acceptance boundary.
