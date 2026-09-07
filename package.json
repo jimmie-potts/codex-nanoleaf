@@ -7,7 +7,8 @@
     "test:browser": "node scripts/test-browser.cjs",
     "openspec": "node scripts/openspec.cjs",
     "check:workflow": "node scripts/check-workflow.cjs",
-    "test:workflow": "node --test tests/workflow_checks.cjs"
+    "test:workflow": "node --test tests/workflow_checks.cjs",
+    "test:mcp": "npm --prefix mcp run verify && npm --prefix mcp test && npm --prefix mcp run typecheck"
   },
   "engines": {
     "node": ">=22"

@@ -37,3 +37,5 @@ CLAUDE.local.md
 .claude/agent-memory-local/
 .DS_Store
 Thumbs.db
+
+mcp/dist/

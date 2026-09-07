@@ -1,0 +1,20 @@
+{
+  "artifact": "@jimmie-potts/device-mcp",
+  "version": "1.0.0",
+  "sourceRevision": "06c9c504a107cc04093c34500dadbbc6082679d2",
+  "reviewedHead": "02609fcb71cb4af9149064b2872ee44382fddfad",
+  "sha256": "03f1ec51ffe5aa576799ea756dc65c0d47285e1e321fce20dc9241029196eb62",
+  "filename": "jimmie-potts-device-mcp-1.0.0.tgz",
+  "pr": "https://github.com/jimmie-potts/agent-device-hub/pull/29",
+  "tag": "device-mcp-v1.0.0",
+  "protocolVersions": [
+    "2025-11-25",
+    "2025-06-18"
+  ],
+  "sdk": {
+    "name": "@modelcontextprotocol/sdk",
+    "version": "1.30.0",
+    "license": "MIT"
+  },
+  "validation": "User-authorized local Linux/Windows Node24 and Python3.12/3.14 matrix replaces hosted PR and main Actions for this delivery."
+}

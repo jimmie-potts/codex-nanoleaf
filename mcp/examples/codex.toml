@@ -1,0 +1,5 @@
+# Template only. Provision a dedicated machine token outside Git during #34.
+[mcp_servers.nanoleaf]
+url = "http://127.0.0.1:41230/mcp"
+bearer_token_env_var = "NANOLEAF_MCP_TOKEN"
+enabled = true

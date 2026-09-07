@@ -80,3 +80,5 @@ Credentials, hook configuration, live databases, task metadata, scene preference
 [The hub integration plan](docs/hub-integration.md) records shared contracts,
 an opt-in session consumer and a future unified overview. The Windows worker and
 current installation remain unchanged. GitHub issues own the migration prerequisites.
+
+The optional [local MCP host](docs/local-mcp.md) supports Windows and WSL through the protected controller. Source delivery and separately authorized installed-client/light acceptance remain distinct.
