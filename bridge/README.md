@@ -81,7 +81,11 @@ returns with the scene.
 ## Project signatures and wall map
 
 Choose **Open wall map** from the tray. The map shows the controller's 15 physical
-Lines, with both zones drawn separately. It updates once a second. The
+Lines, with both zones drawn separately, in a neon HUD style that uses only Windows
+system fonts. It updates once a second. In Work, Lines with a task pulse on screen
+on a two-second rhythm like the lights'; Quiet shows them steady with a fainter
+halo, and Free dims the wall. A toolbar readout names the mode and counts Lines,
+tasks, blocked and question alerts, and pending edits. The
 [wall Line identification specification](../openspec/specs/wall-line-identification/spec.md)
 defines numbered project/task badges, Shared pool identification, selection,
 pending labels, and the explicit Locate boundary. After selecting Lines, choose
@@ -121,8 +125,11 @@ end. Line reservations use physical panel IDs rather than map order.
 
 The inspector shows task title, status, project, and time since the current turn
 started. Older tasks with no observed start time show "Start time unavailable."
-The map shows current status colors, not a frame-by-frame preview of pulses and
-comets. Use the inspector's
+The on-screen pulse is an indicative status animation derived from task status
+alone; it does not replay outward waves or comets and does not mirror controller
+frames. Reduced-motion settings stop it while keeping the modes distinguishable.
+The [wall mode presentation specification](../openspec/specs/wall-mode-presentation/spec.md)
+owns that behavior and the readout. Use the inspector's
 project override for unresolved tasks; it changes only the bridge's assignment.
 Choose "Use Codex assignment" to remove the override.
 
