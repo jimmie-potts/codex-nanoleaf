@@ -31,11 +31,11 @@ In Quiet mode the wall map SHALL show steady Lines with a reduced halo and no ru
 
 ### Requirement: Reduced motion keeps modes distinguishable
 
-When the viewer prefers reduced motion, the wall map SHALL run no wall animation and SHALL still make Work, Quiet, and Free distinguishable by static glow. Covers AC4.
+When the viewer prefers reduced motion, the wall map SHALL run no wall animation, SHALL skip the opening assembly and show the completed structure immediately, and SHALL still make Work, Quiet, and Free distinguishable by static glow. Covers issue #23 AC4 and issue #38 criterion 6.
 
 #### Scenario: Reduced motion
 - **WHEN** the operating system or browser requests reduced motion
-- **THEN** the wall reports no running animations in any mode, and a Work Line with a task shows a stronger static halo than in Quiet
+- **THEN** the wall reports no running animations in any mode, no assembly plays, and a Work Line with a task shows a stronger static halo than in Quiet
 
 ### Requirement: Mode readout
 
@@ -47,8 +47,8 @@ The toolbar SHALL show a readout naming the current mode, the number of physical
 
 ### Requirement: Presentation never writes
 
-Rendering a mode, running or stopping the indicative animation, selecting Lines, and displaying the readout SHALL send no light requests, SHALL mark no task read, SHALL change no assignment, and SHALL alter no pulse epoch or scene preference. Covers AC5.
+Rendering a mode, running or stopping the indicative animation, playing or completing the assembly, selecting Lines, and displaying the readout SHALL send no light requests, SHALL mark no task read, SHALL change no assignment, and SHALL alter no pulse epoch or scene preference. Covers issue #23 AC5 and issue #38 criterion 9.
 
 #### Scenario: Watching the wall is passive
-- **WHEN** a user switches modes with the existing controls and then only watches or selects Lines
+- **WHEN** a user switches modes with the existing controls, replays the assembly, and then only watches or selects Lines
 - **THEN** the only requests issued are the existing mode change and state polls
