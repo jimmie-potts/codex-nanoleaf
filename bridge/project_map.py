@@ -10,15 +10,17 @@ import sqlite3
 
 
 def init(db):
-    db.executescript('''
-        CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY,name TEXT,color TEXT,roots TEXT);
-        CREATE TABLE IF NOT EXISTS task_info (session TEXT PRIMARY KEY,title TEXT,cwd TEXT,project TEXT,manual_project TEXT,turn TEXT,started REAL);
-        CREATE TABLE IF NOT EXISTS line_prefs (line_id TEXT PRIMARY KEY,project TEXT,signature INTEGER DEFAULT 0);
-        CREATE TABLE IF NOT EXISTS map_settings (id INTEGER PRIMARY KEY,style TEXT,coverage TEXT,rotation INTEGER,flip_x INTEGER,flip_y INTEGER);
-        CREATE TABLE IF NOT EXISTS map_pending (id INTEGER PRIMARY KEY,payload TEXT);
-        CREATE TABLE IF NOT EXISTS locate (id INTEGER PRIMARY KEY,line_id TEXT,started REAL);
-        INSERT OR IGNORE INTO map_settings VALUES (1,'classic','whole',0,0,0);
-    ''')
+    # Keep schema creation inside the caller's initialization transaction.
+    for statement in (
+        'CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY,name TEXT,color TEXT,roots TEXT)',
+        'CREATE TABLE IF NOT EXISTS task_info (session TEXT PRIMARY KEY,title TEXT,cwd TEXT,project TEXT,manual_project TEXT,turn TEXT,started REAL)',
+        'CREATE TABLE IF NOT EXISTS line_prefs (line_id TEXT PRIMARY KEY,project TEXT,signature INTEGER DEFAULT 0)',
+        'CREATE TABLE IF NOT EXISTS map_settings (id INTEGER PRIMARY KEY,style TEXT,coverage TEXT,rotation INTEGER,flip_x INTEGER,flip_y INTEGER)',
+        'CREATE TABLE IF NOT EXISTS map_pending (id INTEGER PRIMARY KEY,payload TEXT)',
+        'CREATE TABLE IF NOT EXISTS locate (id INTEGER PRIMARY KEY,line_id TEXT,started REAL)',
+        "INSERT OR IGNORE INTO map_settings VALUES (1,'classic','whole',0,0,0)",
+    ):
+        db.execute(statement)
 
 
 def settings(db):
