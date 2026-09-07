@@ -102,7 +102,7 @@ module.exports = async function(page, root) {
     await page.evaluate(async () => {while (refreshing) await new Promise(resolve => setTimeout(resolve, 10)); await refresh()});
     assert.match((await page.locator('#readout').textContent()).toLowerCase(), /pending/, 'Readout reports a pending edit');
     // The whole readout, pending state included, stays visible in one 56 px toolbar at common desktop widths.
-    for (const width of [1440, 1280, 1100]) {
+    for (const width of [1440, 1310, 1280, 1100]) {
       await page.setViewportSize({width, height: 1000}); await settle();
       const fit = await page.evaluate(() => {const r = document.getElementById('readout'); return {clipped: r.scrollWidth > r.clientWidth + 1 || r.scrollHeight > r.clientHeight + 1, header: document.querySelector('header').getBoundingClientRect().height}});
       assert.equal(fit.clipped, false, `Readout is not truncated at ${width}px`);
