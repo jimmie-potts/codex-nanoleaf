@@ -127,7 +127,9 @@ The inspector shows task title, status, project, and time since the current turn
 started. Older tasks with no observed start time show "Start time unavailable."
 The on-screen pulse is an indicative status animation derived from task status
 alone; it does not replay outward waves or comets and does not mirror controller
-frames. Reduced-motion settings stop it while keeping the modes distinguishable. Use the inspector's
+frames. Reduced-motion settings stop it while keeping the modes distinguishable.
+The [wall mode presentation specification](../openspec/specs/wall-mode-presentation/spec.md)
+owns that behavior and the readout. Use the inspector's
 project override for unresolved tasks; it changes only the bridge's assignment.
 Choose "Use Codex assignment" to remove the override.
 
