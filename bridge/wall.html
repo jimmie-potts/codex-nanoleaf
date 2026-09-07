@@ -439,12 +439,15 @@ function drawWall(){
 function sizeLineNumbers(){
   const scale=$('wall').getScreenCTM()?.a;if(!scale)return;
   const px=parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--number-size'))||12;
-  const size=px/scale,off=Math.max(18/scale,12+size*1.55/2+3/scale);
+  const size=px/scale,h=size*1.55;
   for(const tag of $('wall').querySelectorAll('.number-tag')){
     const label=tag.querySelector('.number'),bg=tag.querySelector('.number-bg');
+    label.style.fontSize=size+'px';
+    const w=label.getComputedTextLength()+12/scale;
+    // The pill is axis-aligned, so on a diagonal Line its nearer end cap sits closer than its half-height.
+    const off=Math.max(18/scale,12+h/2+Math.abs(+tag.dataset.nx)*(w/2-h/2)+3/scale);
     const x=+tag.dataset.mx+tag.dataset.nx*off,y=+tag.dataset.my+tag.dataset.ny*off;
-    label.style.fontSize=size+'px';label.setAttribute('x',x);label.setAttribute('y',y);
-    const w=label.getComputedTextLength()+12/scale,h=size*1.55;
+    label.setAttribute('x',x);label.setAttribute('y',y);
     bg.setAttribute('x',x-w/2);bg.setAttribute('y',y-h/2);bg.setAttribute('width',w);bg.setAttribute('height',h);bg.setAttribute('rx',h/2);
     bg.style.strokeWidth=1/scale+'px';
   }
@@ -541,7 +544,7 @@ function render(){
   $('flipX').setAttribute('aria-pressed',String(!!state.settings.flip_x));$('flipY').setAttribute('aria-pressed',String(!!state.settings.flip_y));
   $('lineCount').textContent=state.lines.length+' Lines';$('taskCount').textContent=state.tasks.length;
   drawProjects();drawWall();inspect();drawTasks();highlightAssociations();
-  $('busy').textContent=state.pending?pendingText():state.mode_pending?'Mode change pending.':'';
+  const busy=state.pending?pendingText():state.mode_pending?'Mode change pending.':'';if($('busy').textContent!==busy)$('busy').textContent=busy;
   const [note,detail]=modeNotes[state.mode]||['',''];
   $('wallNote').textContent=state.mode!=='free'&&!state.tasks.length?note.split(' · ')[0]+' · scene playing':note;
   $('wallNote').title=state.mode!=='free'&&!state.tasks.length?'No active indicators. Your remembered scene plays on the wall.':detail;
