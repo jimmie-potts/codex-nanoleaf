@@ -44,8 +44,13 @@ module.exports = async function(page, root) {
   await page.locator(`[data-line="${ids[0]}"]`).click();
   await page.locator(`[data-line="${ids[0]}"]`).click({modifiers: ['Control']});
   assert.equal(await page.locator('.wall-line.selected').count(), 0);
-  const strokes = await page.evaluate(ids => ids.map(id => getComputedStyle(document.querySelector(`[data-line="${id}"] .outline`)).stroke), [ids[0], ids[1]]);
-  assert.equal(strokes[0], strokes[1], 'A focused but deselected Line shows no selection ring');
+  await page.waitForTimeout(250); // let the 150 ms stroke transition settle
+  const [deselected, selectionColor] = await page.evaluate(id => {
+    const probe = document.createElement('span'); probe.style.color = 'var(--selection)'; document.body.append(probe);
+    const color = getComputedStyle(probe).color; probe.remove();
+    return [getComputedStyle(document.querySelector(`[data-line="${id}"] .outline`)).stroke, color];
+  }, ids[0]);
+  assert.notEqual(deselected, selectionColor, 'A focused but deselected Line shows no selection ring');
   await page.evaluate(() => action('/api/settings', {style: 'classic'}));
   await page.waitForFunction(() => state.settings.style === 'classic');
   assert.equal(await page.locator('#coverage').isDisabled(), true);
@@ -96,7 +101,7 @@ module.exports = async function(page, root) {
       const placed = snapshot.tasks.find(task => task.line);
       await page.locator(`[data-line="${placed.line}"]`).click();
       const override = page.locator('[aria-label="Task project override"]');
-      await override.selectOption('b');
+      await override.focus(); await override.selectOption('b');
       await page.waitForFunction(() => document.querySelector('#notice').textContent.includes('Unknown task'));
       await override.blur(); await refresh(); await refresh();
       assert.equal(await override.inputValue(), '', 'A rejected override returns the select to the saved assignment');
