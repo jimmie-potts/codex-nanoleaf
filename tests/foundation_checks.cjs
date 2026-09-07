@@ -84,6 +84,24 @@ module.exports = async function(page, root) {
   assert.equal(new Set(tops).size, 1, 'Rotate, Flip H, and Flip V share one row at 390px');
 
   });
+  await check('AC9: a rejected project override never lingers in the inspector select', async () => {
+    await page.setViewportSize({width: 1440, height: 1000}); await settle();
+    const snapshot = await page.evaluate(() => structuredClone(state));
+    snapshot.tasks.forEach(task => {task.started = snapshot.now - 7200; task.manual = null});
+    const stateRoute = request => request.fulfill({json: snapshot});
+    const rejectRoute = request => request.fulfill({status: 400, json: {error: 'Unknown task.'}});
+    await page.route('**/api/state', stateRoute); await page.route('**/api/task', rejectRoute);
+    try {
+      await refresh();
+      const placed = snapshot.tasks.find(task => task.line);
+      await page.locator(`[data-line="${placed.line}"]`).click();
+      const override = page.locator('[aria-label="Task project override"]');
+      await override.selectOption('b');
+      await page.waitForFunction(() => document.querySelector('#notice').textContent.includes('Unknown task'));
+      await override.blur(); await refresh(); await refresh();
+      assert.equal(await override.inputValue(), '', 'A rejected override returns the select to the saved assignment');
+    } finally {await page.unroute('**/api/task', rejectRoute); await page.unroute('**/api/state', stateRoute); await page.evaluate(() => {errorUntil = 0}); await refresh()}
+  });
   await check('AC8: the connection indicator holds still between unchanged polls', async () => {
   await page.setViewportSize({width: 1440, height: 1000}); await settle();
   const before = await page.locator('#connection').textContent();
