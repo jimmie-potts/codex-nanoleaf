@@ -31,7 +31,8 @@ module.exports = async function(page, root) {
     const ids = await page.locator('.wall-line').evaluateAll(nodes => nodes.map(node => node.dataset.line));
     const before = await page.evaluate(() => document.timeline.currentTime % 2000);
     await page.locator(`[data-line="${ids[0]}"]`).click(); await settle();
-    const [pageNow, animTime] = await page.evaluate(() => {const glow = document.querySelector('.wall-line[data-status] .glow'); return [document.timeline.currentTime % 2000, glow.getAnimations()[0].currentTime % 2000]});
+    // The pulse's active time is its current time minus the negative delay that set its phase.
+    const [pageNow, animTime] = await page.evaluate(() => {const a = document.querySelector('.wall-line[data-status] .glow').getAnimations()[0]; return [document.timeline.currentTime % 2000, ((a.currentTime - a.effect.getTiming().delay) % 2000 + 2000) % 2000]});
     const skew = Math.abs(((pageNow - animTime) % 2000 + 2000) % 2000);
     assert.ok(Math.min(skew, 2000 - skew) <= 50, `Rebuilt pulse phase within 50 ms of the page phase (skew ${skew.toFixed(1)} ms; page phase before click ${before.toFixed(0)})`);
     await page.locator('#clear').click();

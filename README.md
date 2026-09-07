@@ -6,7 +6,7 @@ Turn Nanoleaf Lines into status indicators for Codex Desktop tasks. A local wall
 - Free mode leaves lighting control to Nanoleaf. Quiet uses steady indicators at 10%.
 - Classic layout assigns tasks automatically with whole-Line colors.
 - Project layout uses a steady project half and a task-status half, with Shared overflow.
-- The wall map supports multi-selection, color picking, half swapping, Locate, and rotation.
+- The wall map supports multi-selection, color picking, half swapping, Locate, and rotation, in a neon HUD style that pulses active Lines on screen in Work and dims the wall in Free.
 
 The integration runs on Windows. Installed WSL hooks forward to Windows Python so every process uses the same database locks. The Python tests and demo map run on Windows or Linux without lights or credentials. Runtime code uses the Python standard library.
 

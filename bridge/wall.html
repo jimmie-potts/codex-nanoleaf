@@ -13,81 +13,81 @@
     --wall-unread: #193cff;
     --dur-fast: 150ms;
     --dur-pulse: 2s;
-    /* Surfaces and text. */
-    --bg: #0c1019;
-    --panel: #141b27;
-    --panel-solid: #141b27;
-    --raised: #1d283a;
-    --edge: #273145;
-    --edge-strong: #35435c;
-    --text: #eaf0fb;
-    --muted: #94a3ba;
-    --accent: #bdd0ff;
-    --accent-ink: #122039;
+    /* Neon HUD surfaces and text. Near-black with a faint cyan grid; cyan accent, magenta for pending. */
+    --bg: #05070d;
+    --panel: rgba(8, 12, 22, .82);
+    --panel-solid: #080c16;
+    --raised: rgba(34, 211, 238, .08);
+    --edge: rgba(34, 211, 238, .2);
+    --edge-strong: rgba(34, 211, 238, .5);
+    --text: #d7e3ff;
+    --muted: #7f93bd;
+    --accent: #22d3ee;
+    --accent-ink: #04121a;
     --focus: #ffffff;
-    --selection: #f4d29d;
-    --selection-ink: #172236;
-    --pending: #eac58e;
-    /* Status chips are readable versions of the wall hues. */
-    --chip-working: #3ad27b;
-    --chip-question: #f2c53d;
-    --chip-blocked: #ff6262;
-    --chip-unread: #5b93ff;
-    /* Wall rendering. */
-    --canvas-bg: radial-gradient(ellipse at 50% 45%, #162139 0, #0c1019 75%);
-    --wall-track: #283954;
-    --wall-filter: drop-shadow(0 0 5px currentColor);
-    --glow-width: 0;
-    --glow-opacity: 0;
-    --glow-quiet: 0;
-    --dim-quiet: .8;
-    --free-filter: saturate(.25) brightness(.5);
-    --pulse-anim: none;
-    --pulse-core-anim: none;
-    --p-min: 1;
+    --selection: #22d3ee;
+    --selection-ink: #04121a;
+    --pending: #e879f9;
+    /* Status chips: the wall hues, lifted for text on black. */
+    --chip-working: #2bff63;
+    --chip-question: #ffe600;
+    --chip-blocked: #ff4a4a;
+    --chip-unread: #5b9bff;
+    /* Wall rendering: bright core plus a wide halo stroke, no filter. */
+    --canvas-bg: #05070d;
+    --wall-track: #0e1526;
+    --wall-filter: none;
+    --glow-width: 34;
+    --glow-opacity: .6;
+    --glow-quiet: .25;
+    --dim-quiet: .7;
+    --free-filter: saturate(.2) brightness(.35);
+    --pulse-anim: pulse var(--dur-pulse) linear infinite;
+    --pulse-core-anim: pulseCore var(--dur-pulse) linear infinite;
+    --p-min: .15;
     --p-max: 1;
-    --core-min: 1;
+    --core-min: .7;
     --number-size: 12;
-    --number-bg: #edf2ff;
-    --number-ink: #0c1019;
-    --number-edge: transparent;
-    --selection-dash: none;
-    --selection-anim: none;
-    /* Type. */
-    --font-ui: system-ui, sans-serif;
-    --font-head: system-ui, sans-serif;
-    --font-num: system-ui, sans-serif;
-    --label-font: var(--font-ui);
-    --label-transform: none;
-    --label-size: 11px;
-    --label-tracking: .02em;
-    --brand-font: var(--font-head);
-    --brand-transform: none;
-    --brand-tracking: 0;
-    --brand-color: var(--text);
-    --head-stretch: 100%;
+    --number-bg: rgba(5, 7, 13, .88);
+    --number-ink: #22d3ee;
+    --number-edge: rgba(34, 211, 238, .6);
+    --selection-dash: 12 8;
+    --selection-anim: march 1s linear infinite;
+    /* Type: Windows system fonts only; the map server's CSP blocks web and data-URI fonts. */
+    --font-ui: Bahnschrift, "Segoe UI", system-ui, sans-serif;
+    --font-head: Bahnschrift, "Segoe UI", system-ui, sans-serif;
+    --font-num: "Cascadia Mono", Consolas, ui-monospace, monospace;
+    --label-font: var(--font-num);
+    --label-transform: uppercase;
+    --label-size: 10.5px;
+    --label-tracking: .14em;
+    --brand-font: var(--font-num);
+    --brand-transform: uppercase;
+    --brand-tracking: .18em;
+    --brand-color: var(--accent);
+    --head-stretch: 90%;
     /* Shapes. */
-    --radius: 8px;
-    --radius-pill: 999px;
-    --btn-bg: #1d283a;
-    --btn-edge: #35435c;
-    --btn-hover: #2a3b54;
-    --btn-active-bg: var(--accent);
-    --btn-active-ink: var(--accent-ink);
-    --btn-active-edge: var(--accent);
-    --btn-glow: none;
-    --card-bg: transparent;
-    --card-edge: var(--edge);
-    --card-edge-side: transparent;
-    --card-pad: 14px 0;
-    --card-gap: 0;
-    --bracket-opacity: 0;
-    --badge-bg: var(--raised);
-    --badge-edge: transparent;
-    --grid-image: none;
+    --radius: 2px;
+    --radius-pill: 2px;
+    --btn-bg: rgba(34, 211, 238, .05);
+    --btn-edge: rgba(34, 211, 238, .35);
+    --btn-hover: rgba(34, 211, 238, .14);
+    --btn-active-bg: rgba(34, 211, 238, .18);
+    --btn-active-ink: #b8f6ff;
+    --btn-active-edge: #22d3ee;
+    --btn-glow: 0 0 10px rgba(34, 211, 238, .35);
+    --card-bg: rgba(8, 12, 22, .7);
+    --card-edge: rgba(34, 211, 238, .28);
+    --card-edge-side: rgba(34, 211, 238, .28);
+    --card-pad: 14px;
+    --card-gap: 12px;
+    --bracket-opacity: 1;
+    --badge-bg: transparent;
+    --badge-edge: currentColor;
+    --grid-image: linear-gradient(rgba(34, 211, 238, .055) 1px, transparent 1px), linear-gradient(90deg, rgba(34, 211, 238, .055) 1px, transparent 1px);
     --grid-size: 32px 32px;
-    --scanline-image: none;
-    --vignette: none;
+    --scanline-image: repeating-linear-gradient(0deg, rgba(255, 255, 255, .028) 0 1px, transparent 1px 3px);
+    --vignette: radial-gradient(ellipse at 50% 45%, rgba(34, 211, 238, .12), transparent 62%), radial-gradient(ellipse at 50% 120%, rgba(232, 121, 249, .12), transparent 55%);
   }
 }
 
@@ -116,10 +116,10 @@
 @layer layout {
   .app { display: flex; flex-direction: column; height: 100dvh; min-height: 620px; background: var(--bg); background-image: var(--grid-image); background-size: var(--grid-size); }
   header { flex: none; display: flex; align-items: center; gap: 22px; padding: 0 20px; height: 56px; border-bottom: 1px solid var(--edge); background: var(--panel); }
-  .brand { display: flex; align-items: baseline; gap: 9px; margin-right: auto; }
+  .brand { display: flex; align-items: baseline; gap: 9px; flex: none; white-space: nowrap; }
   .brand-mark { font: 700 13px/1.2 var(--brand-font); text-transform: var(--brand-transform); letter-spacing: var(--brand-tracking); color: var(--brand-color); }
   .brand-sub { color: var(--muted); font-size: 12px; }
-  .controls { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+  .controls { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; flex: none; }
   .control { display: flex; align-items: center; gap: 9px; }
   .group { display: inline-flex; }
   .group > button { border-radius: 0; margin-left: -1px; white-space: nowrap; }
@@ -145,6 +145,12 @@
   .legend { display: flex; justify-content: center; align-items: center; gap: 18px; flex-wrap: wrap; color: var(--muted); font-size: 11.5px; padding-top: 8px; }
   footer { flex: none; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 7px 20px; border-top: 1px solid var(--edge); color: var(--muted); font-size: 11px; background: var(--panel); }
 
+  @media (min-width: 1050px) and (max-width: 1499.98px) {
+    /* Keep the toolbar to one row with the full readout: captions stay for assistive technology only. */
+    header { gap: 16px; }
+    .controls { gap: 12px; }
+    .control > .label, .brand-sub { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  }
   @media (max-width: 1049.98px) {
     main { grid-template-columns: 236px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
     #inspector { grid-column: 1 / -1; border-left: 0; border-top: 1px solid var(--edge); display: grid; grid-template-columns: 1fr 1fr; gap: 0 24px; align-content: start; max-height: 40vh; }
@@ -221,6 +227,9 @@
   #busy::before { content: "◷" / ""; font-size: 14px; flex: none; }
   .pill { display: inline-flex; align-items: center; gap: 7px; padding: 4px 10px; border-radius: var(--radius-pill); border: 1px solid var(--edge-strong); background: var(--raised); font: 600 var(--label-size)/1.2 var(--label-font); text-transform: var(--label-transform); letter-spacing: var(--label-tracking); color: var(--muted); white-space: nowrap; }
   .pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: none; }
+  .readout { flex: 1 1 0; min-width: 0; margin-left: auto; text-align: right; overflow: hidden; text-overflow: ellipsis; font: 600 var(--label-size)/1.2 var(--font-num); text-transform: uppercase; letter-spacing: .1em; color: var(--muted); white-space: nowrap; }
+  .readout b { color: var(--accent); font-weight: 600; }
+  @media (max-width: 1049.98px) { .readout { order: 3; flex-basis: 100%; text-align: left; white-space: normal; overflow: visible; } }
   #connection { color: var(--chip-working); }
   #connection.offline { color: var(--chip-blocked); }
   body[data-mode="work"] #wallNote { color: var(--chip-working); }
@@ -254,7 +263,14 @@
   body[data-mode="free"] #wall { filter: var(--free-filter); }
   @keyframes pulse { 0% { opacity: var(--p-min); } 20% { opacity: var(--p-max); } 30% { opacity: var(--p-max); } 50% { opacity: var(--p-min); } 100% { opacity: var(--p-min); } }
   @keyframes pulseCore { 0% { opacity: var(--core-min); } 20% { opacity: 1; } 30% { opacity: 1; } 50% { opacity: var(--core-min); } 100% { opacity: var(--core-min); } }
-  @media (prefers-reduced-motion: reduce) { #wall * { animation: none !important; } }
+  .wall-line.locating .outline { animation: locate 1s ease-out; }
+  @keyframes locate { 0%, 55% { stroke: #ffffff; stroke-width: 30; } 100% { stroke: var(--selection); stroke-width: 24; } }
+  @keyframes march { to { stroke-dashoffset: -40; } }
+  @media (prefers-reduced-motion: reduce) {
+    #wall * { animation: none !important; }
+    /* Without motion, a stronger static halo still separates Work from Quiet. */
+    body[data-mode="work"] .wall-line[data-status] .glow { opacity: min(1, calc(var(--glow-opacity) * 1.4)); }
+  }
 }
 </style></head>
 <body><div class="app">
@@ -265,6 +281,7 @@
     <div class="control" role="group" aria-labelledby="modeLabel"><span id="modeLabel" class="label">Mode</span><div class="group"><button type="button" id="work">Work</button><button type="button" id="quiet">Quiet</button><button type="button" id="free">Free</button></div></div>
     <div class="control"><span class="label" aria-hidden="true">Coverage</span><select id="coverage" aria-label="Animation coverage" title="Waves and comets return to the project color after passing. Both halves lets them cover the project half; Status half only keeps project identity steady."><option value="whole">Both halves</option><option value="status">Status half only</option></select></div>
   </div>
+  <span class="readout" id="readout" aria-live="off"></span>
   <span class="pill" id="connection">Connecting</span>
 </header>
 <div id="notice" role="status"></div>
@@ -312,7 +329,7 @@
 const token='__CSRF__', $=id=>document.getElementById(id), svgNS='http://www.w3.org/2000/svg';
 let state=null, selected=new Set(), projectFingerprint='', taskFingerprint='', taskFocus=null, wallFingerprint='', detailFingerprint='', errorUntil=0, refreshing=false;
 const statusColors={working:'var(--wall-working)',question:'var(--wall-question)',blocked:'var(--wall-blocked)',unread:'var(--wall-unread)'};
-const modeNotes={work:['Work · indicators on','Task indicators pulse on the wall at 30% brightness.'],quiet:['Quiet · steady at 10%','Steady task colors without pulses or outward waves.'],free:['Free · lights released','The lights follow the Nanoleaf app. The map shows saved task assignments.']};
+const modeNotes={work:['Work · indicators on','Task indicators pulse on the wall at 30% brightness. The on-screen pulse follows task status, not the controller.'],quiet:['Quiet · steady at 10%','Steady task colors without pulses or outward waves.'],free:['Free · lights released','The lights follow the Nanoleaf app. The map shows saved task assignments.']};
 function el(tag,text,cls){const node=document.createElement(tag);if(text!==undefined)node.textContent=text;if(cls)node.className=cls;return node}
 function message(text,error=false){$('notice').textContent=text;$('notice').style.display=text?'block':'none';$('notice').classList.toggle('error',error);if(error)errorUntil=Date.now()+6000}
 async function action(path,payload){try{const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-Wall-Token':token},body:JSON.stringify(payload)});const data=await r.json();if(!r.ok)throw Error(data.error);errorUntil=0;await refresh()}catch(e){message(e.message,true)}}
@@ -549,8 +566,18 @@ function render(){
   $('wallNote').textContent=state.mode!=='free'&&!state.tasks.length?note.split(' · ')[0]+' · scene playing':note;
   $('wallNote').title=state.mode!=='free'&&!state.tasks.length?'No active indicators. Your remembered scene plays on the wall.':detail;
   $('connection').textContent='Live';$('connection').classList.remove('offline');
+  readout();
   if(Date.now()>errorUntil)message(state.error||state.geometry_error||'',!!(state.error||state.geometry_error));
 }
+function readout(){
+  // An indicative summary of the polled state, not a mirror of the controller.
+  const count=status=>state.tasks.filter(t=>t.status===status).length;
+  const parts=[[state.mode,true],[state.lines.length+' Lines'],[state.tasks.length+' tasks'],[count('blocked')+' blocked'],[count('question')+' question']];
+  if(state.pending)parts.push(['pending edit',true]);else if(state.mode_pending)parts.push(['mode change pending',true]);
+  if(state.mode==='free')parts.push(['lights released']);
+  const node=$('readout');node.replaceChildren();
+  parts.forEach(([text,strong],i)=>{if(i)node.append(' · ');node.append(strong?Object.assign(el('b',text)):text)});
+}
 async function refresh(){if(refreshing)return;refreshing=true;try{const r=await fetch('/api/state');const data=await r.json();if(!r.ok)throw Error(data.error);state=data;render()}catch(e){$('connection').textContent='Disconnected · retrying';$('connection').classList.add('offline');message(e.message,true)}finally{refreshing=false}}
-for(const id of ['classic','project'])$(id).onclick=()=>action('/api/settings',{style:id});for(const mode of ['work','free','quiet'])$(mode).onclick=()=>action('/api/mode',{mode});$('coverage').onchange=()=>action('/api/settings',{coverage:$('coverage').value});$('assign').onclick=()=>action('/api/assign',{lines:Object.fromEntries([...selected].map(id=>[id,{project:$('assignProject').value||null}]))});$('clear').onclick=()=>{selected.clear();taskFocus=null;$('selectionTitle').focus({preventScroll:true});drawWall();inspect();highlightAssociations()};$('swap').onclick=()=>action('/api/assign',{lines:Object.fromEntries(state.lines.filter(l=>selected.has(l.id)).map(l=>[l.id,{signature:1-l.signature}]))});$('locate').onclick=()=>action('/api/locate',{line:[...selected][0]});$('rotate').onclick=()=>action('/api/settings',{rotation:(state.settings.rotation+90)%360});$('flipX').onclick=()=>action('/api/settings',{flip_x:1-state.settings.flip_x});$('flipY').onclick=()=>action('/api/settings',{flip_y:1-state.settings.flip_y});new ResizeObserver(sizeLineNumbers).observe($('wall'));refresh();setInterval(refresh,1000);
+for(const id of ['classic','project'])$(id).onclick=()=>action('/api/settings',{style:id});for(const mode of ['work','free','quiet'])$(mode).onclick=()=>action('/api/mode',{mode});$('coverage').onchange=()=>action('/api/settings',{coverage:$('coverage').value});$('assign').onclick=()=>action('/api/assign',{lines:Object.fromEntries([...selected].map(id=>[id,{project:$('assignProject').value||null}]))});$('clear').onclick=()=>{selected.clear();taskFocus=null;$('selectionTitle').focus({preventScroll:true});drawWall();inspect();highlightAssociations()};$('swap').onclick=()=>action('/api/assign',{lines:Object.fromEntries(state.lines.filter(l=>selected.has(l.id)).map(l=>[l.id,{signature:1-l.signature}]))});$('locate').onclick=()=>{const id=[...selected][0],group=$('wall').querySelector(`[data-line="${id}"]`);if(group){group.classList.remove('locating');void group.getBBox();group.classList.add('locating');setTimeout(()=>group.classList.remove('locating'),1000)}action('/api/locate',{line:id})};$('rotate').onclick=()=>action('/api/settings',{rotation:(state.settings.rotation+90)%360});$('flipX').onclick=()=>action('/api/settings',{flip_x:1-state.settings.flip_x});$('flipY').onclick=()=>action('/api/settings',{flip_y:1-state.settings.flip_y});new ResizeObserver(sizeLineNumbers).observe($('wall'));refresh();setInterval(refresh,1000);
 </script></body></html>
