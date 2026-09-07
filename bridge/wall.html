@@ -257,8 +257,8 @@
   .orb-ring { fill: none; stroke: #ffffff; stroke-width: 1.5; opacity: .8; pointer-events: none; }
   /* Connector nodes at every junction, like the physical hexagonal connectors and the tray icon's rings. */
   .connector { pointer-events: none; }
-  .connector-hex { fill: var(--connector-fill); stroke: var(--connector-edge); stroke-width: 3; stroke-linejoin: round; }
-  .connector-ring { fill: none; stroke: var(--connector-ring); stroke-width: 1.5; }
+  .connector-hex { fill: var(--connector-fill); stroke: var(--connector-edge); stroke-width: 3.5; stroke-linejoin: round; }
+  .connector-ring { fill: none; stroke: var(--connector-ring); stroke-width: 2; }
   .wall-line .sheen { stroke: #ffffff; stroke-width: 3; stroke-linecap: round; opacity: .22; fill: none; pointer-events: none; }
   .assembly-prefs { position: relative; }
   .assembly-prefs > summary { cursor: pointer; list-style: none; padding: 5px 10px; border: 1px solid var(--btn-edge); border-radius: 0 var(--radius) var(--radius) 0; margin-left: -1px; background: var(--btn-bg); font-size: 12px; color: var(--text); }
@@ -494,8 +494,8 @@ function drawWall(){
   for(const j of junctions){
     if(Math.hypot(j.x-hub.x,j.y-hub.y)<1)continue;
     const node=document.createElementNS(svgNS,'g');node.setAttribute('class','connector');node.dataset.x=j.x;node.dataset.y=j.y;node.style.transformOrigin=`${j.x}px ${j.y}px`;
-    const hex=document.createElementNS(svgNS,'path');hex.setAttribute('class','connector-hex');hex.setAttribute('d',hexPath(j.x,j.y,15));
-    const ring=document.createElementNS(svgNS,'circle');ring.setAttribute('class','connector-ring');ring.setAttribute('cx',j.x);ring.setAttribute('cy',j.y);ring.setAttribute('r',6);
+    const hex=document.createElementNS(svgNS,'path');hex.setAttribute('class','connector-hex');hex.setAttribute('d',hexPath(j.x,j.y,19));
+    const ring=document.createElementNS(svgNS,'circle');ring.setAttribute('class','connector-ring');ring.setAttribute('cx',j.x);ring.setAttribute('cy',j.y);ring.setAttribute('r',7.5);
     node.append(hex,ring);connectors.append(node);
   }
   root.append(connectors);
