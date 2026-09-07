@@ -202,3 +202,63 @@ class ControllerStateTest(unittest.TestCase):
         after=self.app.snapshot()
         for field in ('configurationRevision','generation','nextRequestId','cursor','state'):
             self.assertEqual(after[field],before[field],field)
+
+    @contextlib.contextmanager
+    def watchdog_listener(self, connect=None):
+        from unittest.mock import patch
+        class Listener:
+            server_port=43210
+            def __init__(self):self.started=threading.Event();self.stopped=threading.Event()
+            def serve_forever(self,**kwargs):self.started.set();self.stopped.wait(15)
+            def shutdown(self):self.stopped.set()
+            def server_close(self):pass
+        listener=Listener()
+        with patch.object(self.service,'make_server',return_value=listener),patch.object(b,'connect_state',connect or b.connect_state):
+            thread=threading.Thread(target=self.service.serve,args=(self.directory,b),daemon=True);thread.start()
+            self.assertTrue(listener.started.wait(5))
+            try:yield listener
+            finally:
+                listener.shutdown();thread.join(4)
+                self.assertFalse(thread.is_alive())
+
+    def test_watchdog_retries_real_writer_contention_then_expires_and_disables(self):
+        import time
+        from unittest.mock import patch
+        self.app.admit(self.token,self.request())
+        with contextlib.closing(b.connect_state(self.directory)) as db,db:
+            db.execute('UPDATE controller_requests SET created=?',(time.time()-31,))
+        attempted=threading.Event();original=b.connect_state
+        def connect(directory):
+            attempted.set();return original(directory)
+        with self.watchdog_listener() as listener:
+            with contextlib.closing(original(self.directory)) as writer:
+                writer.execute('BEGIN IMMEDIATE')
+                with patch.object(b,'connect_state',connect):
+                    self.assertTrue(attempted.wait(2))
+                    self.assertFalse(listener.stopped.wait(3.1),'Transient writer contention stopped the listener.')
+                writer.rollback()
+            deadline=time.monotonic()+3
+            while self.app.snapshot()['state']['pending'] and time.monotonic()<deadline:time.sleep(.05)
+            self.assertEqual(self.app.snapshot()['state']['lastOutcome']['receipt']['failure']['code'],'transport-failure')
+            self.service.command(['controller-disable','--state-dir',str(self.directory)],b)
+            self.assertTrue(listener.stopped.wait(3),'Disable was not observed after retry.')
+
+    def test_watchdog_retries_locked_but_stops_on_other_failures(self):
+        import sqlite3
+        for code in (sqlite3.SQLITE_LOCKED,sqlite3.SQLITE_BUSY | (2<<8),sqlite3.SQLITE_IOERR,None):
+            with self.subTest(code=code):
+                calls=[0];retried=threading.Event();original=b.connect_state
+                error=sqlite3.OperationalError('Synthetic database failure') if code else RuntimeError('Synthetic fatal failure')
+                if code:error.sqlite_errorcode=code
+                def connect(directory):
+                    calls[0]+=1
+                    if calls[0]==2:raise error
+                    if calls[0]>2:retried.set()
+                    return original(directory)
+                with self.watchdog_listener(connect) as listener:
+                    if code is not None and code & 255 in (sqlite3.SQLITE_BUSY,sqlite3.SQLITE_LOCKED):
+                        self.assertTrue(retried.wait(3),'Transient error was not retried.')
+                        self.assertFalse(listener.stopped.is_set())
+                    else:
+                        self.assertTrue(listener.stopped.wait(3),'Fatal error did not stop listener.')
+                        self.assertFalse(retried.is_set())

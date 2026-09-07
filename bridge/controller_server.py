@@ -291,6 +291,11 @@ def serve(directory,b,port=0):
                         disabled=state.read(db).get('stopped')
                     if disabled:
                         server.shutdown();return
+                except sqlite3.OperationalError as error:
+                    code=getattr(error,'sqlite_errorcode',None)
+                    if code is not None and code & 255 in (sqlite3.SQLITE_BUSY,sqlite3.SQLITE_LOCKED):
+                        continue  # Retry after the regular bounded wait; a local writer may hold the database.
+                    server.shutdown();return
                 except Exception:
                     server.shutdown();return
         watchdog=threading.Thread(target=maintain,daemon=True);watchdog.start()
