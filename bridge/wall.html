@@ -229,6 +229,7 @@
   .pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: none; }
   .readout { flex: 1 1 0; min-width: 0; margin-left: auto; text-align: right; overflow: hidden; text-overflow: ellipsis; font: 600 var(--label-size)/1.2 var(--font-num); text-transform: uppercase; letter-spacing: .1em; color: var(--muted); white-space: nowrap; }
   .readout b { color: var(--accent); font-weight: 600; }
+  @media (min-width: 1050px) and (max-width: 1299.98px) { .readout { white-space: normal; overflow: visible; line-height: 1.25; } }
   @media (max-width: 1049.98px) { .readout { order: 3; flex-basis: 100%; text-align: left; white-space: normal; overflow: visible; } }
   #connection { color: var(--chip-working); }
   #connection.offline { color: var(--chip-blocked); }
@@ -270,6 +271,7 @@
     #wall * { animation: none !important; }
     /* Without motion, a stronger static halo still separates Work from Quiet. */
     body[data-mode="work"] .wall-line[data-status] .glow { opacity: min(1, calc(var(--glow-opacity) * 1.4)); }
+    .wall-line.locating .outline { stroke: #ffffff; stroke-width: 30; }
   }
 }
 </style></head>
@@ -409,8 +411,6 @@ function drawWall(){
   const all=state.lines.flatMap(l=>l.points.map(transform)),xs=all.map(p=>p[0]),ys=all.map(p=>p[1]);
   const minX=Math.min(...xs)-55,minY=Math.min(...ys)-55,maxX=Math.max(...xs)+55,maxY=Math.max(...ys)+55;
   root.setAttribute('viewBox',`${minX} ${minY} ${maxX-minX} ${maxY-minY}`);
-  // Any animation on a rebuilt node resumes the page-global phase instead of restarting.
-  const phase=-(document.timeline.currentTime%2000)+'ms';
   const numbers=document.createElementNS(svgNS,'g');numbers.setAttribute('aria-hidden','true');
   const center=[(minX+maxX)/2,(minY+maxY)/2];
   for(const line of state.lines){
@@ -424,7 +424,7 @@ function drawWall(){
     const title=document.createElementNS(svgNS,'title');title.textContent=`Line ${line.number} · ${lineDescription(line)}`;group.append(title);
     function segment(a,b,cls,color){
       const node=document.createElementNS(svgNS,'line');node.setAttribute('x1',a[0]);node.setAttribute('y1',a[1]);node.setAttribute('x2',b[0]);node.setAttribute('y2',b[1]);node.setAttribute('class',cls);
-      if(color){node.style.stroke=color;node.style.color=color;node.style.animationDelay=phase}
+      if(color){node.style.stroke=color;node.style.color=color}
       group.append(node);
     }
     const hit=document.createElementNS(svgNS,'rect'),dx=points[2][0]-points[0][0],dy=points[2][1]-points[0][1];
@@ -451,7 +451,12 @@ function drawWall(){
     numbers.append(tag);
   }
   // Number clicks must win over every Line's transparent hit stroke.
-  root.append(numbers);sizeLineNumbers();
+  root.append(numbers);sizeLineNumbers();anchorPulses();
+}
+function anchorPulses(){
+  // Every pulse shares the document timeline's phase, so rebuilds and mode changes never restart it.
+  for(const animation of $('wall').getAnimations({subtree:true}))
+    if((animation.animationName==='pulse'||animation.animationName==='pulseCore')&&animation.startTime!==0)animation.startTime=0;
 }
 function sizeLineNumbers(){
   const scale=$('wall').getScreenCTM()?.a;if(!scale)return;
@@ -560,7 +565,7 @@ function render(){
   $('coverage').value=state.settings.coverage;$('coverage').disabled=state.settings.style==='classic';
   $('flipX').setAttribute('aria-pressed',String(!!state.settings.flip_x));$('flipY').setAttribute('aria-pressed',String(!!state.settings.flip_y));
   $('lineCount').textContent=state.lines.length+' Lines';$('taskCount').textContent=state.tasks.length;
-  drawProjects();drawWall();inspect();drawTasks();highlightAssociations();
+  drawProjects();drawWall();inspect();drawTasks();highlightAssociations();anchorPulses();
   const busy=state.pending?pendingText():state.mode_pending?'Mode change pending.':'';if($('busy').textContent!==busy)$('busy').textContent=busy;
   const [note,detail]=modeNotes[state.mode]||['',''];
   $('wallNote').textContent=state.mode!=='free'&&!state.tasks.length?note.split(' · ')[0]+' · scene playing':note;
@@ -569,14 +574,17 @@ function render(){
   readout();
   if(Date.now()>errorUntil)message(state.error||state.geometry_error||'',!!(state.error||state.geometry_error));
 }
+let lastReadout='';
 function readout(){
-  // An indicative summary of the polled state, not a mirror of the controller.
+  // An indicative summary of the polled state, not a mirror of the controller. State comes before counts.
   const count=status=>state.tasks.filter(t=>t.status===status).length;
-  const parts=[[state.mode,true],[state.lines.length+' Lines'],[state.tasks.length+' tasks'],[count('blocked')+' blocked'],[count('question')+' question']];
+  const parts=[[state.mode,true]];
+  if(state.mode==='free')parts.push(['lights released',true]);
   if(state.pending)parts.push(['pending edit',true]);else if(state.mode_pending)parts.push(['mode change pending',true]);
-  if(state.mode==='free')parts.push(['lights released']);
+  parts.push([state.lines.length+' Lines'],[state.tasks.length+' tasks'],[count('blocked')+' blocked'],[count('question')+' question']);
+  const key=JSON.stringify(parts);if(key===lastReadout)return;lastReadout=key;
   const node=$('readout');node.replaceChildren();
-  parts.forEach(([text,strong],i)=>{if(i)node.append(' · ');node.append(strong?Object.assign(el('b',text)):text)});
+  parts.forEach(([text,strong],i)=>{if(i)node.append(' · ');node.append(strong?el('b',text):text)});
 }
 async function refresh(){if(refreshing)return;refreshing=true;try{const r=await fetch('/api/state');const data=await r.json();if(!r.ok)throw Error(data.error);state=data;render()}catch(e){$('connection').textContent='Disconnected · retrying';$('connection').classList.add('offline');message(e.message,true)}finally{refreshing=false}}
 for(const id of ['classic','project'])$(id).onclick=()=>action('/api/settings',{style:id});for(const mode of ['work','free','quiet'])$(mode).onclick=()=>action('/api/mode',{mode});$('coverage').onchange=()=>action('/api/settings',{coverage:$('coverage').value});$('assign').onclick=()=>action('/api/assign',{lines:Object.fromEntries([...selected].map(id=>[id,{project:$('assignProject').value||null}]))});$('clear').onclick=()=>{selected.clear();taskFocus=null;$('selectionTitle').focus({preventScroll:true});drawWall();inspect();highlightAssociations()};$('swap').onclick=()=>action('/api/assign',{lines:Object.fromEntries(state.lines.filter(l=>selected.has(l.id)).map(l=>[l.id,{signature:1-l.signature}]))});$('locate').onclick=()=>{const id=[...selected][0],group=$('wall').querySelector(`[data-line="${id}"]`);if(group){group.classList.remove('locating');void group.getBBox();group.classList.add('locating');setTimeout(()=>group.classList.remove('locating'),1000)}action('/api/locate',{line:id})};$('rotate').onclick=()=>action('/api/settings',{rotation:(state.settings.rotation+90)%360});$('flipX').onclick=()=>action('/api/settings',{flip_x:1-state.settings.flip_x});$('flipY').onclick=()=>action('/api/settings',{flip_y:1-state.settings.flip_y});new ResizeObserver(sizeLineNumbers).observe($('wall'));refresh();setInterval(refresh,1000);

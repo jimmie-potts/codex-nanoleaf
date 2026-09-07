@@ -83,7 +83,7 @@ returns with the scene.
 Choose **Open wall map** from the tray. The map shows the controller's 15 physical
 Lines, with both zones drawn separately, in a neon HUD style that uses only Windows
 system fonts. It updates once a second. In Work, Lines with a task pulse on screen
-on the same two-second rhythm as the lights; Quiet shows them steady with a fainter
+on a two-second rhythm like the lights'; Quiet shows them steady with a fainter
 halo, and Free dims the wall. A toolbar readout names the mode and counts Lines,
 tasks, blocked and question alerts, and pending edits. The
 [wall Line identification specification](../openspec/specs/wall-line-identification/spec.md)

@@ -24,4 +24,4 @@ None. `wall-line-identification` requirements are unchanged; its scenarios remai
 
 ## Impact
 
-`bridge/wall.html` (tokens, wall rendering, animation, readout), `tests/foundation_checks.cjs` (new red-first checks), `bridge/README.md`, root `README.md`, and `docs/decisions/0004-wall-map-visual-direction.md`. No API, database, allocator, worker, installer, or dependency change; no controller requests are added. Delivery is source-only and the UI PR waits for explicit human approval.
+`bridge/wall.html` (tokens, wall rendering, animation, readout), `tests/presentation_checks.cjs` (new red-first checks), `bridge/README.md`, root `README.md`, and `docs/decisions/0004-wall-map-visual-direction.md`. No API, database, allocator, worker, installer, or dependency change; no controller requests are added. Delivery is source-only and the UI PR waits for explicit human approval.
