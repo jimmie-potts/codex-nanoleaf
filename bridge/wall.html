@@ -533,9 +533,9 @@ function endAssembly(afterPointer=false){
   // The finished nodes are already in place. Hold the redraw until the press's click has landed,
   // so the click reaches the node it pressed; a click that never comes releases the hold shortly.
   assembly.hold=true;
-  // Release on the pointer's own release (the click that follows runs before the queued redraw), or after 400 ms if it never comes.
+  // Release on the pointer's own release (the click that follows runs before the queued redraw); a distant timer only guards a release that never arrives.
   const release=()=>{for(const type of ['click','pointerup','pointercancel'])document.removeEventListener(type,release,true);clearTimeout(timer);setTimeout(redraw,0)};
-  const timer=setTimeout(release,400);for(const type of ['click','pointerup','pointercancel'])document.addEventListener(type,release,true);
+  const timer=setTimeout(release,5000);for(const type of ['click','pointerup','pointercancel'])document.addEventListener(type,release,true);
 }
 function anchorPulses(){
   // Every pulse shares the document timeline's phase, so rebuilds and mode changes never restart it.
