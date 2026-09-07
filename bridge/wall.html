@@ -577,7 +577,7 @@ function endAssembly(afterPointer=false){
   const redraw=()=>{assembly.hold=false;if(!assembly.active){wallFingerprint='';drawWall();anchorPulses()}};
   if(!afterPointer)return redraw();
   // The finished nodes are already in place. Hold the redraw until the press's click has landed,
-  // so the click reaches the node it pressed; a click that never comes releases the hold shortly.
+  // so the click reaches the node it pressed; a release that never comes is covered by a distant safety timer.
   assembly.hold=true;
   // Release on the pointer's own release (the click that follows runs before the queued redraw); a distant timer only guards a release that never arrives.
   const release=()=>{for(const type of ['click','pointerup','pointercancel'])document.removeEventListener(type,release,true);clearTimeout(timer);setTimeout(redraw,0)};

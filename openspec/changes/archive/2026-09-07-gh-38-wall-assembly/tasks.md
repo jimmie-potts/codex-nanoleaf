@@ -1,10 +1,10 @@
 ## 1. Assembly checks first
 
-- [x] 1.1 Add red-first browser checks for the orb at the bounding-box center, an outward assembly that runs within a second of load and ends within about 2.5 s with exact final geometry, the preference keys and defaults, Replay, no trigger on poll, mode, or layout change, reduced-motion skip, interaction completing assembly and selecting, repeated Replay not queuing, geometry change and connection failure ending assembly, pulses keeping phase, and zero write requests; capture the failing output against the current page.
+- [x] 1.1 Add red-first browser checks for the orb at the hub (the most connected junction, nearest the others on ties) with connector nodes at every other junction, an outward assembly that runs within a second of load and ends within about 2.5 s with exact final geometry, the preference keys and defaults, Replay, no trigger on poll, mode, or layout change, reduced-motion skip, interaction completing assembly and selecting, repeated Replay not queuing, geometry change and connection failure ending assembly, pulses keeping phase, and zero write requests; capture the failing output against the current page.
 
 ## 2. Orb and assembly
 
-- [x] 2.1 Draw the persistent orb from `drawWall()` and implement the assembly sequence (adjacency, outward depth, hinged rotation, joint glows, number fade) with the Web Animations API; verify the checks from 1.1 for criteria 1 to 3 pass and the existing 360 number-click and legibility checks still pass.
+- [x] 2.1 Draw the persistent orb and the connector nodes from `drawWall()` and implement the assembly sequence (adjacency, hub-seeded outward depth, hinged rotation, connector flares, number fade) with the Web Animations API; verify the checks from 1.1 for criteria 1 to 3 pass and the existing 360 number-click and legibility checks still pass.
 - [x] 2.2 Implement triggers, preferences, the Replay control, the view-entry integration point, deferred rebuilds, completion on interaction, and ending on geometry change or connection failure; verify the remaining checks from 1.1 pass and the foundation and presentation suites stay green.
 
 ## 3. Documentation and integration

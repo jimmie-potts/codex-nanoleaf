@@ -13,7 +13,7 @@ module.exports = async function(page, root) {
     numbers: [...document.querySelectorAll('#wall .number')].map(n => [n.dataset.lineId, n.getAttribute('x'), n.getAttribute('y'), getComputedStyle(n.closest('.number-tag')).opacity]),
     joints: document.querySelectorAll('#wall .joints, #wall .joint').length,
   }));
-  // Junctions: clusters of Line ends within 40 units; the hub is the most connected one, nearest the box center on ties.
+  // Junctions: clusters of Line ends within 40 units; the hub is the most connected one, nearest the other junctions on ties (box center as a last resort).
   const junctions = () => page.evaluate(() => {
     const clusters = [];
     for (const line of state.lines) for (const point of [transform(line.points[0]), transform(line.points[2])]) {
