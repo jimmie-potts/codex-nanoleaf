@@ -90,7 +90,9 @@ structure unfolds outward from a decorative orb at the layout's center in a
 two-second assembly; **Replay assembly** plays it again, and the **Playback**
 menu beside it holds two browser-local switches for playing on opening and on
 entering the map. Any click or key completes the assembly at once, reduced-motion
-settings skip it, and it never touches the lights or task state. The
+settings skip it, and it never touches the lights or task state. A future view
+that navigates into the map can play it through the page's `wallAssembly.play('entry')`
+hook, which honors the view-entry switch. The
 [wall assembly specification](../openspec/specs/wall-assembly-animation/spec.md)
 owns that behavior. The
 [wall Line identification specification](../openspec/specs/wall-line-identification/spec.md)

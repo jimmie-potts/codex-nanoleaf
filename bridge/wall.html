@@ -137,7 +137,7 @@
   .canvas::before { content: ""; position: absolute; inset: 0; background-image: var(--grid-image); background-size: var(--grid-size); pointer-events: none; }
   .canvas::after { content: ""; position: absolute; inset: 0; background: var(--vignette), var(--scanline-image); pointer-events: none; }
   .canvas > * { position: relative; z-index: 1; }
-  .canvas-head { display: flex; align-items: center; gap: 12px 16px; flex-wrap: wrap; }
+  .canvas-head { display: flex; align-items: center; gap: 12px 16px; flex-wrap: wrap; z-index: 2; }
   .canvas-head .spacer { flex: 1; }
   .canvas-head .group > button { padding: 5px 10px; font-size: 12px; }
   .wall-frame { flex: 1; min-height: 240px; position: relative; }
@@ -415,7 +415,7 @@ function drawProjects(){
 }
 function transform(point){let[x,y]=point;const a=state.settings.rotation*Math.PI/180;return[(x*Math.cos(a)-y*Math.sin(a))*(state.settings.flip_x?-1:1),(x*Math.sin(a)+y*Math.cos(a))*(state.settings.flip_y?-1:1)]}
 function drawWall(){
-  if(assembly.active)return; // the wall waits for the assembly; the rest of the page keeps updating
+  if(assembly.active||assembly.hold)return; // the wall waits for the assembly; the rest of the page keeps updating
   const fingerprint=JSON.stringify([state.lines,state.tasks.map(t=>[t.id,t.status,t.project,t.title]),state.projects.map(p=>[p.id,p.name,p.color]),state.settings,state.pending,[...selected]]);
   if(fingerprint===wallFingerprint)return;wallFingerprint=fingerprint;
   const root=$('wall'),focused=root.contains(document.activeElement)?document.activeElement.dataset.line:null;
@@ -470,7 +470,7 @@ function drawWall(){
   root.append(numbers);sizeLineNumbers();anchorPulses();
 }
 /* Opening assembly: the structure unfolds outward from the orb. Presentation only; it never writes. */
-const assembly={active:false,animations:[],key:'',seen:false};
+const assembly={active:false,hold:false,animations:[],key:'',seen:false};
 const assemblyPrefs={opening:'wall.assembly.opening',entry:'wall.assembly.entry'};
 function assemblyPref(name){try{return localStorage.getItem(assemblyPrefs[name])!=='0'}catch{return true}}
 function setAssemblyPref(name,on){try{if(on)localStorage.removeItem(assemblyPrefs[name]);else localStorage.setItem(assemblyPrefs[name],'0')}catch{}}
@@ -478,6 +478,7 @@ function geometryKey(){return JSON.stringify([state.lines.map(l=>[l.id,l.points]
 function reducedMotion(){return !!window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches}
 function playAssembly(reason){
   if(assembly.active||!state?.lines.length)return false;
+  if(!['opening','entry','replay'].includes(reason))return false;
   if(reason==='opening'&&!assemblyPref('opening'))return false;
   if(reason==='entry'&&!assemblyPref('entry'))return false;
   if(reducedMotion())return false;
@@ -500,7 +501,7 @@ function playAssembly(reason){
       for(const next of adjacent.get(line.id))if(!seen.has(next.id)){seen.add(next.id);queue.push([next,d+1,line.ends])}
     }
   }
-  const maxDepth=Math.max(0,...depth.values()),step=Math.min(240,1200/Math.max(1,maxDepth)),duration=520,total=250+maxDepth*step+duration+320;
+  const maxDepth=Math.max(0,...depth.values()),duration=520,step=Math.min(450,Math.max(120,(2000-250-duration-320)/Math.max(1,maxDepth))),total=250+maxDepth*step+duration+320;
   const animations=[];
   for(const node of root.querySelectorAll('.orb-group circle'))animations.push(node.animate([{opacity:0},{opacity:getComputedStyle(node).opacity}],{duration:300,fill:'both',id:'assembly'}));
   const joints=document.createElementNS(svgNS,'g');joints.setAttribute('class','joints');joints.setAttribute('aria-hidden','true');
@@ -521,14 +522,19 @@ function playAssembly(reason){
   Promise.all(animations.map(a=>a.finished.catch(()=>{}))).then(()=>{if(assembly.active&&assembly.animations===animations)endAssembly()});
   return true;
 }
-function endAssembly(){
+function endAssembly(afterPointer=false){
   if(!assembly.active)return;
   for(const a of assembly.animations){try{a.finish()}catch{}a.cancel()}
   assembly.active=false;assembly.animations=[];
   const root=$('wall');root.classList.remove('assembling');root.querySelector('.joints')?.remove();
   for(const group of root.querySelectorAll('.wall-line'))group.style.transformOrigin='';
-  // Redraw on the next tick so an interrupting click still lands on the node it pressed.
-  wallFingerprint='';setTimeout(()=>{if(!assembly.active)drawWall()},0);anchorPulses();
+  const redraw=()=>{assembly.hold=false;if(!assembly.active){wallFingerprint='';drawWall();anchorPulses()}};
+  if(!afterPointer)return redraw();
+  // The finished nodes are already in place. Hold the redraw until the press's click has landed,
+  // so the click reaches the node it pressed; a click that never comes releases the hold shortly.
+  assembly.hold=true;
+  const release=()=>{document.removeEventListener('click',release,true);clearTimeout(timer);setTimeout(redraw,0)};
+  const timer=setTimeout(release,400);document.addEventListener('click',release,true);
 }
 function anchorPulses(){
   // Every pulse shares the document timeline's phase, so rebuilds and mode changes never restart it.
@@ -671,6 +677,10 @@ window.matchMedia?.('(prefers-reduced-motion: reduce)')?.addEventListener('chang
 // Assembly controls. Any other interaction completes a running assembly before its own action.
 $('replay').onclick=()=>playAssembly('replay');
 for(const [id,name] of [['assemblyOnOpen','opening'],['assemblyOnEntry','entry']]){$(id).checked=assemblyPref(name);$(id).onchange=()=>setAssemblyPref(name,$(id).checked)}
-for(const type of ['pointerdown','keydown'])document.addEventListener(type,e=>{if(assembly.active&&!e.target.closest?.('#replay,.assembly-prefs'))endAssembly()},true);
+for(const type of ['pointerdown','keydown'])document.addEventListener(type,e=>{if(assembly.active&&!e.target.closest?.('#replay,.assembly-prefs'))endAssembly(type==='pointerdown')},true);
+// The Playback menu closes on Escape or a click elsewhere.
+const prefsMenu=document.querySelector('.assembly-prefs');
+document.addEventListener('pointerdown',e=>{if(prefsMenu.open&&!e.target.closest?.('.assembly-prefs'))prefsMenu.open=false},true);
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&prefsMenu.open){prefsMenu.open=false;prefsMenu.querySelector('summary').focus()}});
 window.wallAssembly={play:playAssembly,active:()=>assembly.active};
 </script></body></html>

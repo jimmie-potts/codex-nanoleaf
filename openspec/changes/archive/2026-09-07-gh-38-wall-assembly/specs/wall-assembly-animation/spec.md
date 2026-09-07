@@ -18,7 +18,7 @@ The wall map SHALL draw a persistent decorative orb at the center of the layout'
 
 ### Requirement: Triggers and preferences
 
-Playback on opening and playback on entering the map SHALL be separate browser-local preferences, both on by default. Opening playback and the **Replay assembly** control SHALL work in the current map; entry playback SHALL be reachable through a reusable integration point for future navigation. Polling, reconnecting, returning focus, pause and resume, Classic and Project changes, and Work, Quiet, and Free changes SHALL NOT trigger assembly. Covers criteria 4 and 5.
+Playback on opening and playback on entering the map SHALL be separate browser-local preferences, both on by default. Opening playback and the **Replay assembly** control SHALL work in the current map; entry playback SHALL be reachable through a reusable integration point for future navigation, named in the bridge guide. Polling, reconnecting, returning focus, pause and resume, Classic and Project changes, and Work, Quiet, and Free changes SHALL NOT trigger assembly. Covers criteria 4 and 5.
 
 #### Scenario: Preferences persist and gate playback
 - **WHEN** the user turns off playback on opening and reloads the map
