@@ -73,3 +73,10 @@ Codex work uses a separate branch and worktree for each deliverable.
 | `.github/` | CI and pull request template |
 
 Credentials, hook configuration, live databases, task metadata, scene preferences, screenshots, and installation backups are excluded from Git. No live state is required to run the tests.
+
+
+## Shared monitoring direction
+
+[The hub integration plan](docs/hub-integration.md) records shared contracts,
+an opt-in session consumer and a future unified overview. The Windows worker and
+current installation remain unchanged. GitHub issues own the migration prerequisites.

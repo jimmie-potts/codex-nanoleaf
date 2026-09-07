@@ -1,5 +1,8 @@
 schema: spec-driven
 context: |
+  Future shared monitoring follows docs/hub-integration.md and canonical hub
+  contracts. Nanoleaf retains the Windows worker and its device state. Shared
+  input and collector migration are opt-in future work, not current behavior.
   Codex Nanoleaf is a Windows bridge with standard-library Python, PowerShell,
   and a local browser map. GitHub issues in jimmie-potts/codex-nanoleaf own scope,
   acceptance criteria, dependencies, status, and delivery target. Read AGENTS.md,
