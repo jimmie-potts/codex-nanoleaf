@@ -7,6 +7,7 @@ import sqlite3
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('bridge', ROOT / 'bridge/bridge.py')
@@ -233,6 +234,34 @@ class BridgeTest(unittest.TestCase):
         self.assertEqual(len(slots),15)
         self.assertEqual(len(set(slots)),15)
         self.assertEqual(len(self.statuses()),17)
+
+    def test_failed_initialization_closes_connection(self):
+        with contextlib.closing(sqlite3.connect(self.path/'status.sqlite')) as db, db:
+            db.execute('CREATE TABLE map_settings (id INTEGER PRIMARY KEY)')
+        connections = []
+        connect = sqlite3.connect
+
+        def tracked_connect(*args, **kwargs):
+            db = connect(*args, **kwargs)
+            connections.append(db)
+            self.addCleanup(db.close)
+            return db
+
+        with patch.object(b.sqlite3, 'connect', tracked_connect):
+            with self.assertRaisesRegex(sqlite3.OperationalError, 'map_settings'):
+                b.connect_state(self.path)
+        self.assertEqual(len(connections), 1)
+        with self.assertRaisesRegex(sqlite3.ProgrammingError, 'closed'):
+            connections[0].execute('SELECT 1')
+
+    def test_failed_initialization_rolls_back_partial_schema(self):
+        with contextlib.closing(sqlite3.connect(self.path/'status.sqlite')) as db, db:
+            db.execute('CREATE TABLE map_settings (id INTEGER PRIMARY KEY)')
+        with self.assertRaisesRegex(sqlite3.OperationalError, 'map_settings'):
+            b.connect_state(self.path)
+        with contextlib.closing(sqlite3.connect(self.path/'status.sqlite')) as db:
+            tables = db.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        self.assertEqual(tables, [('map_settings',)])
 
     def test_failed_send_keeps_status_for_retry_on_next_event(self):
         self.event('UserPromptSubmit',defer=True)

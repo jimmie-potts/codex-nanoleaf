@@ -420,34 +420,39 @@ class SceneRestorer:
 
 def connect_state(directory):
     db = sqlite3.connect(directory / 'status.sqlite', timeout=2.5)
-    with db:
-        wall.init(db)
-        db.execute('CREATE TABLE IF NOT EXISTS sessions '
-                   '(id TEXT PRIMARY KEY, turn TEXT, status TEXT, updated REAL)')
-        db.execute('CREATE TABLE IF NOT EXISTS slots (session TEXT PRIMARY KEY, slot INTEGER UNIQUE)')
-        db.execute('CREATE TABLE IF NOT EXISTS waits '
-                   '(session TEXT, turn TEXT, key TEXT, kind TEXT, tool TEXT, '
-                   'PRIMARY KEY(session, turn, key))')
-        db.execute('CREATE TABLE IF NOT EXISTS activity '
-                   '(session TEXT PRIMARY KEY, turn TEXT, status TEXT, started REAL)')
-        db.execute('CREATE TABLE IF NOT EXISTS receipts '
-                   '(session TEXT PRIMARY KEY, turn TEXT, completed REAL, observed INTEGER)')
-        db.execute('CREATE TABLE IF NOT EXISTS display_v3 '
-                   '(id INTEGER PRIMARY KEY, snapshot TEXT, looping INTEGER, rendered REAL)')
-        db.execute('CREATE TABLE IF NOT EXISTS comets '
-                   '(session TEXT PRIMARY KEY, turn TEXT, queued REAL, source INTEGER, started REAL)')
-        db.execute('CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)')
-        if db.execute("SELECT value FROM meta WHERE key='model_version'").fetchone() != ('4',):
-            # This is only the integration's own database. Replace old lighting
-            # notifications and initialize the outward pulse for current work.
-            for table in ('signals', 'notifications'):
-                if db.execute('SELECT 1 FROM sqlite_master WHERE name=?', (table,)).fetchone():
-                    db.execute('DELETE FROM ' + table)
-            db.execute("UPDATE sessions SET status='blocked' WHERE status='approval'")
-            db.execute('INSERT OR REPLACE INTO activity '
-                       "SELECT id,turn,status,? FROM sessions WHERE status IN ('working','question','blocked','unread')",
-                       (time.time(),))
-            db.execute("INSERT OR REPLACE INTO meta VALUES ('model_version','4')")
+    try:
+        with db:
+            db.execute('BEGIN IMMEDIATE')
+            wall.init(db)
+            db.execute('CREATE TABLE IF NOT EXISTS sessions '
+                       '(id TEXT PRIMARY KEY, turn TEXT, status TEXT, updated REAL)')
+            db.execute('CREATE TABLE IF NOT EXISTS slots (session TEXT PRIMARY KEY, slot INTEGER UNIQUE)')
+            db.execute('CREATE TABLE IF NOT EXISTS waits '
+                       '(session TEXT, turn TEXT, key TEXT, kind TEXT, tool TEXT, '
+                       'PRIMARY KEY(session, turn, key))')
+            db.execute('CREATE TABLE IF NOT EXISTS activity '
+                       '(session TEXT PRIMARY KEY, turn TEXT, status TEXT, started REAL)')
+            db.execute('CREATE TABLE IF NOT EXISTS receipts '
+                       '(session TEXT PRIMARY KEY, turn TEXT, completed REAL, observed INTEGER)')
+            db.execute('CREATE TABLE IF NOT EXISTS display_v3 '
+                       '(id INTEGER PRIMARY KEY, snapshot TEXT, looping INTEGER, rendered REAL)')
+            db.execute('CREATE TABLE IF NOT EXISTS comets '
+                       '(session TEXT PRIMARY KEY, turn TEXT, queued REAL, source INTEGER, started REAL)')
+            db.execute('CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)')
+            if db.execute("SELECT value FROM meta WHERE key='model_version'").fetchone() != ('4',):
+                # This is only the integration's own database. Replace old lighting
+                # notifications and initialize the outward pulse for current work.
+                for table in ('signals', 'notifications'):
+                    if db.execute('SELECT 1 FROM sqlite_master WHERE name=?', (table,)).fetchone():
+                        db.execute('DELETE FROM ' + table)
+                db.execute("UPDATE sessions SET status='blocked' WHERE status='approval'")
+                db.execute('INSERT OR REPLACE INTO activity '
+                           "SELECT id,turn,status,? FROM sessions WHERE status IN ('working','question','blocked','unread')",
+                           (time.time(),))
+                db.execute("INSERT OR REPLACE INTO meta VALUES ('model_version','4')")
+    except BaseException:
+        db.close()
+        raise
     return db
 
 
