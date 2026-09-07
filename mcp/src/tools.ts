@@ -36,9 +36,10 @@ export function bindings(config: Config, store: Pick<CredentialStore, 'forDispat
                 if (snapshot.identity.controllerId === config.controllerId && snapshot.identity.deviceId === config.deviceId)
                     return { data: { kind: 'snapshot', snapshot } };
             }
-            if (write && [200, 202].includes(result.status) && validate('receipt', value)) {
+            if (write && validate('receipt', value)) {
                 const receipt = value as Receipt;
-                if (receipt.controllerId === config.controllerId && receipt.deviceId === config.deviceId && receipt.requestId.epoch === request!.requestId.epoch && receipt.requestId.sequence === request!.requestId.sequence)
+                const receiptStatus = [200, 202].includes(result.status) || ([409, 422, 503].includes(result.status) && receipt.outcome === 'failed' && failures[result.status]?.includes(receipt.failure?.code ?? ''));
+                if (receiptStatus && receipt.controllerId === config.controllerId && receipt.deviceId === config.deviceId && receipt.requestId.epoch === request!.requestId.epoch && receipt.requestId.sequence === request!.requestId.sequence)
                     return { data: { kind: 'receipt', receipt }, isError: ['failed', 'partially-applied', 'uncertain'].includes(receipt.outcome) };
             }
             if (value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).join(',') === 'failure') {

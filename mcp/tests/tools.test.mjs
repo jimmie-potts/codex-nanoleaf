@@ -34,3 +34,15 @@ test('invalid capabilities, targets and current dispatch revocation prevent upst
  for(const input of [{...args,deviceId:'other'},{...args,mode:'Monitor'},{...args,path:'secret'},args])assert.equal((await invokeDeviceTool(b.registry,b.tools[1],input,principal)).isError,true);
  assert.equal(count,0);
 });
+
+for(const [status,code] of [[409,'revision-conflict'],[409,'stale-generation'],[422,'unsupported-capability'],[503,'transport-failure']])test(`preserves reserved ${code} receipt on HTTP ${status}`,async()=>{
+ const receipt={apiVersion:'1.0',...config,requestId:args.requestId,configurationRevision:7,generation:args.expectedGeneration,outcome:'failed',priorEffects:'none',completedOperations:[],uncertainOperations:[],failure:{code}};
+ const b=bindings(config,{forDispatch:async()=>({upstreamToken:'a'.repeat(43)})},async()=>({status,body:receipt}));
+ const result=await invokeDeviceTool(b.registry,b.tools[1],args,principal);
+ assert.equal(result.isError,true);assert.deepEqual(result.structuredContent.data,{kind:'receipt',receipt});
+ for(const body of [{...receipt,deviceId:'other'},{...receipt,requestId:{...args.requestId,sequence:args.requestId.sequence+1}},{...receipt,priorEffects:'invalid'}]){
+  const invalid=bindings(config,{forDispatch:async()=>({upstreamToken:'a'.repeat(43)})},async()=>({status,body}));
+  const rejected=await invokeDeviceTool(invalid.registry,invalid.tools[1],args,principal);
+  assert.equal(rejected.structuredContent.data.code,'uncertain-result');assert.equal(rejected.structuredContent.data.priorEffects,'possible');
+ }
+});
