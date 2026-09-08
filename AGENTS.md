@@ -46,3 +46,14 @@ Flag competing light writers, credentials exposed to the browser or Git, loss of
 ## Human-facing prose
 
 Use the centrally installed `$unslop` skill for the final editorial pass on commentary, responses, and documentation. Preserve facts, commands, contracts, and validation evidence. If it is unavailable, report that and continue without installing or copying it.
+
+## Work guide maintenance
+
+For every authorized delivery or planning change, read the
+[shared guide maintenance procedure](https://github.com/jimmie-potts/agent-device-hub/blob/main/docs/work-guide/README.md).
+The hub owns the cross-project HTML and its inputs. Coordinate a linked hub PR
+that updates affected facts and records this delivery in
+`docs/work-guide/updates.md`, or records a specific no-impact reason. Include
+that PR and synchronization status in this repository's PR and completion report.
+Pending guide synchronization remains unfinished delivery work. Read-only tasks
+do not authorize writes, and guide maintenance does not authorize devices or hosting.

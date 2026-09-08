@@ -41,3 +41,9 @@ Describe any migration, deployment, or scene/brightness effect. State when the c
 
 Use Not run or Not in scope when evidence is unavailable. A source merge is not
 proof of installation or a physical-device update.
+
+## Cross-project work guide
+
+- [ ] Linked the coordinated hub guide PR and recorded its synchronization status.
+- [ ] Updated affected facts or recorded a specific no-impact reason in the hub maintenance history.
+- [ ] Recorded guide validation and any pending post-merge reconciliation.
