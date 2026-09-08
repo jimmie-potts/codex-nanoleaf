@@ -19,7 +19,9 @@ Returning to Work shows current tasks without replaying waves from statuses that
 arose while away. Future status changes get their normal wave or completion comet. Modes do not mark
 tasks read or discard task assignments. Quiet preserves the scene's original
 brightness so it can return when you leave Quiet. If no saved scene is available,
-the fallback is steady blue at the mode's brightness.
+the fallback is steady blue at the mode's brightness. In Project layout, steady
+project signature colors can remain on their assigned halves in Free; task
+pulsing stops.
 
 A mode change normally appears within two seconds. The tray reports pending
 changes and failed light updates; it retries controller failures. Connection text

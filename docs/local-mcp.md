@@ -4,6 +4,9 @@ The optional MCP host exposes `nanoleaf_status` and `nanoleaf_mode_set` through 
 
 Source delivery does not install, provision credentials, launch Codex or touch lights. [Issue #34](https://github.com/jimmie-potts/codex-nanoleaf/issues/34) owns separately authorized installation, client permission checks and physical acceptance. The commands below are instructions for that handoff.
 
+The [2026-09-08 acceptance record](hardware-validation.md) covers the tested
+Windows and WSL clients, physical observations, restoration and cleanup.
+
 ## Prepare the source host
 
 Use Node 24 in the same environment as Codex. The host is a separate optional package, so legacy Python bridge startup gains no Node requirement. From the checkout:
