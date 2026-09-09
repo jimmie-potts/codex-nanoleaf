@@ -375,3 +375,51 @@ Locate let you adjust it to your viewing position.
 ## Optional native controller API
 
 The [controller API guide](../docs/controller-api.md) describes opt-in local machine authentication, mode-only control, pure snapshots, bounded recovery and verified dependency adoption. The [protected controller specification](../openspec/specs/protected-controller-api/spec.md) owns the machine contract. Existing wall-map authentication and the animation/scene behavior above remain unchanged. Source delivery does not enable the listener or install credentials.
+
+## Connector geometry for the wall
+
+The [connector geometry specification](../openspec/specs/wall-connector-geometry/spec.md)
+owns the graph and cache compatibility contract. The existing `lines` response
+and physical numbering remain available to older wall clients.
+
+`GET /api/state` adds `connector_layout`, either `null` or this versioned shape:
+
+```json
+{
+  "version": 1,
+  "nodes": [
+    {"id": "1", "x": 0, "y": 0, "sourceIds": [1]},
+    {"id": "2", "x": 180, "y": 0, "sourceIds": [2]}
+  ],
+  "lines": [{"id": "101:102", "number": 1, "a": "1", "b": "2", "zoneIds": [101, 102]}]
+}
+```
+
+`a` owns zone 0 and `b` owns zone 1. Line group order supplies
+numbers, and the sorted pair supplies the stable Line ID. Co-located connector
+records share one housing while retaining their source IDs. The producer applies
+controller orientation and inverted display Y, exactly as for existing Line
+points. The browser applies its rotation and flips once afterward.
+
+The wall backend adds a whitelisted `connector_geometry` field to `layout.json`.
+Existing complete cached positions require no controller request. Zone-only
+caches can be enriched by a layout read without resetting application state.
+The map-server singleton owns acquisition, and its App lock serializes state
+readers. The existing atomic JSON writer publishes the complete saved cache
+before the in-memory cache changes; unrelated saved fields are retained.
+
+Supported layouts use two-zone Lines and hexagonal housing records of types 16,
+19, and 20. Validation requires unique zone mappings, unambiguous reported end
+positions, and six-face connections within one degree of controller rounding.
+Unknown shapes, including unsupported connector systems, use the existing Line
+display instead of guessed housings. `connector_error` gives a sanitized
+availability message; raw controller errors and private configuration stay in
+the backend.
+
+Acquisition has at most three attempts per map-server lifetime, ten seconds
+apart, including startup. A transient failure can recover on a remaining
+attempt; exhaustion retains the old wall without continuous polling, including
+in Free mode. Restarting the map server permits a new bounded acquisition
+window. The geometry projection does not send light writes, change task epochs,
+or launch Windows helpers. Linux installation and multi-device support remain
+separate work.
