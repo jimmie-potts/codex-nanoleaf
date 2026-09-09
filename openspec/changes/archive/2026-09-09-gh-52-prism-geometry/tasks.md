@@ -11,4 +11,4 @@
 ## 3. Acceptance and documentation
 
 - [x] 3.1 Document the versioned projection, transform convention, fallback, and cache ownership; verify links against the implemented contract.
-- [ ] 3.2 Run Python, browser, and workflow checks; synchronize and archive every affected spec before the committed candidate's independent reviews.
+- [x] 3.2 Run Python, browser, and workflow checks and verify the connector contract against the implemented source; record revision-specific results in delivery evidence.

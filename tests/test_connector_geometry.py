@@ -39,7 +39,15 @@ class ConnectorGeometryTest(unittest.TestCase):
         self.assertAlmostEqual(shared['y'], 402)
         self.assertEqual(len({node['id'] for node in graph['nodes']}), 12)
         self.assertTrue(all(line['a'] != line['b'] for line in graph['lines']))
-        self.assertEqual(wall.geometry(self.config), wall.geometry(copy.deepcopy(self.config)))
+        expected_ends = {
+            (1001,1002):(1003,1000), (1004,1005):(1006,1003), (1007,1008):(1009,1006),
+            (1010,1011):(1009,1012), (1013,1014):(1022,1009), (1015,1016):(1017,1003),
+            (1018,1019):(1017,1009), (1020,1021):(1022,1017), (1023,1024):(1025,1022),
+            (1026,1027):(1028,1003), (1029,1030):(1017,1028), (1031,1032):(1033,1028),
+            (1034,1035):(1033,1022), (1037,1038):(1039,1028), (1040,1041):(1042,1039),
+        }
+        for line in graph['lines']:
+            self.assertEqual((line['a'],line['b']),tuple(map(str,expected_ends[tuple(line['zoneIds'])])))
 
     def legacy(self):
         self.config['zone_geometry']['positionData'] = [p for p in self.config['zone_geometry']['positionData'] if p['shapeType']==18]
