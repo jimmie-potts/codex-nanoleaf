@@ -57,6 +57,9 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
+      - run: npm run test:prism
+      - run: npm run build:prism
+      - run: git diff --exit-code -- bridge/assets/prism
       - run: npm run test:browser
   mcp:
     name: MCP source checks on ${{ matrix.os }}

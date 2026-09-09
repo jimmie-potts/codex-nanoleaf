@@ -116,6 +116,9 @@ def handler(app,token):
                 if path=='/':
                     page=Path(__file__).with_name('wall.html').read_text(encoding='utf-8').replace('__CSRF__',token)
                     return self.respond(200,page.encode(),'text/html')
+                assets={'/assets/prism.js':'prism.js','/assets/prism-adapters.js':'prism-adapters.js'}
+                if path in assets:
+                    return self.respond(200,Path(__file__).with_name(assets[path]).read_bytes(),'text/javascript')
                 if path=='/api/state': return self.respond(200,app.state())
                 if path=='/health': return self.respond(200,{'service':'codex-nanoleaf-map'})
                 self.respond(404,{'error':'Not found.'})

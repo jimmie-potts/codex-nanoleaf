@@ -8,7 +8,9 @@
     "openspec": "node scripts/openspec.cjs",
     "check:workflow": "node scripts/check-workflow.cjs",
     "test:workflow": "node --test tests/workflow_checks.cjs",
-    "test:mcp": "npm --prefix mcp run verify && npm --prefix mcp test && npm --prefix mcp run typecheck"
+    "test:mcp": "npm --prefix mcp run verify && npm --prefix mcp test && npm --prefix mcp run typecheck",
+    "test:prism": "node --test tests/prism_adapter_checks.cjs",
+    "build:prism": "node scripts/export-prism.cjs"
   },
   "engines": {
     "node": ">=22"
