@@ -148,20 +148,25 @@ def ensure_geometry(directory,b,config):
     if config.get('connector_geometry') and wall.connector_layout({'line_groups':config['line_groups'],'connector_geometry':config['connector_geometry']}):
         return True
     try:
+        # Only the map owns this drawing cache. Never replace shared layout.json.
+        path=directory/'connector-geometry.json'
         try:
-            cache,_=wall.validated_connector_geometry(config.get('zone_geometry'),config['line_groups'])
-        except (ValueError,TypeError,KeyError,OverflowError):
-            layout=b.light_request(config,'GET')['panelLayout']
-            cache,_=wall.validated_connector_geometry({
-                'positionData':layout['layout']['positionData'],
-                'orientation':layout['globalOrientation']['value']},config['line_groups'])
+            cache,_=wall.validated_connector_geometry(json.loads(path.read_text()),config['line_groups'])
+            cached=True
+        except (OSError,ValueError,TypeError,KeyError,OverflowError):
+            cached=False
+            try:
+                cache,_=wall.validated_connector_geometry(config.get('zone_geometry'),config['line_groups'])
+            except (ValueError,TypeError,KeyError,OverflowError):
+                layout=b.light_request(config,'GET')['panelLayout']
+                cache,_=wall.validated_connector_geometry({
+                    'positionData':layout['layout']['positionData'],
+                    'orientation':layout['globalOrientation']['value']},config['line_groups'])
         additions={'connector_geometry':cache}
         if not config.get('zone_geometry'):
             additions['zone_geometry']={'positionData':[p for p in cache['positionData'] if p['shapeType']==18],
                                         'orientation':cache['orientation']}
-        path=directory/'layout.json'; saved=json.loads(path.read_text())
-        saved.update(additions)
-        b.write_json(path,saved)
+        if not cached: b.write_json(path,cache)
         config.update(additions)
         return True
     except (OSError,ValueError,TypeError,KeyError,OverflowError):

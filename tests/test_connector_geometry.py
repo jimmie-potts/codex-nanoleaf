@@ -67,8 +67,8 @@ class ConnectorGeometryTest(unittest.TestCase):
         saved = json.loads((self.directory/'layout.json').read_text())
         self.assertEqual({key:saved[key] for key in old}, old)
         self.assertEqual(self.config['zone_geometry'], old['zone_geometry'])
-        self.assertEqual(saved['connector_geometry'], self.config['connector_geometry'])
-        self.assertNotIn('SECRET_CANARY',json.dumps(saved['connector_geometry']))
+        self.assertEqual(json.loads((self.directory/'connector-geometry.json').read_text()), self.config['connector_geometry'])
+        self.assertNotIn('SECRET_CANARY',(self.directory/'connector-geometry.json').read_text())
         with contextlib.closing(b.connect_state(self.directory)) as db:
             self.assertEqual(list(db.iterdump()),before)
 
@@ -170,4 +170,32 @@ class ConnectorGeometryTest(unittest.TestCase):
                 states=list(pool.map(lambda _:app.state(),range(24)))
             self.assertEqual(read.call_count,1)
         self.assertTrue(all(s['connector_layout']==states[0]['connector_layout'] for s in states))
-        self.assertEqual(json.loads((self.directory/'layout.json').read_text())['connector_geometry'],self.config['connector_geometry'])
+        self.assertEqual(json.loads((self.directory/'connector-geometry.json').read_text()),self.config['connector_geometry'])
+
+    def test_enrichment_does_not_overwrite_an_independent_layout_writer(self):
+        self.legacy()
+        original_write=b.write_json
+        def concurrent_write(path,value):
+            layout_path=self.directory/'layout.json'
+            other=json.loads(layout_path.read_text())
+            other['line_positions']=[[123,456]]*15
+            other['concurrent_marker']='preserve'
+            original_write(layout_path,other)
+            original_write(path,value)
+        with patch.object(b,'light_request',return_value={'panelLayout':self.raw}),patch.object(b,'write_json',side_effect=concurrent_write):
+            self.assertTrue(wall_server.ensure_geometry(self.directory,b,self.config))
+        saved=json.loads((self.directory/'layout.json').read_text())
+        self.assertEqual(saved.get('concurrent_marker'),'preserve')
+        self.assertEqual(saved['line_positions'],[[123,456]]*15)
+
+    def test_sidecar_recovers_on_restart_without_a_device_read(self):
+        self.legacy()
+        with patch.object(b,'light_request',return_value={'panelLayout':self.raw}):
+            self.assertTrue(wall_server.ensure_geometry(self.directory,b,self.config))
+        restarted=json.loads((self.directory/'layout.json').read_text())
+        del restarted['zone_geometry']
+        with patch.object(b,'light_request',side_effect=AssertionError('No device read on restart')):
+            self.assertTrue(wall_server.ensure_geometry(self.directory,b,restarted))
+        self.assertEqual(wall.connector_layout(restarted),wall.connector_layout(self.config))
+        self.assertEqual(len(wall.geometry(restarted)),15)
+        self.assertNotIn('token',json.loads((self.directory/'connector-geometry.json').read_text()))

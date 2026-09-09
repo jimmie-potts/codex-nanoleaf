@@ -401,12 +401,12 @@ records share one housing while retaining their source IDs. The producer applies
 controller orientation and inverted display Y, exactly as for existing Line
 points. The browser applies its rotation and flips once afterward.
 
-The wall backend adds a whitelisted `connector_geometry` field to `layout.json`.
+The wall backend owns the whitelisted `connector-geometry.json` drawing cache beside `layout.json`. It reads legacy embedded caches for compatibility and does not rewrite the shared layout file.
 Existing complete cached positions require no controller request. Zone-only
 caches can be enriched by a layout read without resetting application state.
 The map-server singleton owns acquisition, and its App lock serializes state
 readers. The existing atomic JSON writer publishes the complete saved cache
-before the in-memory cache changes; unrelated saved fields are retained.
+before the in-memory cache changes. Concurrent layout writers retain their complete updates because enrichment writes a separate file. A restart reads this cache without a device request and derives missing legacy Line points from its validated zones.
 
 Supported layouts use two-zone Lines and hexagonal housing records of types 16,
 19, and 20. Validation requires unique zone mappings, unambiguous reported end
