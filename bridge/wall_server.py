@@ -23,12 +23,20 @@ class App:
         self.metadata=wall.Metadata(directory,self.config)
         self.launch=launch or b.launch_worker; self.lock=threading.RLock()
         self.geometry_retry=time.monotonic()+10
+        self.geometry_attempts=0
+        self.layout_generation=self.config.get('_connector_source')
 
     def state(self):
         with self.lock:
-            if not self.config.get('zone_geometry') and time.monotonic()>=self.geometry_retry:
+            connectors=wall.connector_layout(self.config)
+            current_generation=layout_generation(self.directory)
+            stale=current_generation!=self.layout_generation
+            if (connectors is None or stale) and self.geometry_attempts<3 and time.monotonic()>=self.geometry_retry:
                 self.geometry_retry=time.monotonic()+10
-                ensure_geometry(self.directory,self.b,self.config)
+                self.geometry_attempts+=1
+                if ensure_geometry(self.directory,self.b,self.config,refresh=stale):
+                    self.layout_generation=self.config.get('_connector_source')
+                connectors=wall.connector_layout(self.config)
             self.metadata.refresh()
             with contextlib.closing(self.b.connect_state(self.directory)) as db,db:
                 changed=self.metadata.sync(db)
@@ -54,6 +62,8 @@ class App:
                 result={'settings':wall.settings(db),'mode':control['mode'],'pending':wall.pending(db),
                         'error':control['error'],'mode_pending':control['revision']!=control['applied'],
                         'projects':projects,'lines':lines,'tasks':tasks,'now':time.time(),
+                        'connector_layout':connectors,
+                        'connector_error':None if connectors else 'Connector layout unavailable. Showing standard Lines.',
                         'geometry_error':None if lines else 'Layout unavailable. Check the light connection; the map will retry.'}
             if changed: self.launch(self.directory)
             return result
@@ -138,17 +148,46 @@ def handler(app,token):
     return Handler
 
 
-def ensure_geometry(directory,b,config):
-    if config.get('zone_geometry'): return
+def layout_generation(directory):
     try:
-        layout=b.light_request(config,'GET')['panelLayout']
-        zones={'positionData':[p for p in layout['layout']['positionData'] if p['shapeType']==18],
-               'orientation':layout['globalOrientation']['value']}
-        known={p['panelId'] for p in zones['positionData']}
-        if any(panel not in known for pair in config['line_groups'] for panel in pair): return
-        config['zone_geometry']=zones
-        path=directory/'layout.json'; saved=json.loads(path.read_text()); saved['zone_geometry']=zones; b.write_json(path,saved)
-    except Exception: pass
+        source=(directory/'layout.json').stat()
+        return [source.st_mtime_ns,source.st_size,source.st_ino]
+    except OSError:
+        return None
+
+
+def ensure_geometry(directory,b,config,refresh=False):
+    try:
+        # Only the map owns this drawing cache. Never replace shared layout.json.
+        path=directory/'connector-geometry.json'
+        generation=layout_generation(directory)
+        if generation is None: return False
+        saved=json.loads((directory/'layout.json').read_text())
+        if not isinstance(saved,dict): return False
+        try:
+            record=json.loads(path.read_text())
+            if not isinstance(record,dict) or record.get('layoutGeneration')!=generation:
+                raise ValueError('Drawing cache belongs to an older layout.')
+            cache,_=wall.validated_connector_geometry(record.get('geometry'),config['line_groups'])
+            cached=True
+        except (OSError,ValueError,TypeError,KeyError,OverflowError):
+            cached=False
+            try:
+                cache,_=wall.validated_connector_geometry(saved.get('connector_geometry') or saved.get('zone_geometry'),config['line_groups'])
+            except (ValueError,TypeError,KeyError,OverflowError):
+                layout=b.light_request(config,'GET')['panelLayout']
+                cache,_=wall.validated_connector_geometry({
+                    'positionData':layout['layout']['positionData'],
+                    'orientation':layout['globalOrientation']['value']},config['line_groups'])
+        additions={'connector_geometry':cache,'_connector_source':generation}
+        if refresh or not config.get('zone_geometry'):
+            additions['zone_geometry']={'positionData':[p for p in cache['positionData'] if p['shapeType']==18],
+                                        'orientation':cache['orientation']}
+        if not cached: b.write_json(path,{'layoutGeneration':generation,'geometry':cache})
+        config.update(additions)
+        return True
+    except (OSError,ValueError,TypeError,KeyError,OverflowError):
+        return False
 
 
 def serve(directory,b):
@@ -157,6 +196,7 @@ def serve(directory,b):
         except sqlite3.OperationalError: return
         config=b.load_config(directory); ensure_geometry(directory,b,config)
         app=App(directory,b,config)
+        app.geometry_attempts=1  # Startup acquisition used the first bounded attempt.
         server=ThreadingHTTPServer(('127.0.0.1',0),handler(app,secrets.token_hex(32))); server.app=app
         b.write_json(directory/'map-server.json',{'port':server.server_port})
         try: server.serve_forever()
