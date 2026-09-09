@@ -52,3 +52,27 @@ test('packaged components expose independent two-second assembly and flow with s
   assert.equal(layout.lines[0].start,layout.lines[1].start,'Hub Lines start together');
   assert.throws(()=>api.validate({...fixture().connector_layout,nodes:[...fixture().connector_layout.nodes,{id:'unused',x:30,y:40}]}));
 });
+test('the saved 15-Line graph retains topology, length and zone ownership through every presentation transform',()=>{
+  const context={window:{}};vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../bridge/prism.js'),'utf8'),context);
+  const graph=JSON.parse(fs.readFileSync(path.join(__dirname,'fixtures/lines-connectors.json'),'utf8'));
+  const api=adapter();let baseline;
+  for(const rotation of [0,90,180,270])for(const flip_x of [0,1])for(const flip_y of [0,1]){
+    const state={connector_layout:graph,lines:graph.lines,settings:{rotation,flip_x,flip_y}};
+    const layout=context.window.Prism.validate(api.fromState(state,colors));
+    assert.equal(layout.lines.length,15);assert.equal(layout.nodes.length,12);
+    const topology=layout.lines.map(l=>[l.id,l.number,layout.nodes[l.a].id,layout.nodes[l.b].id,l.zoneIds]);
+    assert.equal(JSON.stringify(topology),JSON.stringify(graph.lines.map(l=>[l.id,l.number,l.a,l.b,l.zoneIds])));
+    baseline??=layout.lines.map(l=>l.length);
+    layout.lines.forEach((l,i)=>{assert(Math.abs(l.length-baseline[i])<1e-7);assert(l.da>=context.window.Prism.constants.faceDistance-1e-7);assert(l.db>=context.window.Prism.constants.faceDistance-1e-7)});
+  }
+});
+test('equally connected roots use junction spread, box center, and stable identity regardless of input order',()=>{
+ const context={window:{}};vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../bridge/prism.js'),'utf8'),context);
+ const shape={version:1,nodes:[{id:'z',x:0,y:0},{id:'a',x:200,y:0},{id:'b',x:100,y:Math.sqrt(3)*100}],lines:[{id:'za',a:'z',b:'a'},{id:'ab',a:'a',b:'b'},{id:'bz',a:'b',b:'z'}]};
+ const expected=context.window.Prism.validate(shape).rootIds[0];
+ for(const nodes of [[...shape.nodes].reverse(),[shape.nodes[1],shape.nodes[2],shape.nodes[0]]])assert.equal(context.window.Prism.validate({...shape,nodes}).rootIds[0],expected);
+ // A symmetric hexagon has equal degree, spread and distance to center. Identity breaks the final tie.
+ const nodes=Array.from({length:6},(_,i)=>({id:['z','f','e','d','c','a'][i],x:200*Math.cos(i*Math.PI/3),y:200*Math.sin(i*Math.PI/3)}));
+ const lines=nodes.map((node,i)=>({id:'edge'+i,a:node.id,b:nodes[(i+1)%6].id}));
+ assert.equal(context.window.Prism.validate({version:1,nodes,lines}).rootIds[0],'a');
+});

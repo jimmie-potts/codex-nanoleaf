@@ -69,7 +69,12 @@
   if(requested!==undefined&&(!Array.isArray(requested)||requested.some(id=>!['string','number'].includes(typeof id))))throw Error('rootIds must be an array of connector IDs.');
   const requestedIndexes=requested?.map(id=>nodeMap.get(String(id))?.index);
   if(requestedIndexes?.some(index=>index===undefined)||new Set(requestedIndexes||[]).size!==(requestedIndexes||[]).length)throw Error('rootIds must contain distinct connector IDs from this layout.');
-  function preferredRoot(component){return [...component].sort((a,b)=>nodes[b].adj.length-nodes[a].adj.length||component.reduce((sum,index)=>sum+Math.hypot(nodes[a].x-nodes[index].x,nodes[a].y-nodes[index].y),0)-component.reduce((sum,index)=>sum+Math.hypot(nodes[b].x-nodes[index].x,nodes[b].y-nodes[index].y),0)||a-b)[0]}
+  function preferredRoot(component){
+   const junctions=component.filter(index=>nodes[index].adj.length>=2),candidates=junctions.length?junctions:component;
+   const xs=component.map(index=>nodes[index].x),ys=component.map(index=>nodes[index].y),cx=(Math.min(...xs)+Math.max(...xs))/2,cy=(Math.min(...ys)+Math.max(...ys))/2;
+   const spread=index=>junctions.reduce((sum,other)=>sum+Math.hypot(nodes[index].x-nodes[other].x,nodes[index].y-nodes[other].y),0),center=index=>Math.hypot(nodes[index].x-cx,nodes[index].y-cy),compare=(a,b)=>Math.abs(a-b)<1e-6?0:a-b;
+   return [...candidates].sort((a,b)=>nodes[b].adj.length-nodes[a].adj.length||compare(spread(a),spread(b))||compare(center(a),center(b))||nodes[a].id.localeCompare(nodes[b].id))[0];
+  }
   const roots=components.map(component=>{if(!requestedIndexes)return preferredRoot(component);const matches=requestedIndexes.filter(index=>component.includes(index));if(matches.length!==1)throw Error('rootIds must provide exactly one root for each disconnected component.');return matches[0]});
   if(requestedIndexes&&requestedIndexes.length!==components.length)throw Error('rootIds must provide exactly one root for each disconnected component.');
   const visited=new Set(),order=[];let maxDepth=0;
@@ -82,6 +87,7 @@
  class Renderer{
   constructor(host,layout,options={}){
    if(!host)throw Error('A host element is required.');
+   validate(layout); // Reject invalid input before acquiring listeners or observers.
    this.host=host;this.p='pr'+(++instance)+'-';this.options=options;this.progress=0;this.playing=false;this.speed=1;this.glow=1.55;this.mode='work';this.direction=1;
    this.flowElapsed=0;this.flowLast=null;this.assemblyLast=null;this.lightPhase=0;this.frameId=0;this.selection=new Set();this.highlighted=new Set();this.activity=new Set();this.pending=new Set();this.hovered=new Set();this.focused=new Set();this.lineMetadata=new Map();this.labelTransforms=new Map();this.showNumbers=false;this.flowEpochEstablished=false;this.pauseReasons=new Set();this.destroyed=false;
    this.reduced=global.matchMedia?matchMedia('(prefers-reduced-motion: reduce)'):{matches:false,addEventListener(){},removeEventListener(){}};
@@ -91,6 +97,8 @@
    this._reduce=()=>{if(this.reduced.matches&&this.playing)this._completeAssembly(this.assemblyReason||'first');else{this.assemblyLast=null;this.flowLast=null;this.render(performance.now())}this.schedule()};
    document.addEventListener('visibilitychange',this._hidden);this.reduced.addEventListener('change',this._reduce);this._hidden();
    this.setLayout(layout,{animate:options.animate!==false});
+   this.removalObserver=global.MutationObserver?new MutationObserver(()=>{if(!host.isConnected)this.destroy()}):null;
+   this.removalObserver?.observe(document.documentElement,{childList:true,subtree:true});
   }
   _setPauseReason(reason,paused){paused?this.pauseReasons.add(reason):this.pauseReasons.delete(reason);this.assemblyLast=null;this.flowLast=null;if(this.pauseReasons.size){cancelAnimationFrame(this.frameId);this.frameId=0}else this.schedule()}
   _establishFlowPhase(){this.flowElapsed=0;this.flowLast=null;this.lightPhase=0;this.flowEpochEstablished=true}
@@ -128,7 +136,7 @@
   }
   paint(line){for(let z=0;z<2;z++){this.svg.querySelectorAll('[data-paint="'+line.index+'-'+z+'"]').forEach(el=>attr(el,'stop-color',el.dataset.hot?pale(line.colors[z]):line.colors[z]));this.svg.querySelectorAll('[data-solid="'+line.index+'-'+z+'"]').forEach(el=>attr(el,'fill',el.dataset.hotSolid?pale(line.colors[z]):line.colors[z]))}this.paintHubs()}
   paintHubs(){if(!this.parts?.orient)return;for(const n of this.layout.nodes){let primary=null;for(let j=0;j<6;j++){const angle=n.angle+180+j*60,nearest=n.adj.map(a=>{const q=this.layout.nodes[a.to],dir=deg(Math.atan2(q.y-n.y,q.x-n.x));return {...a,error:Math.abs(mod(dir-angle+180,360)-180)}}).sort((a,b)=>a.error-b.error)[0],line=this.layout.lines[nearest.edge],c=line.colors[line.a===n.index?0:1],sector=this.rims[n.index][j];attr(sector.querySelector('[data-hub-tint]'),'fill',c);attr(sector.querySelector('[data-hub-tint]'),'opacity',nearest.error<2?.26:.07);attr(sector.querySelector('[data-hub-edge]'),'stroke',pale(c));if(nearest.error<2)primary=c}attr(this.parts.orient[n.index].querySelector('[data-hub-aura]'),'stroke',primary||'#77dfff')}}
-  setColors(id,colors){const line=this.layout.lines.find(item=>item.id===String(id));if(!line)throw Error('Unknown Line ID.');if(!Array.isArray(colors)||colors.length!==2||colors.some(c=>!color(c)))throw Error('Provide two hex colors.');line.colors=[...colors];this.paint(line);this.light(performance.now());return this}
+  setColors(id,colors){const line=this.layout.lines.find(item=>item.id===String(id));if(!line)throw Error('Unknown Line ID.');if(!Array.isArray(colors)||colors.length!==2||colors.some(c=>!color(c)))throw Error('Provide two hex colors.');if(line.colors.every((value,index)=>value===colors[index]))return this;line.colors=[...colors];this.paint(line);this.light(performance.now());return this}
   setSelection(ids){this.selection=lineSet(this.layout,ids,'Selection');this.updateInteraction();return this}
   setHighlights(ids){this.highlighted=lineSet(this.layout,ids,'Highlights');this.updateInteraction();return this}
   setActivity(ids){this.activity=lineSet(this.layout,ids,'Activity');this.light(performance.now());this.schedule();return this}
@@ -171,7 +179,7 @@
   schedule(){if(!this._needsFrame()||this.frameId)return;this.frameId=requestAnimationFrame(now=>{this.frameId=0;if(this.playing){const dt=this.assemblyLast===null?0:Math.min(.1,Math.max(0,(now-this.assemblyLast)/1000));this.assemblyLast=now;this.progress=clamp(this.progress+dt*this.speed/this.layout.duration);if(this.progress>=1){this.progress=1;this.playing=false;this.assemblyLast=null;this._establishFlowPhase()}this.render(now)}else{this.light(now);this.options.onFrame?.(this.snapshot())}this.schedule()})}
   snapshot(){const ordered=set=>this.layout.lines.filter(line=>set.has(line.id)).map(line=>line.id);return {progress:this.progress,playing:this.playing,lightPhase:this.lightPhase,selected:ordered(this.selection),highlighted:ordered(this.highlighted),activity:ordered(this.activity),pending:ordered(this.pending),mode:this.mode,pauseReasons:[...this.pauseReasons].sort(),lines:this.layout.lines.length,connectors:this.layout.nodes.length,components:this.layout.roots.length,rootIds:[...this.layout.rootIds],loops:this.layout.lines.filter(l=>!l.tree).length,reducedMotion:this.reduced.matches}}
   exportSVG({numbers=false}={}){const copy=this.svg.cloneNode(true);copy.querySelectorAll('[data-hit],[data-selection],[data-highlight-ring],[data-pending-ring]').forEach(element=>element.remove());if(!numbers)copy.querySelector('[data-layer="numbers"]')?.remove();copy.querySelectorAll('[tabindex],[role="button"]').forEach(element=>{element.removeAttribute('tabindex');element.removeAttribute('role');element.removeAttribute('aria-pressed')});return new XMLSerializer().serializeToString(copy)}
-  destroy(){if(this.destroyed)return;this.destroyed=true;this.visibilityObserver?.disconnect();cancelAnimationFrame(this.frameId);this.frameId=0;document.removeEventListener('visibilitychange',this._hidden);this.reduced.removeEventListener('change',this._reduce);this.host.replaceChildren()}
+  destroy(){if(this.destroyed)return;this.destroyed=true;this.visibilityObserver?.disconnect();this.removalObserver?.disconnect();cancelAnimationFrame(this.frameId);this.frameId=0;document.removeEventListener('visibilitychange',this._hidden);this.reduced.removeEventListener('change',this._reduce);this.host.replaceChildren()}
  }
  global.Prism={Renderer,validate,materials:{defs,beamDefs,tube,shell,front,connector,rimPiece,numeral},constants:{connectorRadius:R,innerRadius:INNER,faceDistance:D,tubeLength:256,tubeWidth:32,assemblySeconds:ASSEMBLY_SECONDS,flowSeconds:FLOW_SECONDS},utils:{esc,hex,rad,deg,point}};
 })(window);
