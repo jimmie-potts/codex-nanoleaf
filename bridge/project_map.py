@@ -254,3 +254,85 @@ def geometry(config):
         points=[rotate(a['x']-dx/2,a['y']-dy/2),rotate((a['x']+b['x'])/2,(a['y']+b['y'])/2),rotate(b['x']+dx/2,b['y']+dy/2)]
         segments.append({'id':line_id(pair),'number':index+1,'points':points})
     return segments
+
+
+def validated_connector_geometry(raw, groups):
+    """Return an allowlisted cache and graph, or reject unsupported geometry."""
+    if not isinstance(raw,dict) or type(raw.get('version',1)) is not int or raw.get('version',1)!=1:
+        raise ValueError('Unsupported connector geometry.')
+    points=raw.get('positionData'); orientation=raw.get('orientation',0)
+    def numeric(value):
+        return type(value) in (int,float) and math.isfinite(value) and abs(value)<=1_000_000
+    if not numeric(orientation) or not isinstance(points,list) or not 1<=len(points)<=1000:
+        raise ValueError('Invalid connector positions.')
+    clean=[]; seen=set()
+    for point in points:
+        if not isinstance(point,dict): raise ValueError('Invalid connector position.')
+        pid=point.get('panelId'); kind=point.get('shapeType')
+        if type(pid) is not int or not 0<=pid<=65535 or pid in seen:
+            raise ValueError('Invalid or duplicate panel identity.')
+        if type(kind) is not int or kind not in (16,18,19,20):
+            raise ValueError('Unsupported connector shape.')
+        if any(not numeric(point.get(key)) for key in ('x','y','o')):
+            raise ValueError('Invalid connector coordinate.')
+        clean.append({key:point[key] for key in ('panelId','x','y','o','shapeType')})
+        seen.add(pid)
+    zones={p['panelId']:p for p in clean if p['shapeType']==18}
+    if not isinstance(groups,list) or not 1<=len(groups)<=300:
+        raise ValueError('Invalid Line groups.')
+    if any(not isinstance(pair,list) or len(pair)!=2 or any(type(pid) is not int for pid in pair) for pair in groups):
+        raise ValueError('Invalid zone mapping.')
+    ids=[pid for pair in groups for pid in pair]
+    if len(set(ids))!=len(ids) or set(ids)!=set(zones):
+        raise ValueError('Line groups must map every zone exactly once.')
+    distance=lambda a,b: math.hypot(a['x']-b['x'],a['y']-b['y'])
+    nodes=[]
+    for point in sorted((p for p in clean if p['shapeType']!=18),key=lambda p:p['panelId']):
+        matches=[n for n in nodes if distance(n,point)<2]
+        if len(matches)>1: raise ValueError('Ambiguous connector housing.')
+        if matches:
+            matches[0]['sourceIds'].append(point['panelId'])
+        else:
+            nodes.append({'id':str(point['panelId']),'x':point['x'],'y':point['y'],'sourceIds':[point['panelId']]})
+    if not nodes: raise ValueError('No connector positions.')
+    lines=[]; used=set(); faces={}
+    for index,pair in enumerate(groups):
+        a,b=(zones[pid] for pid in pair); dx=b['x']-a['x']; dy=b['y']-a['y']
+        length=math.hypot(dx,dy)
+        if length<4: raise ValueError('Coincident light zones.')
+        ends=[{'x':a['x']-dx/2,'y':a['y']-dy/2},{'x':b['x']+dx/2,'y':b['y']+dy/2}]
+        joined=[]
+        for end in ends:
+            matches=[n for n in nodes if distance(n,end)<=max(2,length*.25)]
+            if len(matches)!=1: raise ValueError('Missing or ambiguous Line end.')
+            joined.append(matches[0])
+        left,right=joined
+        if left is right: raise ValueError('Line ends share one connector.')
+        vx=right['x']-left['x']; vy=right['y']-left['y']
+        delta=math.degrees(math.atan2(vy,vx)-math.atan2(dy,dx))
+        if abs((delta+180)%360-180)>1:
+            raise ValueError('Line zones do not align with connectors.')
+        for node,other in ((left,right),(right,left)):
+            heading=math.degrees(math.atan2(other['y']-node['y'],other['x']-node['x']))
+            previous=faces.setdefault(node['id'],[])
+            if previous:
+                difference=(heading-previous[0])%360
+                face=round(difference/60)%6
+                if abs((difference-face*60+180)%360-180)>1 or any(round((old-previous[0])%360/60)%6==face for old in previous):
+                    raise ValueError('Incompatible or duplicate connector face.')
+            previous.append(heading); used.add(node['id'])
+        lines.append({'id':line_id(pair),'number':index+1,'a':left['id'],'b':right['id'],'zoneIds':list(pair)})
+    angle=math.radians(orientation); c=math.cos(angle); s=math.sin(angle)
+    projected=[dict(n,x=n['x']*c-n['y']*s,y=-(n['x']*s+n['y']*c)) for n in nodes if n['id'] in used]
+    cache={'version':1,'orientation':orientation,'positionData':clean}
+    return cache,{'version':1,'nodes':projected,'lines':lines}
+
+
+def connector_layout(config):
+    """Project validated cached data only; never contact the controller here."""
+    for raw in (config.get('connector_geometry'),config.get('zone_geometry')):
+        try:
+            return validated_connector_geometry(raw,config.get('line_groups'))[1]
+        except (ValueError,TypeError,KeyError,OverflowError):
+            continue
+    return None
