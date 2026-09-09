@@ -241,3 +241,22 @@ class ConnectorGeometryTest(unittest.TestCase):
         self.assertEqual([line['id'] for line in after['lines']],[line['id'] for line in before['lines']])
         for private in ('layoutGeneration','st_mtime_ns','st_ino','SECRET_CANARY'):
             self.assertNotIn(private,json.dumps(after))
+
+    def test_startup_layout_replacement_cannot_relabel_old_memory_as_current(self):
+        self.legacy()
+        with patch.object(b,'light_request',return_value={'panelLayout':self.raw}):
+            self.assertTrue(wall_server.ensure_geometry(self.directory,b,self.config))
+        before=wall.connector_layout(self.config)
+        saved=json.loads((self.directory/'layout.json').read_text())
+        saved.pop('zone_geometry',None)
+        (self.directory/'layout.json').write_text(json.dumps(saved))
+        # The replacement lands after startup enrichment, before App construction.
+        app=wall_server.App(self.directory,b,self.config,launch=lambda _:self.fail('No worker launch'))
+        app.geometry_retry=0
+        updated=copy.deepcopy(self.raw)
+        updated['globalOrientation']['value']+=90
+        with patch.object(b,'light_request',return_value={'panelLayout':updated}) as read:
+            after=app.state()
+            read.assert_called_once()
+        self.assertNotEqual(after['connector_layout']['nodes'],before['nodes'])
+        self.assertNotIn('_connector_source',json.dumps(after))

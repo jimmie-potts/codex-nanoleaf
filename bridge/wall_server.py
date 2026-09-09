@@ -24,7 +24,7 @@ class App:
         self.launch=launch or b.launch_worker; self.lock=threading.RLock()
         self.geometry_retry=time.monotonic()+10
         self.geometry_attempts=0
-        self.layout_generation=layout_generation(directory)
+        self.layout_generation=self.config.get('_connector_source')
 
     def state(self):
         with self.lock:
@@ -35,7 +35,7 @@ class App:
                 self.geometry_retry=time.monotonic()+10
                 self.geometry_attempts+=1
                 if ensure_geometry(self.directory,self.b,self.config,refresh=stale):
-                    self.layout_generation=current_generation
+                    self.layout_generation=self.config.get('_connector_source')
                 connectors=wall.connector_layout(self.config)
             self.metadata.refresh()
             with contextlib.closing(self.b.connect_state(self.directory)) as db,db:
@@ -179,7 +179,7 @@ def ensure_geometry(directory,b,config,refresh=False):
                 cache,_=wall.validated_connector_geometry({
                     'positionData':layout['layout']['positionData'],
                     'orientation':layout['globalOrientation']['value']},config['line_groups'])
-        additions={'connector_geometry':cache}
+        additions={'connector_geometry':cache,'_connector_source':generation}
         if refresh or not config.get('zone_geometry'):
             additions['zone_geometry']={'positionData':[p for p in cache['positionData'] if p['shapeType']==18],
                                         'orientation':cache['orientation']}
