@@ -406,7 +406,7 @@ Existing complete cached positions require no controller request. Zone-only
 caches can be enriched by a layout read without resetting application state.
 The map-server singleton owns acquisition, and its App lock serializes state
 readers. The existing atomic JSON writer publishes the complete saved cache
-before the in-memory cache changes. Concurrent layout writers retain their complete updates because enrichment writes a separate file. A restart reads this cache without a device request and derives missing legacy Line points from its validated zones.
+before the in-memory cache changes. Concurrent layout writers retain their complete updates because enrichment writes a separate file. A restart reads this cache without a device request and derives missing legacy Line points from its validated zones. The private cache envelope records the shared layout file generation; rediscovering or replacing that file invalidates the drawing cache even when panel IDs are unchanged. That file metadata never enters the browser projection.
 
 Supported layouts use two-zone Lines and hexagonal housing records of types 16,
 19, and 20. Validation requires unique zone mappings, unambiguous reported end

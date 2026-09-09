@@ -67,7 +67,7 @@ class ConnectorGeometryTest(unittest.TestCase):
         saved = json.loads((self.directory/'layout.json').read_text())
         self.assertEqual({key:saved[key] for key in old}, old)
         self.assertEqual(self.config['zone_geometry'], old['zone_geometry'])
-        self.assertEqual(json.loads((self.directory/'connector-geometry.json').read_text()), self.config['connector_geometry'])
+        self.assertEqual(json.loads((self.directory/'connector-geometry.json').read_text())['geometry'], self.config['connector_geometry'])
         self.assertNotIn('SECRET_CANARY',(self.directory/'connector-geometry.json').read_text())
         with contextlib.closing(b.connect_state(self.directory)) as db:
             self.assertEqual(list(db.iterdump()),before)
@@ -170,7 +170,7 @@ class ConnectorGeometryTest(unittest.TestCase):
                 states=list(pool.map(lambda _:app.state(),range(24)))
             self.assertEqual(read.call_count,1)
         self.assertTrue(all(s['connector_layout']==states[0]['connector_layout'] for s in states))
-        self.assertEqual(json.loads((self.directory/'connector-geometry.json').read_text()),self.config['connector_geometry'])
+        self.assertEqual(json.loads((self.directory/'connector-geometry.json').read_text())['geometry'],self.config['connector_geometry'])
 
     def test_enrichment_does_not_overwrite_an_independent_layout_writer(self):
         self.legacy()
@@ -199,3 +199,21 @@ class ConnectorGeometryTest(unittest.TestCase):
         self.assertEqual(wall.connector_layout(restarted),wall.connector_layout(self.config))
         self.assertEqual(len(wall.geometry(restarted)),15)
         self.assertNotIn('token',json.loads((self.directory/'connector-geometry.json').read_text()))
+
+    def test_rediscovered_layout_invalidates_sidecar_with_the_same_line_ids(self):
+        self.legacy()
+        with patch.object(b,'light_request',return_value={'panelLayout':self.raw}):
+            self.assertTrue(wall_server.ensure_geometry(self.directory,b,self.config))
+        before=wall.connector_layout(self.config)
+        layout=self.directory/'layout.json'
+        saved=json.loads(layout.read_text())
+        saved.pop('zone_geometry',None)
+        layout.unlink()
+        layout.write_text(json.dumps(saved))
+        updated=copy.deepcopy(self.raw)
+        updated['globalOrientation']['value']+=90
+        with patch.object(b,'light_request',return_value={'panelLayout':updated}) as read:
+            self.assertTrue(wall_server.ensure_geometry(self.directory,b,saved))
+            read.assert_called_once()
+        self.assertNotEqual(wall.connector_layout(saved)['nodes'],before['nodes'])
+        self.assertEqual([l['id'] for l in wall.connector_layout(saved)['lines']],[l['id'] for l in before['lines']])

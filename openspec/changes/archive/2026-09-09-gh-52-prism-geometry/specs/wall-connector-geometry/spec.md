@@ -42,6 +42,10 @@ The backend SHALL enrich fresh and zone-only caches through its existing authori
 - **WHEN** the wall backend restarts with a valid drawing cache and no embedded connector geometry
 - **THEN** it reconstructs the connector projection and any missing Line points without contacting the device
 
+#### Scenario: Rediscovery invalidates old drawing geometry
+- **WHEN** the documented layout rediscovery replaces saved layout configuration while retaining physical Line IDs
+- **THEN** the backend obtains the current connector positions and orientation instead of reusing the earlier drawing cache
+
 ### Requirement: Bounded failure and fallback
 
 Invalid, ambiguous, missing, or unsupported connector geometry SHALL NOT replace the last valid cache or create guessed connections. Without exact geometry, the existing Line projection SHALL remain available with a sanitized connector-availability result. Automatic acquisition SHALL use a bounded attempt budget and delay; repeated state polls SHALL NOT cause continuous device polling in Free mode or after the budget is exhausted. A later permitted attempt SHALL recover when valid data becomes available. Covers issue #52 AC3 and AC4.

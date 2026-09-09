@@ -18,7 +18,7 @@ Provide a validated graph in the same coordinate frame as existing Line points. 
 
 - Controller rounding can make exact collinearity impossible. Test the real sanitized fixture and allow one degree of angular rounding; large or ambiguous deviations fail closed to the old wall.
 - A legacy cache may remain the only available geometry while the controller is offline. Continue drawing the old wall and expose a sanitized availability field rather than clearing it.
-- Layout configuration has other owners. Keep its writes separate from the map-owned sidecar; the existing map-server singleton and App lock own connector enrichment. No worker state is rewritten.
+- Layout configuration has other owners. Keep its writes separate from the map-owned sidecar; the existing map-server singleton and App lock own connector enrichment. The sidecar envelope binds validated geometry to the layout file generation (mtime, size and file identity), so the existing remove-layout/rediscover procedure cannot reuse stale connectors when IDs remain unchanged. This private metadata is not projected to the browser. No worker state is rewritten.
 
 ## Migration Plan
 

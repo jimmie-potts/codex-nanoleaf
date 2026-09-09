@@ -150,8 +150,13 @@ def ensure_geometry(directory,b,config):
     try:
         # Only the map owns this drawing cache. Never replace shared layout.json.
         path=directory/'connector-geometry.json'
+        source=(directory/'layout.json').stat()
+        generation=[source.st_mtime_ns,source.st_size,source.st_ino]
         try:
-            cache,_=wall.validated_connector_geometry(json.loads(path.read_text()),config['line_groups'])
+            record=json.loads(path.read_text())
+            if not isinstance(record,dict) or record.get('layoutGeneration')!=generation:
+                raise ValueError('Drawing cache belongs to an older layout.')
+            cache,_=wall.validated_connector_geometry(record.get('geometry'),config['line_groups'])
             cached=True
         except (OSError,ValueError,TypeError,KeyError,OverflowError):
             cached=False
@@ -166,7 +171,7 @@ def ensure_geometry(directory,b,config):
         if not config.get('zone_geometry'):
             additions['zone_geometry']={'positionData':[p for p in cache['positionData'] if p['shapeType']==18],
                                         'orientation':cache['orientation']}
-        if not cached: b.write_json(path,cache)
+        if not cached: b.write_json(path,{'layoutGeneration':generation,'geometry':cache})
         config.update(additions)
         return True
     except (OSError,ValueError,TypeError,KeyError,OverflowError):
