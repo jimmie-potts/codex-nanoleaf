@@ -241,4 +241,4 @@ class ProjectTest(unittest.TestCase):
         from unittest.mock import patch
         with patch.object(wall_server,'ensure_geometry') as refresh_geometry:
             app.state();app.state()
-            refresh_geometry.assert_called_once_with(self.directory,b,app.config)
+            refresh_geometry.assert_called_once_with(self.directory,b,app.config,refresh=False)

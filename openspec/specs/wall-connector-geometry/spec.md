@@ -46,7 +46,8 @@ The backend SHALL enrich fresh and zone-only caches through its existing authori
 
 #### Scenario: Rediscovery invalidates old drawing geometry
 - **WHEN** the documented layout rediscovery replaces saved layout configuration while retaining physical Line IDs
-- **THEN** the backend obtains the current connector positions and orientation instead of reusing the earlier drawing cache
+- **THEN** an already-running backend obtains the current connector positions and orientation through its bounded acquisition path instead of reusing the earlier drawing cache
+- **AND** connector and legacy zone drawing points refresh together without changing Line identity
 
 ### Requirement: Bounded failure and fallback
 

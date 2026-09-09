@@ -24,14 +24,18 @@ class App:
         self.launch=launch or b.launch_worker; self.lock=threading.RLock()
         self.geometry_retry=time.monotonic()+10
         self.geometry_attempts=0
+        self.layout_generation=layout_generation(directory)
 
     def state(self):
         with self.lock:
             connectors=wall.connector_layout(self.config)
-            if connectors is None and self.geometry_attempts<3 and time.monotonic()>=self.geometry_retry:
+            current_generation=layout_generation(self.directory)
+            stale=current_generation!=self.layout_generation
+            if (connectors is None or stale) and self.geometry_attempts<3 and time.monotonic()>=self.geometry_retry:
                 self.geometry_retry=time.monotonic()+10
                 self.geometry_attempts+=1
-                ensure_geometry(self.directory,self.b,self.config)
+                if ensure_geometry(self.directory,self.b,self.config,refresh=stale):
+                    self.layout_generation=current_generation
                 connectors=wall.connector_layout(self.config)
             self.metadata.refresh()
             with contextlib.closing(self.b.connect_state(self.directory)) as db,db:
@@ -144,14 +148,22 @@ def handler(app,token):
     return Handler
 
 
-def ensure_geometry(directory,b,config):
-    if config.get('connector_geometry') and wall.connector_layout({'line_groups':config['line_groups'],'connector_geometry':config['connector_geometry']}):
-        return True
+def layout_generation(directory):
+    try:
+        source=(directory/'layout.json').stat()
+        return [source.st_mtime_ns,source.st_size,source.st_ino]
+    except OSError:
+        return None
+
+
+def ensure_geometry(directory,b,config,refresh=False):
     try:
         # Only the map owns this drawing cache. Never replace shared layout.json.
         path=directory/'connector-geometry.json'
-        source=(directory/'layout.json').stat()
-        generation=[source.st_mtime_ns,source.st_size,source.st_ino]
+        generation=layout_generation(directory)
+        if generation is None: return False
+        saved=json.loads((directory/'layout.json').read_text())
+        if not isinstance(saved,dict): return False
         try:
             record=json.loads(path.read_text())
             if not isinstance(record,dict) or record.get('layoutGeneration')!=generation:
@@ -161,14 +173,14 @@ def ensure_geometry(directory,b,config):
         except (OSError,ValueError,TypeError,KeyError,OverflowError):
             cached=False
             try:
-                cache,_=wall.validated_connector_geometry(config.get('zone_geometry'),config['line_groups'])
+                cache,_=wall.validated_connector_geometry(saved.get('connector_geometry') or saved.get('zone_geometry'),config['line_groups'])
             except (ValueError,TypeError,KeyError,OverflowError):
                 layout=b.light_request(config,'GET')['panelLayout']
                 cache,_=wall.validated_connector_geometry({
                     'positionData':layout['layout']['positionData'],
                     'orientation':layout['globalOrientation']['value']},config['line_groups'])
         additions={'connector_geometry':cache}
-        if not config.get('zone_geometry'):
+        if refresh or not config.get('zone_geometry'):
             additions['zone_geometry']={'positionData':[p for p in cache['positionData'] if p['shapeType']==18],
                                         'orientation':cache['orientation']}
         if not cached: b.write_json(path,{'layoutGeneration':generation,'geometry':cache})

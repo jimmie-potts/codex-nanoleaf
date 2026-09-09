@@ -217,3 +217,27 @@ class ConnectorGeometryTest(unittest.TestCase):
             read.assert_called_once()
         self.assertNotEqual(wall.connector_layout(saved)['nodes'],before['nodes'])
         self.assertEqual([l['id'] for l in wall.connector_layout(saved)['lines']],[l['id'] for l in before['lines']])
+
+    def test_running_map_refreshes_geometry_after_layout_rediscovery(self):
+        self.legacy()
+        with patch.object(b,'light_request',return_value={'panelLayout':self.raw}):
+            self.assertTrue(wall_server.ensure_geometry(self.directory,b,self.config))
+        app=wall_server.App(self.directory,b,self.config,launch=lambda _:self.fail('No worker launch'))
+        before=app.state()
+        saved=json.loads((self.directory/'layout.json').read_text())
+        saved.pop('zone_geometry',None)
+        (self.directory/'layout.json').unlink()
+        (self.directory/'layout.json').write_text(json.dumps(saved))
+        updated=copy.deepcopy(self.raw)
+        updated['globalOrientation']['value']+=90
+        app.geometry_retry=0
+        with patch.object(b,'light_request',return_value={'panelLayout':updated}) as read:
+            after=app.state()
+            read.assert_called_once()
+            app.state()
+            read.assert_called_once()
+        self.assertNotEqual(after['connector_layout']['nodes'],before['connector_layout']['nodes'])
+        self.assertNotEqual(after['lines'][0]['points'],before['lines'][0]['points'])
+        self.assertEqual([line['id'] for line in after['lines']],[line['id'] for line in before['lines']])
+        for private in ('layoutGeneration','st_mtime_ns','st_ino','SECRET_CANARY'):
+            self.assertNotIn(private,json.dumps(after))
