@@ -292,6 +292,19 @@
     .wall-line.locating .outline { stroke: #ffffff; stroke-width: 30; }
   }
 }
+/* Prism keeps its crystal material separate from the stable input regions. */
+body[data-mode="quiet"] #wall.prism-scene, body[data-mode="free"] #wall.prism-scene { --selection-anim: none; }
+#wall.prism-scene .wall-line .outline { stroke: var(--focus); stroke-width: 2; pointer-events: none; }
+#wall.prism-scene .wall-line.selected .outline { stroke: var(--selection); }
+#wall.prism-scene .wall-line:focus-visible:not(.selected) .outline { stroke: var(--focus); stroke-width: 2; }
+#wall.prism-scene .wall-line.pending .outline { stroke: var(--selection); stroke-dasharray: var(--selection-dash); animation: var(--selection-anim); }
+#wall.prism-scene .highlight-ring { stroke: var(--focus); stroke-width: 1.5; pointer-events: none; }
+#wall.prism-scene .pending-ring { stroke: var(--pending); stroke-width: 2; stroke-dasharray: 7 5; pointer-events: none; }
+#wall.prism-scene .number { fill: #e7f5ff; }
+#wall.prism-scene .wall-line.locating .outline { opacity: 1; animation: prism-locate 1s ease-out; }
+@keyframes prism-locate { 0%,55% { stroke: #ffffff; stroke-width: 4; } 100% { stroke: var(--selection); stroke-width: 2; } }
+@media (prefers-reduced-motion: reduce) { #wall.prism-scene .wall-line.locating .outline { stroke: #ffffff; stroke-width: 4; } }
+
 </style></head>
 <body><div class="app">
 <header>
@@ -319,7 +332,7 @@
       <div class="group" role="group" aria-label="Assembly"><button type="button" id="replay" title="Replay the opening assembly. Decorative only; it changes nothing on the lights.">Replay assembly</button><details class="assembly-prefs"><summary aria-label="Assembly playback settings">Playback</summary><div><label><input type="checkbox" id="assemblyOnOpen"> Play on opening</label><label><input type="checkbox" id="assemblyOnEntry"> Play on view entry</label></div></details></div>
     </div>
     <div id="busy" role="status" aria-live="polite"></div>
-    <div class="wall-frame"><svg id="wall" aria-label="Nanoleaf wall map" role="group"></svg></div>
+    <div class="wall-frame" id="wallHost"><svg id="wall" aria-label="Nanoleaf wall map" role="group"></svg></div>
     <div class="legend">
       <span><i class="dot" style="background:var(--wall-working)"></i>Working</span>
       <span><i class="dot" style="background:var(--wall-question)"></i>Question</span>
@@ -346,11 +359,13 @@
 </main>
 <footer><span>Local to this PC · Opening a task here does not mark it read</span><span>Refreshes once a second</span></footer>
 </div>
+<script src="/assets/prism.js"></script>
+<script src="/assets/prism-adapters.js"></script>
 <script>
 const token='__CSRF__', $=id=>document.getElementById(id), svgNS='http://www.w3.org/2000/svg';
 let state=null, selected=new Set(), projectFingerprint='', taskFingerprint='', taskFocus=null, wallFingerprint='', detailFingerprint='', errorUntil=0, refreshing=false;
 const statusColors={working:'var(--wall-working)',question:'var(--wall-question)',blocked:'var(--wall-blocked)',unread:'var(--wall-unread)'};
-const modeNotes={work:['Work · indicators on','Task indicators pulse on the wall at 30% brightness. The on-screen pulse follows task status, not the controller.'],quiet:['Quiet · steady at 10%','Steady task colors without pulses or outward waves.'],free:['Free · lights released','The lights follow the Nanoleaf app. The map shows saved task assignments.']};
+const modeNotes={work:['Work · indicators on','Task indicators pulse on the wall at 30% brightness. The map’s inward light flow follows task status.'],quiet:['Quiet · steady at 10%','Steady task colors without pulses or outward waves.'],free:['Free · lights released','The lights follow the Nanoleaf app. The map shows saved task assignments.']};
 function el(tag,text,cls){const node=document.createElement(tag);if(text!==undefined)node.textContent=text;if(cls)node.className=cls;return node}
 function message(text,error=false){$('notice').textContent=text;$('notice').style.display=text?'block':'none';$('notice').classList.toggle('error',error);if(error)errorUntil=Date.now()+6000}
 async function action(path,payload){endAssembly();try{const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-Wall-Token':token},body:JSON.stringify(payload)});const data=await r.json();if(!r.ok)throw Error(data.error);errorUntil=0;await refresh()}catch(e){message(e.message,true)}}
@@ -438,7 +453,7 @@ function centralJunction(junctions,center){
 }
 function hexPath(x,y,r){return Array.from({length:6},(_,i)=>{const a=Math.PI/6+i*Math.PI/3;return(i?'L':'M')+(x+r*Math.cos(a)).toFixed(2)+' '+(y+r*Math.sin(a)).toFixed(2)}).join(' ')+' Z'}
 function transform(point){let[x,y]=point;const a=state.settings.rotation*Math.PI/180;return[(x*Math.cos(a)-y*Math.sin(a))*(state.settings.flip_x?-1:1),(x*Math.sin(a)+y*Math.cos(a))*(state.settings.flip_y?-1:1)]}
-function drawWall(){
+function drawStandardWall(){
   if(assembly.active||assembly.hold)return; // the wall waits for the assembly; the rest of the page keeps updating
   const fingerprint=JSON.stringify([state.lines,state.tasks.map(t=>[t.id,t.status,t.project,t.title]),state.projects.map(p=>[p.id,p.name,p.color]),state.settings,state.pending,[...selected]]);
   if(fingerprint===wallFingerprint)return;wallFingerprint=fingerprint;
@@ -506,12 +521,79 @@ function drawWall(){
   // Number clicks must win over every Line's transparent hit stroke.
   root.append(numbers);sizeLineNumbers();anchorPulses();
 }
+// Persistent Prism wall. The app owns colors, identity, commands and selection.
+let prism=null, prismGeometryKey='', prismError='';
+function zoneColors(line){
+  const task=lineTask(line),style=getComputedStyle(document.documentElement);
+  const status=task?.status||'unread',base=style.getPropertyValue('--wall-'+status).trim();
+  const colors=[base,base];
+  if(state.settings.style==='project'){
+    const owner=state.projects.find(p=>p.id===(task?.project||line.project));
+    colors[line.signature]=owner?.color||style.getPropertyValue('--wall-unread').trim();
+  }
+  return colors;
+}
+function drawWall(){
+  if(!window.Prism||!window.PrismAdapters||!state?.lines.length){
+    prismError=state?.lines.length&&(!window.Prism||!window.PrismAdapters)?'Prism artwork unavailable. Showing standard Lines. Repair the app installation to restore the crystal artwork.':'';
+    if(prism){prism.destroy();prism=null;prismGeometryKey='';$('wallHost').innerHTML='<svg id="wall" role="group" aria-label="Nanoleaf wall map"></svg>'}
+    return drawStandardWall();
+  }
+  let layout;
+  try{layout=PrismAdapters.fromState(state,zoneColors);Prism.validate(layout);prismError=''}
+  catch{prismError='Connector layout unavailable. '+(prism?'Keeping the last valid wall.':'Showing standard Lines.');if(!prism)return drawStandardWall()}
+  if(layout){
+    const key=JSON.stringify([layout.nodes,layout.lines.map(({colors,...line})=>line)]);
+    if(!prism){
+      prism=new Prism.Renderer($('wallHost'),layout,{animate:false,onSelect(event,line){choose(line.id,event.ctrlKey||event.metaKey||event.shiftKey);prism.parts.control[line.index]?.focus({preventScroll:true})},onFrame(snapshot){assembly.active=snapshot.playing;$('wall')?.classList.toggle('assembling',snapshot.playing)}});
+      prism.svg.id='wall';prism.svg.setAttribute('aria-label','Nanoleaf wall map');prism.showAllNumbers(true);prismGeometryKey=key;
+    }else if(key!==prismGeometryKey){
+      prism.setLayout(layout);prism.svg.id='wall';prism.svg.setAttribute('aria-label','Nanoleaf wall map');prismGeometryKey=key;
+    }
+  }
+  const available=new Set(prism.layout.lines.map(line=>line.id));
+  for(const line of state.lines)if(available.has(line.id))prism.setColors(line.id,zoneColors(line));
+  prism.setMode(state.mode);
+  prism.setActivity(state.lines.filter(line=>available.has(line.id)&&lineTask(line)).map(line=>line.id));
+  prism.setSelection([...selected].filter(id=>available.has(id)));
+  prism.setPending(Object.keys(state.pending?.lines||{}).filter(id=>available.has(id)));
+  prism.setLineMetadata(Object.fromEntries(state.lines.filter(line=>available.has(line.id)).map(line=>[line.id,{ariaLabel:`Line ${line.number} · ${lineDescription(line)}`,status:lineTask(line)?.status||null}])));
+  sizeLineNumbers();
+}
+let prismNumberLayoutKey='';
+function sizePrismNumbers(){
+  const matrix=prism.svg.getScreenCTM();if(!matrix)return;
+  const scale=Math.hypot(matrix.a,matrix.b);if(!scale)return;
+  const pixels=Math.max(11,parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--number-size'))||12),size=pixels/scale;
+  const canvas=prism.host.getBoundingClientRect(),key=JSON.stringify([prism.p,prismGeometryKey,scale,canvas.width,canvas.height,pixels]);
+  if(key===prismNumberLayoutKey)return;prismNumberLayoutKey=key;
+  const placed=[],center={x:(Math.min(...prism.layout.nodes.map(n=>n.x))+Math.max(...prism.layout.nodes.map(n=>n.x)))/2,y:(Math.min(...prism.layout.nodes.map(n=>n.y))+Math.max(...prism.layout.nodes.map(n=>n.y)))/2};
+  for(const line of [...prism.layout.lines].sort((a,b)=>a.number-b.number)){
+    const tag=prism.parts.label[line.index],mark=tag.querySelector('[data-part="luminous-numeral"]');
+    mark.style.fontSize=size+'px';
+    for(const text of tag.querySelectorAll('text')){text.style.fontSize=size+'px';text.textContent=line.number}
+    const anchor=prism._labelAnchor(line),box=tag.querySelector('.number').getBBox(),width=box.width*scale+4,height=box.height*scale+4;
+    if(anchor.nx*(anchor.x-center.x)+anchor.ny*(anchor.y-center.y)<0){anchor.nx=-anchor.nx;anchor.ny=-anchor.ny}
+    const offset=21*scale+Math.abs(anchor.nx)*width/2+Math.abs(anchor.ny)*height/2+4;
+    const midpoint=new DOMPoint(anchor.x,anchor.y).matrixTransform(matrix),candidates=[];
+    for(const extra of [0,6,12,20,30,42,56])for(const side of [1,-1])for(const shift of [0,12,-12,24,-24]){
+      const x=midpoint.x+anchor.nx*side*(offset+extra)-anchor.ny*shift,y=midpoint.y+anchor.ny*side*(offset+extra)+anchor.nx*shift;
+      const rect={left:x-width/2,right:x+width/2,top:y-height/2,bottom:y+height/2};
+      if(rect.left>=canvas.left+3&&rect.right<=canvas.right-3&&rect.top>=canvas.top+3&&rect.bottom<=canvas.bottom-3&&!placed.some(other=>rect.left<other.right+3&&other.left<rect.right+3&&rect.top<other.bottom+3&&other.top<rect.bottom+3))candidates.push({x,y,rect});
+    }
+    const choice=candidates[0]||{x:midpoint.x+anchor.nx*offset,y:midpoint.y+anchor.ny*offset};
+    if(choice.rect)placed.push(choice.rect);
+    const point=new DOMPoint(choice.x,choice.y).matrixTransform(matrix.inverse());
+    prism.labelTransforms.set(line.id,`translate(${point.x} ${point.y})`);
+  }
+  prism.positionLabels();
+}
 /* Opening assembly: the structure unfolds outward from the orb. Presentation only; it never writes. */
 const assembly={active:false,hold:false,animations:[],key:'',seen:false};
 const assemblyPrefs={opening:'wall.assembly.opening',entry:'wall.assembly.entry'};
 function assemblyPref(name){try{return localStorage.getItem(assemblyPrefs[name])!=='0'}catch{return true}}
 function setAssemblyPref(name,on){try{if(on)localStorage.removeItem(assemblyPrefs[name]);else localStorage.setItem(assemblyPrefs[name],'0')}catch{}}
-function geometryKey(){return JSON.stringify([state.lines.map(l=>[l.id,l.points]),state.settings.rotation,state.settings.flip_x,state.settings.flip_y])}
+function geometryKey(){return JSON.stringify([state.connector_layout,state.lines.map(l=>[l.id,l.points]),state.settings.rotation,state.settings.flip_x,state.settings.flip_y])}
 function reducedMotion(){return !!window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches}
 function playAssembly(reason){
   if(assembly.active||!state?.lines.length)return false;
@@ -519,6 +601,7 @@ function playAssembly(reason){
   if(reason==='opening'&&!assemblyPref('opening'))return false;
   if(reason==='entry'&&!assemblyPref('entry'))return false;
   if(reducedMotion())return false;
+  if(prism){assembly.key=geometryKey();prism.replay();return prism.playing}
   assembly.hold=false;wallFingerprint='';drawWall();
   const root=$('wall'),orb=root.querySelector('.orb'),cx=+orb.getAttribute('cx'),cy=+orb.getAttribute('cy');
   // Connect Lines whose ends nearly touch, then walk outward from each section's Line nearest the orb.
@@ -569,6 +652,7 @@ function playAssembly(reason){
   return true;
 }
 function endAssembly(afterPointer=false){
+  if(prism){prism.finish('interaction');assembly.active=false;return}
   if(!assembly.active)return;
   for(const a of assembly.animations){try{a.finish()}catch{}a.cancel()}
   assembly.active=false;assembly.animations=[];
@@ -584,11 +668,13 @@ function endAssembly(afterPointer=false){
   const timer=setTimeout(release,5000);for(const type of ['click','pointerup','pointercancel'])document.addEventListener(type,release,true);
 }
 function anchorPulses(){
+  if(prism)return;
   // Every pulse shares the document timeline's phase, so rebuilds and mode changes never restart it.
   for(const animation of $('wall').getAnimations({subtree:true}))
     if((animation.animationName==='pulse'||animation.animationName==='pulseCore')&&animation.startTime!==0)animation.startTime=0;
 }
 function sizeLineNumbers(){
+  if(prism)return sizePrismNumbers();
   const scale=$('wall').getScreenCTM()?.a;if(!scale)return;
   const px=parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--number-size'))||12;
   const size=px/scale,h=size*1.55;
@@ -704,7 +790,7 @@ function render(){
   $('wallNote').title=state.mode!=='free'&&!state.tasks.length?'No active indicators. Your remembered scene plays on the wall.':detail;
   $('connection').textContent='Live';$('connection').classList.remove('offline');
   readout();
-  if(Date.now()>errorUntil)message(state.error||state.geometry_error||'',!!(state.error||state.geometry_error));
+  if(Date.now()>errorUntil)message(state.error||state.geometry_error||prismError||'',!!(state.error||state.geometry_error||prismError));
 }
 let lastReadout='';
 function readout(){
@@ -719,7 +805,7 @@ function readout(){
   parts.forEach(([text,strong],i)=>{if(i)node.append(' · ');node.append(strong?el('b',text):text)});
 }
 async function refresh(){if(refreshing)return;refreshing=true;try{const r=await fetch('/api/state');const data=await r.json();if(!r.ok)throw Error(data.error);state=data;render()}catch(e){endAssembly();$('connection').textContent='Disconnected · retrying';$('connection').classList.add('offline');message(e.message,true)}finally{refreshing=false}}
-for(const id of ['classic','project'])$(id).onclick=()=>action('/api/settings',{style:id});for(const mode of ['work','free','quiet'])$(mode).onclick=()=>action('/api/mode',{mode});$('coverage').onchange=()=>action('/api/settings',{coverage:$('coverage').value});$('assign').onclick=()=>action('/api/assign',{lines:Object.fromEntries([...selected].map(id=>[id,{project:$('assignProject').value||null}]))});$('clear').onclick=()=>{selected.clear();taskFocus=null;$('selectionTitle').focus({preventScroll:true});drawWall();inspect();highlightAssociations()};$('swap').onclick=()=>action('/api/assign',{lines:Object.fromEntries(state.lines.filter(l=>selected.has(l.id)).map(l=>[l.id,{signature:1-l.signature}]))});$('locate').onclick=()=>{const id=[...selected][0],group=$('wall').querySelector(`[data-line="${id}"]`);if(group){group.classList.remove('locating');void group.getBBox();group.classList.add('locating');setTimeout(()=>group.classList.remove('locating'),1000)}action('/api/locate',{line:id})};$('rotate').onclick=()=>action('/api/settings',{rotation:(state.settings.rotation+90)%360});$('flipX').onclick=()=>action('/api/settings',{flip_x:1-state.settings.flip_x});$('flipY').onclick=()=>action('/api/settings',{flip_y:1-state.settings.flip_y});new ResizeObserver(sizeLineNumbers).observe($('wall'));refresh();setInterval(refresh,1000);
+for(const id of ['classic','project'])$(id).onclick=()=>action('/api/settings',{style:id});for(const mode of ['work','free','quiet'])$(mode).onclick=()=>action('/api/mode',{mode});$('coverage').onchange=()=>action('/api/settings',{coverage:$('coverage').value});$('assign').onclick=()=>action('/api/assign',{lines:Object.fromEntries([...selected].map(id=>[id,{project:$('assignProject').value||null}]))});$('clear').onclick=()=>{selected.clear();taskFocus=null;$('selectionTitle').focus({preventScroll:true});drawWall();inspect();highlightAssociations()};$('swap').onclick=()=>action('/api/assign',{lines:Object.fromEntries(state.lines.filter(l=>selected.has(l.id)).map(l=>[l.id,{signature:1-l.signature}]))});$('locate').onclick=()=>{const id=[...selected][0],group=$('wall').querySelector(`[data-line="${id}"]`);if(group){group.classList.remove('locating');void group.getBBox();group.classList.add('locating');setTimeout(()=>group.classList.remove('locating'),1000)}action('/api/locate',{line:id})};$('rotate').onclick=()=>action('/api/settings',{rotation:(state.settings.rotation+90)%360});$('flipX').onclick=()=>action('/api/settings',{flip_x:1-state.settings.flip_x});$('flipY').onclick=()=>action('/api/settings',{flip_y:1-state.settings.flip_y});new ResizeObserver(sizeLineNumbers).observe($('wallHost'));refresh();setInterval(refresh,1000);
 window.matchMedia?.('(prefers-reduced-motion: reduce)')?.addEventListener('change',()=>requestAnimationFrame(anchorPulses));
 // Assembly controls. Any other interaction completes a running assembly before its own action.
 $('replay').onclick=()=>playAssembly('replay');
@@ -729,5 +815,7 @@ for(const type of ['pointerdown','keydown'])document.addEventListener(type,e=>{i
 const prefsMenu=document.querySelector('.assembly-prefs');
 document.addEventListener('pointerdown',e=>{if(prefsMenu.open&&!e.target.closest?.('.assembly-prefs'))prefsMenu.open=false},true);
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&prefsMenu.open&&prefsMenu.contains(document.activeElement)){prefsMenu.open=false;prefsMenu.querySelector('summary').focus()}});
-window.wallAssembly={play:playAssembly,active:()=>assembly.active};
+window.wallAssembly={play:playAssembly,active:()=>assembly.active,snapshot:()=>prism?.snapshot()||null};
+window.addEventListener('pagehide',()=>prism?.pause());
+window.addEventListener('pageshow',()=>prism?.resume());
 </script></body></html>

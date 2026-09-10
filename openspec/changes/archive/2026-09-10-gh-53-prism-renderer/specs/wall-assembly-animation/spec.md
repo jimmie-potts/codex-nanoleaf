@@ -1,9 +1,9 @@
-# wall-assembly-animation Specification
+## RENAMED Requirements
 
-## Purpose
-Open the wall map with a brief mechanical assembly from crystal hexagonal connectors, under browser-local preferences and a manual Replay, without touching bridge state or physical lights.
+- FROM: `### Requirement: Orb and assembly sequence`
+- TO: `### Requirement: Connector and assembly sequence`
 
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Connector and assembly sequence
 
@@ -21,18 +21,6 @@ The wall SHALL draw a crystal hexagonal connector at the most-connected hub, bre
 - **WHEN** the assembly completes
 - **THEN** every Line, number tag, selection ring, and pending ring is where it would be without the assembly, and numbering, rotation, flips, and task and project associations are unchanged
 
-### Requirement: Triggers and preferences
-
-Playback on opening and playback on entering the map SHALL be separate browser-local preferences, both on by default. Opening playback and the **Replay assembly** control SHALL work in the current map; entry playback SHALL be reachable through a reusable integration point for future navigation, named in the bridge guide. Polling, reconnecting, returning focus, pause and resume, Classic and Project changes, and Work, Quiet, and Free changes SHALL NOT trigger assembly. Covers criteria 4 and 5.
-
-#### Scenario: Preferences persist and gate playback
-- **WHEN** the user turns off playback on opening and reloads the map
-- **THEN** the structure appears complete without assembly, and Replay still plays it
-
-#### Scenario: Routine updates do not replay
-- **WHEN** a poll, a reconnection, a mode change, or a layout change updates the map
-- **THEN** no assembly starts
-
 ### Requirement: Modes and reduced motion
 
 Assembly MAY run in any mode and SHALL settle into that mode's normal appearance. When the viewer prefers reduced motion, the map SHALL skip assembly and SHALL show the completed structure immediately, with the hexagonal hub present. Covers criterion 6.
@@ -44,18 +32,6 @@ Assembly MAY run in any mode and SHALL settle into that mode's normal appearance
 #### Scenario: Reduced motion skips assembly
 - **WHEN** reduced motion is requested and geometry loads or Replay is pressed
 - **THEN** no assembly animation runs and the completed structure is visible at once
-
-### Requirement: Completion and cancellation
-
-A map interaction during assembly SHALL complete the assembly immediately and then perform the intended action. Repeated Replay presses SHALL NOT queue sequences. Task lists, alerts, and connection information SHALL remain visible during assembly, and playback SHALL finish into the latest polled state. A geometry change or a connection failure SHALL end assembly immediately. Covers criteria 7 and 8.
-
-#### Scenario: Interaction completes assembly
-- **WHEN** the user selects a Line while assembly is playing
-- **THEN** the assembly completes at once and the Line is selected
-
-#### Scenario: Geometry change ends assembly
-- **WHEN** a poll delivers different Line geometry or the connection fails while assembly is playing
-- **THEN** the assembly ends immediately and the map shows the latest state
 
 ### Requirement: Assembly never writes
 
