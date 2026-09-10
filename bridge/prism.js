@@ -109,7 +109,7 @@
    const keep=set=>new Set([...set].filter(id=>layout.lines.some(l=>l.id===id)));
    this.selection=keep(this.selection);this.highlighted=keep(this.highlighted);this.activity=keep(this.activity);this.pending=keep(this.pending);this.hovered=keep(this.hovered);this.focused=keep(this.focused);
    this.lineMetadata=new Map([...this.lineMetadata].filter(([id])=>layout.lines.some(l=>l.id===id)));this.labelTransforms=new Map([...this.labelTransforms].filter(([id])=>layout.lines.some(l=>l.id===id)));
-   const shouldAssemble=initial&&animate&&!this.reduced.matches;this.progress=shouldAssemble?0:1;this.playing=shouldAssemble;this.assemblyReason=shouldAssemble?'first':null;this.assemblyLast=null;this.flowLast=null;
+   const shouldAssemble=initial&&animate&&!this.reduced.matches;this.progress=shouldAssemble?0:1;this.playing=shouldAssemble;this.assemblyReason=shouldAssemble?'first':null;this.assemblyLast=null;if(initial||shouldAssemble)this.flowLast=null;
    if(!shouldAssemble&&!this.flowEpochEstablished)this._establishFlowPhase();
    this.build();this.render(performance.now());this.schedule();return this;
   }
@@ -167,7 +167,7 @@
   light(now){
    if(!this.layout||!this.svg)return;
    const flowAllowed=!this.reduced.matches&&this.progress>=1&&this.mode==='work'&&this.activity.size>0&&this.pauseReasons.size===0;
-   if(!flowAllowed)this.flowLast=null;else if(this.flowLast===null)this.flowLast=now;else{this.flowElapsed+=Math.min(.1,Math.max(0,(now-this.flowLast)/1000));this.flowLast=Math.max(this.flowLast,now)}
+   if(!flowAllowed)this.flowLast=null;else if(this.flowLast===null)this.flowLast=now;else{this.flowElapsed+=Math.max(0,(now-this.flowLast)/1000);this.flowLast=Math.max(this.flowLast,now)}
    const t=(this.flowElapsed/FLOW_SECONDS)%1;this.lightPhase=t;
    for(const element of this.packets){const line=this.layout.lines[+element.dataset.packet],active=this.activity.has(line.id),z=+element.dataset.zone,d=z?-1:1,x=d*(-126+126*Math.min(1,t/.62));attr(element,'transform',`translate(${fmt(x)} 0) scale(${d} 1)`);attr(element,'opacity',flowAllowed&&active?(t<.62?1:clamp(1-(t-.62)/.24)):0)}
    const base=this.progress<1?.19:this.mode==='work'?.62:this.mode==='quiet'?.34:.15;for(const element of this.beds)attr(element,'opacity',element.dataset.hotSolid&&base>0?Math.min(1,base+.3):base);
@@ -176,7 +176,7 @@
    this.svg.dataset.prismMode=this.mode;this.svg.dataset.reducedMotion=String(this.reduced.matches);
   }
   _needsFrame(){return !this.destroyed&&this.layout&&this.pauseReasons.size===0&&!this.reduced.matches&&(this.playing||this.progress>=1&&this.mode==='work'&&this.activity.size>0)}
-  schedule(){if(!this._needsFrame()||this.frameId)return;this.frameId=requestAnimationFrame(now=>{this.frameId=0;if(this.playing){const dt=this.assemblyLast===null?0:Math.min(.1,Math.max(0,(now-this.assemblyLast)/1000));this.assemblyLast=now;this.progress=clamp(this.progress+dt*this.speed/this.layout.duration);if(this.progress>=1){this.progress=1;this.playing=false;this.assemblyLast=null;this._establishFlowPhase()}this.render(now)}else{this.light(now);this.options.onFrame?.(this.snapshot())}this.schedule()})}
+  schedule(){if(!this._needsFrame()||this.frameId)return;this.frameId=requestAnimationFrame(now=>{this.frameId=0;if(this.playing){const dt=this.assemblyLast===null?0:Math.max(0,(now-this.assemblyLast)/1000);this.assemblyLast=now;this.progress=clamp(this.progress+dt*this.speed/this.layout.duration);if(this.progress>=1){this.progress=1;this.playing=false;this.assemblyLast=null;this._establishFlowPhase()}this.render(now)}else{this.light(now);this.options.onFrame?.(this.snapshot())}this.schedule()})}
   snapshot(){const ordered=set=>this.layout.lines.filter(line=>set.has(line.id)).map(line=>line.id);return {progress:this.progress,playing:this.playing,lightPhase:this.lightPhase,selected:ordered(this.selection),highlighted:ordered(this.highlighted),activity:ordered(this.activity),pending:ordered(this.pending),mode:this.mode,pauseReasons:[...this.pauseReasons].sort(),lines:this.layout.lines.length,connectors:this.layout.nodes.length,components:this.layout.roots.length,rootIds:[...this.layout.rootIds],loops:this.layout.lines.filter(l=>!l.tree).length,reducedMotion:this.reduced.matches}}
   exportSVG({numbers=false}={}){const copy=this.svg.cloneNode(true);copy.querySelectorAll('[data-hit],[data-selection],[data-highlight-ring],[data-pending-ring]').forEach(element=>element.remove());if(!numbers)copy.querySelector('[data-layer="numbers"]')?.remove();copy.querySelectorAll('[tabindex],[role="button"]').forEach(element=>{element.removeAttribute('tabindex');element.removeAttribute('role');element.removeAttribute('aria-pressed')});return new XMLSerializer().serializeToString(copy)}
   destroy(){if(this.destroyed)return;this.destroyed=true;this.visibilityObserver?.disconnect();this.removalObserver?.disconnect();cancelAnimationFrame(this.frameId);this.frameId=0;document.removeEventListener('visibilitychange',this._hidden);this.reduced.removeEventListener('change',this._reduce);this.host.replaceChildren()}
