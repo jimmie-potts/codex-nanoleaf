@@ -20,7 +20,7 @@ Preserve app operations and physical epoch ownership while replacing presentatio
 - SVG filter cost grows with layout size → measure the actual 15-Line layout and a named larger fixture; do not claim the schema's 300-Line bound as performance acceptance.
 - Detached views can retain animation work → own listeners/observers/frames explicitly and test disposal and hidden resumption.
 - Geometry replacement can swap zones or lose selection → fixture checks preserve endpoint/zone order and surviving IDs.
-- Local Chromium is unavailable in this execution environment → run the mandatory browser checks in hosted CI and retain the current candidate's visual evidence for human approval.
+- Browser availability varies by host. Use the documented executable override for an installed Chromium headless shell, retain the browser version with visual and frame evidence, and require the configured hosted checks before merge.
 
 ## Migration Plan
 

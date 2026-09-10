@@ -11,4 +11,3 @@ In Work mode the wall map SHALL send one bright packet from each connector towar
 #### Scenario: Rebuilds keep the phase
 - **WHEN** the page rebuilds the wall because a Line is selected or a poll changes state
 - **THEN** each active Line resumes the page-wide phase within 50 ms instead of restarting
-
