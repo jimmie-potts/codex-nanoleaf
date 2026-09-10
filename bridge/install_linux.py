@@ -47,7 +47,11 @@ def linux_state_directory(value):
             mount = Path(re.sub(r'\\([0-7]{3})', lambda m: chr(int(m[1], 8)), fields[1]))
             if directory.is_relative_to(mount):
                 candidates.append((len(mount.parts), fields[2]))
-    if not candidates or max(candidates)[1] not in local_filesystems:
+    deepest = max((depth for depth, _ in candidates), default=-1)
+    types = {filesystem for depth, filesystem in candidates if depth == deepest}
+    # /proc/mounts can repeat a mount point. Reject an ambiguous remote/local
+    # stack rather than choosing a type by string order.
+    if not types or not types <= local_filesystems:
         raise ValueError('State must be on a supported local Linux filesystem, such as ext4.')
     if directory.exists() and (not directory.is_dir() or any(directory.iterdir())):
         raise ValueError('Fresh setup requires an empty Linux state directory.')

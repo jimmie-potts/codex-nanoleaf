@@ -175,6 +175,13 @@ class LinuxInstallTest(unittest.TestCase):
                 with self.subTest(filesystem=filesystem), patch.object(Path, 'read_text', return_value=mounts):
                     with self.assertRaisesRegex(ValueError, 'local Linux filesystem'):
                         install_linux.linux_state_directory(directory)
+            # Stacked mounts can repeat a path; a remote type must not be
+            # hidden by lexicographic ordering of its local counterpart.
+            for records in (('xfs', 'nfs4'), ('nfs4', 'xfs')):
+                mounts = ''.join(f'device {temporary} {kind} rw 0 0\n' for kind in records)
+                with self.subTest(records=records), patch.object(Path, 'read_text', return_value=mounts):
+                    with self.assertRaisesRegex(ValueError, 'local Linux filesystem'):
+                        install_linux.linux_state_directory(directory)
             # Select the longest matching mount: a local directory can sit
             # below a remote parent, and /tmp-other must not match /tmp.
             mounts = (f'server / nfs4 rw 0 0\nlocal {temporary} ext4 rw 0 0\n'
