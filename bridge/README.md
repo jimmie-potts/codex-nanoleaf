@@ -1,6 +1,8 @@
 # Nanoleaf task lights for Codex
 
-The Windows tray menu provides Work, Free, and Quiet modes. It starts at Windows
+For a fresh Linux installation, use [the Linux setup guide](../docs/linux-install.md). The [Linux runtime specification](../openspec/specs/linux-runtime/spec.md) owns installation and service behavior. Linux uses `nanoleaf mode work`, `nanoleaf mode quiet`, and `nanoleaf mode free`; `nanoleaf map --no-open` prints the map URL. The hooks, CLI, wall map, and controller share Linux state and one on-demand light writer. The task and scene rules below apply to both operating systems.
+
+The legacy Windows tray menu provides Work, Free, and Quiet modes. It starts at Windows
 sign-in and remembers the selected mode. The task animation described below is
 Work mode. Task tracking continues in every mode.
 
@@ -42,7 +44,7 @@ are required.
 Use the installed `bridge.py mode work`, `bridge.py mode free`, or
 `bridge.py mode quiet` to switch from a terminal. `bridge.py status --json` reports
 `mode`, `pending`, and a sanitized `error`. `bridge.py tray` opens the tray control.
-Installed WSL entry points forward these commands to Windows.
+Legacy Windows-installed WSL entry points forward these commands to Windows. Linux-installed commands use their private Linux state directly.
 
 Preview commands are disabled in Free. Refresh and reset respect the selected
 mode. Uninstall requests Free mode and removes the tray shortcuts and hooks.
@@ -82,7 +84,7 @@ returns with the scene.
 
 ## Project signatures and wall map
 
-Choose **Open wall map** from the tray. The map shows the controller's 15 physical
+On Linux, run `nanoleaf map --no-open` and open its printed URL. On Windows, choose **Open wall map** from the tray. The map shows the controller's 15 physical
 Lines, with both zones drawn separately, in a neon HUD style that uses only Windows
 system fonts. It updates once a second. In Work, Lines with a task pulse on screen
 on a two-second rhythm like the lights'; Quiet shows them steady with a fainter

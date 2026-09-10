@@ -1,16 +1,17 @@
 schema: spec-driven
 context: |
   Future shared monitoring follows docs/hub-integration.md and canonical hub
-  contracts. Nanoleaf retains the Windows worker and its device state. Shared
+  contracts. Nanoleaf retains one installation owner and its single light worker. Shared
   input and collector migration are opt-in future work, not current behavior.
-  Codex Nanoleaf is a Windows bridge with standard-library Python, PowerShell,
-  and a local browser map. GitHub issues in jimmie-potts/codex-nanoleaf own scope,
+  Codex Nanoleaf supports fresh Linux installation and legacy Windows deployment.
+  It uses Python, a local browser map and an optional Node MCP host; PowerShell
+  belongs to the legacy Windows installation. GitHub issues in jimmie-potts/codex-nanoleaf own scope,
   acceptance criteria, dependencies, status, and delivery target. Read AGENTS.md,
   docs/sdlc.md, and docs/development.md before acting. Use this worktree's local
   OpenSpec root. Run CLI commands through npm run openspec -- <arguments>.
   Existing behavior stays in bridge/README.md until a reviewed capability spec
   replaces its normative text. An empty bootstrap inventory is intentional.
-  Keep one Windows light writer, private state outside Git, and installation
+  Keep one light writer and OS-local SQLite per installation, private state outside Git, and installation
   separate from source delivery. Preserve other worktrees and their owners.
   Reuse shared agent-skills procedures. Do not generate skill copies in this repo.
 rules:
