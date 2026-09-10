@@ -10,10 +10,18 @@ MCP infrastructure and the future shared overview.
 [Its roadmap](https://github.com/jimmie-potts/agent-device-hub/blob/main/docs/roadmap.md)
 links the sequence; GitHub issues own acceptance, dependencies and status.
 
-Nanoleaf retains its Python Windows worker, geometry, allocation, reservations,
+Nanoleaf retains its Python worker, geometry, allocation, reservations,
 pulse/comet rendering, scene restoration, Work/Quiet/Free policy and wall editor.
 Existing Claude setup changes development instructions only; it is not evidence
 of monitored Claude compatibility.
+
+## Fresh Linux installation
+
+[#54](https://github.com/jimmie-potts/codex-nanoleaf/issues/54) ports the existing services and private state to Linux; [#55](https://github.com/jimmie-potts/codex-nanoleaf/issues/55) owns installed and physical acceptance. [Hub #43](https://github.com/jimmie-potts/agent-device-hub/issues/43) coordinates architecture and guide synchronization. See [ADR 0007](decisions/0007-linux-runtime-ownership.md).
+
+This fresh install keeps the existing reducer and separate processes. Hooks, CLI, map, and controller share Linux SQLite. The existing worker remains the sole light writer; MCP calls the controller directly over loopback HTTP. Desktop/browser clients can remain on Windows and configured JSON metadata stays read-only. Stop the Windows owner before activating Linux hooks or services. No old state is imported; no rollback tooling, new hook API, combined daemon, or shared-monitoring adoption is part of this port.
+
+The shared adoption requirements below describe separate future work. Their export/import and rollback requirements do not apply to the fresh Linux installation.
 
 ## Adoption and independent work
 
@@ -23,7 +31,7 @@ of monitored Claude compatibility.
   from Pixoo [divoom-app-upgrade#31](https://github.com/jimmie-potts/divoom-app-upgrade/issues/31). It maps shared state into existing presentation and
   does not implement a Python copy of provider interpretation.
 - [agent-device-hub#5](https://github.com/jimmie-potts/agent-device-hub/issues/5) later supports standalone hosting through an explicit state-owner
-  migration. The Nanoleaf device writer remains in Windows.
+  migration. The Nanoleaf device writer remains in its selected installation.
 - [agent-device-hub#8](https://github.com/jimmie-potts/agent-device-hub/issues/8) owns reversible shared-hook/cutover tooling. [codex-nanoleaf#30](https://github.com/jimmie-potts/codex-nanoleaf/issues/30)
   owns Nanoleaf's installation, real-client and physical acceptance.
 - [codex-nanoleaf#15](https://github.com/jimmie-potts/codex-nanoleaf/issues/15) aligns the shared output envelope while owning Nanoleaf zone
@@ -61,14 +69,14 @@ comet sources, unread tracking, project reservations, half preferences, modes
 and current scene restoration. Reconnect cannot replay expired effects or lend
 a reserved source to another project.
 
-All light writes remain in the Windows worker. A hub API uses separate native
+All light writes remain in the selected installation's worker. A hub API uses separate native
 authentication without weakening the wall page's Host/Origin/edit-token checks.
 Reads cannot advance effect queues, assign Lines, clear notices or command lights.
 The browser never receives the Nanoleaf credential.
 
 Do not share the Windows SQLite file with a Linux/WSL process. Shared core hosting
 moves through an explicit quiesced export/import with one owner and rollback;
-controller state remains privately owned in Windows.
+controller state remains private to the selected installation.
 
 ## Scope and evidence
 
@@ -82,7 +90,7 @@ sequence and an identified owner. Keep existing deployment backups/preferences
 and use the supported upgrade path, not fresh setup.
 
 [ADR 0003](decisions/0003-shared-agent-device-hub.md) records local adoption.
-No current product specification is changed by this planning-only delivery.
+The Linux runtime and local API specifications define the Linux port independently of future shared adoption.
 
 ## Protected controller API adoption
 

@@ -1,23 +1,23 @@
 # Development and deployment
 
-The repository is the canonical source. The installed program in `%LOCALAPPDATA%\CodexNanoleaf` is a separate deployment with private credentials, its own SQLite state, and the remembered Nanoleaf scene. The original scratch workspace is historical and should not be used for future changes.
+The repository is the canonical source. Fresh Linux setup and service operation follow [the Linux installation guide](linux-install.md); its private runtime lives under `~/.local/share/codex-nanoleaf`. The legacy Windows installed program in `%LOCALAPPDATA%\CodexNanoleaf` is a separate deployment with private credentials, its own SQLite state, and the remembered Nanoleaf scene. The original scratch workspace is historical and should not be used for future changes.
 
 Follow [the SDLC guide](sdlc.md) for issue scope, planning, TDD, independent review,
 and merge criteria. It also defines when installation is part of a task.
 
 ## Validate a change
 
-Run `python3 scripts/check.py` from the root. The initial import has 100 tests. They exercise status transitions, read handling, comets, scenes, modes, project placement, split rendering, metadata recovery, and local HTTP validation. A successful run contacts neither a controller nor the real Codex state.
+Run `python3 scripts/check.py` from the root. Install the optional controller dependencies first with `python3 -m pip install -r requirements-controller.txt`, preferably in an isolated virtual environment. They exercise status transitions, read handling, comets, scenes, modes, project placement, split rendering, metadata recovery, and local HTTP validation. A successful run contacts neither a controller nor the real Codex state.
 
 Run `npm run test:browser` after map or API changes. It starts the synthetic demo on an available loopback port and shuts it down afterward. Screenshots are written to ignored `test-results/`. To inspect the map manually, run `python3 scripts/demo.py` and open its printed URL.
 
-Use Windows PowerShell for the tray and installer. `bridge/tray.ps1 -Check` verifies Windows Forms support and icon loading without starting a tray or worker. Run `tests/test_tray_icon.ps1` to check all six icon sizes with Windows, transparency, the blue/green palette, tray sizing, and missing or corrupt asset fallback. Hosted CI runs both checks; menu interaction still needs a Windows smoke check.
+Exercise Linux installation with isolated state and fake device transport. Use Windows PowerShell for the legacy tray and Windows installer. `bridge/tray.ps1 -Check` verifies Windows Forms support and icon loading without starting a tray or worker. Run `tests/test_tray_icon.ps1` to check all six icon sizes with Windows, transparency, the blue/green palette, tray sizing, and missing or corrupt asset fallback. Hosted CI runs both checks; menu interaction still needs a Windows smoke check.
 
 ## Workflow tooling
 
 Run `npm ci` to install the locked development dependencies. On WSL, if the user
-npm cache is read-only, add `--cache /tmp/codex-nanoleaf-npm-cache`. The Python
-regression suite still requires only the standard library.
+npm cache is read-only, add `--cache /tmp/codex-nanoleaf-npm-cache`. The bridge uses the standard library; controller tests also require the pinned
+`requirements-controller.txt` dependencies.
 
 `npm run openspec -- <arguments>` uses the pinned OpenSpec 1.12.0 CLI. The wrapper
 disables telemetry and completion/animation prompts through child-process

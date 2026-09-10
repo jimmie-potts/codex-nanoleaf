@@ -1,5 +1,6 @@
 """Loopback-only wall map. The light controller is owned by the bridge worker."""
 import contextlib
+import errno
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
@@ -108,7 +109,7 @@ class App:
         return {'ok':True}
 
 
-def handler(app,token):
+def handler(app,token,instance=None):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self,*args): pass
         def respond(self,code,data,kind='application/json'):
@@ -130,7 +131,7 @@ def handler(app,token):
                 if path in assets:
                     return self.respond(200,Path(__file__).with_name(assets[path]).read_bytes(),'text/javascript')
                 if path=='/api/state': return self.respond(200,app.state())
-                if path=='/health': return self.respond(200,{'service':'codex-nanoleaf-map'})
+                if path=='/health': return self.respond(200,{'service':'codex-nanoleaf-map', 'instance':instance})
                 self.respond(404,{'error':'Not found.'})
             except Exception: self.respond(503,{'error':'Local map status unavailable. Retrying shortly.'})
         def do_POST(self):
@@ -193,27 +194,51 @@ def ensure_geometry(directory,b,config,refresh=False):
         return False
 
 
-def serve(directory,b):
+def map_port(directory, override=None):
+    value = override
+    if value is None:
+        value = json.loads((directory / 'config.json').read_text()).get('wall_port', 0)
+    if type(value) is not int or not (value == 0 or 1024 <= value <= 65535):
+        raise RuntimeError('Choose a wall-map port from 1024 through 65535, or 0 for a temporary port.')
+    return value
+
+
+def serve(directory,b,port=None):
+    port = map_port(directory, port)
     with contextlib.closing(sqlite3.connect(directory/'map-lock.sqlite',timeout=0)) as lock:
         try: lock.execute('BEGIN EXCLUSIVE')
-        except sqlite3.OperationalError: return
+        except sqlite3.OperationalError as error:
+            if getattr(error, 'sqlite_errorcode', None) == sqlite3.SQLITE_BUSY:
+                raise RuntimeError('A wall map is already running for this installation.') from None
+            raise
         config=b.load_config(directory); ensure_geometry(directory,b,config)
         app=App(directory,b,config)
         app.geometry_attempts=1  # Startup acquisition used the first bounded attempt.
-        server=ThreadingHTTPServer(('127.0.0.1',0),handler(app,secrets.token_hex(32))); server.app=app
-        b.write_json(directory/'map-server.json',{'port':server.server_port})
+        instance = secrets.token_hex(16)
+        try:
+            server=ThreadingHTTPServer(('127.0.0.1',port),handler(app,secrets.token_hex(32),instance))
+        except OSError as error:
+            if error.errno == errno.EADDRINUSE:
+                raise RuntimeError(f'Port {port} is already in use. Stop its owner or choose another wall-map port.') from None
+            raise RuntimeError(f'Cannot bind the wall map to 127.0.0.1:{port}.') from None
+        server.app=app
+        b.write_json(directory/'map-server.json',{'port':server.server_port, 'instance':instance})
         try: server.serve_forever()
         finally: server.server_close()
 
 
-def map_url(directory):
+def map_url(directory, expected_port=0):
     try:
-        port=json.loads((directory/'map-server.json').read_text())['port']
+        receipt=json.loads((directory/'map-server.json').read_text())
+        port=receipt['port']
         if type(port) is not int or not 1024<=port<=65535: return None
+        if expected_port and port != expected_port: return None
         base=f'http://127.0.0.1:{port}'
         opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))
         with opener.open(base+'/health',timeout=.5) as response:
-            if json.load(response).get('service')=='codex-nanoleaf-map': return base
+            health=json.load(response)
+            if health.get('service')=='codex-nanoleaf-map' and (
+                    not receipt.get('instance') or receipt['instance']==health.get('instance')): return base
     except Exception: pass
     return None
 
@@ -225,16 +250,19 @@ def command(args,directory,b):
         with contextlib.closing(b.connect_state(directory)) as db,db:
             db.execute('BEGIN IMMEDIATE'); wall.request_patch(db,{'settings':{'style':args.selection}},config); b.mark_dirty(db)
         b.launch_worker(directory); return
-    if args.mode=='serve': return serve(directory,b)
-    url=map_url(directory)
+    port = map_port(directory, getattr(args, 'port', None))
+    if args.mode=='serve': return serve(directory,b,port)
+    url=map_url(directory,port)
     if not url:
         kwargs={'stdin':subprocess.DEVNULL,'stdout':subprocess.DEVNULL,'stderr':subprocess.DEVNULL,'close_fds':True}
         if os.name=='nt': kwargs['creationflags']=subprocess.DETACHED_PROCESS|subprocess.CREATE_NEW_PROCESS_GROUP
         else: kwargs['start_new_session']=True
-        subprocess.Popen([sys.executable,str(Path(b.__file__).resolve()),'serve','--state-dir',str(directory)],**kwargs)
+        process=subprocess.Popen([sys.executable,str(Path(b.__file__).resolve()),'serve','--state-dir',str(directory),
+                                  '--port',str(port)],**kwargs)
         deadline=time.time()+10
         while not url and time.time()<deadline:
-            time.sleep(.2); url=map_url(directory)
-    if not url: raise RuntimeError('Wall map did not start.')
-    webbrowser.open(url)
+            time.sleep(.2); url=map_url(directory,port)
+            if not url and process.poll() is not None: break
+    if not url: raise RuntimeError(f'Wall map did not start on port {port}. Check its configuration and whether the port is already in use.')
+    if os.name == 'nt' and not getattr(args, 'no_open', False): webbrowser.open(url)
     print(url)

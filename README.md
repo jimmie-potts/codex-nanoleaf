@@ -8,7 +8,7 @@ Turn Nanoleaf Lines into status indicators for Codex Desktop tasks. A local wall
 - Project layout uses a steady project half and a task-status half, with Shared overflow.
 - The wall map supports multi-selection, color picking, half swapping, Locate, and rotation, in a neon HUD style that pulses active Lines on screen in Work and dims the wall in Free.
 
-The integration runs on Windows. Installed WSL hooks forward to Windows Python so every process uses the same database locks. The Python tests and demo map run on Windows or Linux without lights or credentials. Runtime code uses the Python standard library.
+The integration supports a fresh Linux installation with separate Python services and a Node MCP host. Hooks, the map, controller, and worker coordinate through private Linux SQLite. The existing worker remains the sole light writer. Legacy Windows installations retain their Windows Python forwarding. Tests and the demo run without lights or credentials.
 
 ## Development
 
@@ -47,6 +47,10 @@ documented in [the bridge guide](bridge/README.md) until migrated through review
 
 ## Installation
 
+For a fresh Linux or WSL installation, follow [the Linux setup guide](docs/linux-install.md). It uses Python 3.12 or newer with venv support and native Node 24/npm, generates three user systemd services, and prints the wall URL at `http://127.0.0.1:8765`. It imports no old project data. The operator stops this project's Windows owner before activating Linux hooks or services.
+
+The following instructions apply to legacy Windows installations.
+
 For an existing installation, run `bridge/install-modes.ps1` in Windows PowerShell. It backs up the program and private state, then restarts only this installation's worker, map server, and tray. A source checkout does not change the running installation.
 
 For fresh setup, follow [the integration guide](bridge/README.md). This version retains the original machine's private controller IP as the setup default and expects Codex's bundled Windows Python runtime. It is a personal integration, not a general-purpose installer. See [development and deployment](docs/development.md) for the WSL workflow and limitations.
@@ -78,8 +82,8 @@ Credentials, hook configuration, live databases, task metadata, scene preference
 ## Shared monitoring direction
 
 [The hub integration plan](docs/hub-integration.md) records shared contracts,
-an opt-in session consumer and a future unified overview. The Windows worker and
-current installation remain unchanged. GitHub issues own the migration prerequisites.
+an opt-in session consumer and a future unified overview. Shared monitoring remains separate from the Linux runtime port. Source changes
+do not update the current installation. GitHub issues own the migration prerequisites.
 
 The optional [local MCP host](docs/local-mcp.md) supports Windows and WSL through the protected controller. Source delivery and separately authorized installed-client/light acceptance remain distinct.
 

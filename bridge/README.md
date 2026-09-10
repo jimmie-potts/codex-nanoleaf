@@ -1,6 +1,8 @@
 # Nanoleaf task lights for Codex
 
-The Windows tray menu provides Work, Free, and Quiet modes. It starts at Windows
+For a fresh Linux installation, use [the Linux setup guide](../docs/linux-install.md). The [Linux runtime specification](../openspec/specs/linux-runtime/spec.md) owns installation and service behavior. Linux uses `nanoleaf mode work`, `nanoleaf mode quiet`, and `nanoleaf mode free`; `nanoleaf map --no-open` prints the map URL. The hooks, CLI, wall map, and controller share Linux state and one on-demand light writer. The task and scene rules below apply to both operating systems.
+
+The legacy Windows tray menu provides Work, Free, and Quiet modes. It starts at Windows
 sign-in and remembers the selected mode. The task animation described below is
 Work mode. Task tracking continues in every mode.
 
@@ -42,7 +44,7 @@ are required.
 Use the installed `bridge.py mode work`, `bridge.py mode free`, or
 `bridge.py mode quiet` to switch from a terminal. `bridge.py status --json` reports
 `mode`, `pending`, and a sanitized `error`. `bridge.py tray` opens the tray control.
-Installed WSL entry points forward these commands to Windows.
+Legacy Windows-installed WSL entry points forward these commands to Windows. Linux-installed commands use their private Linux state directly.
 
 Preview commands are disabled in Free. Refresh and reset respect the selected
 mode. Uninstall requests Free mode and removes the tray shortcuts and hooks.
@@ -82,7 +84,8 @@ returns with the scene.
 
 ## Project signatures and wall map
 
-Choose **Open wall map** from the existing launcher. The map draws the saved
+On Linux, run `nanoleaf map --no-open` and open its printed URL. On Windows,
+choose **Open wall map** from the existing launcher. The map draws the saved
 physical Lines with faceted Prism crystal tubes, separate colored zones, bright
 cores, and diffuse light around the crystal. It uses local system fonts and
 updates task state once a second. In Work, each Line carrying a task sends light
@@ -161,12 +164,13 @@ These desktop fields are implementation details and may need updating after a
 future Codex release.
 
 The map server uses bundled HTML, CSS, and JavaScript with no external assets.
-It listens only on `127.0.0.1` on an available port. Requests must use its exact
+It listens only on `127.0.0.1`. Linux uses the configured fixed port, defaulting
+to `8765`; legacy Windows startup selects an available port. Requests must use its exact
 local address; writes also require the page's origin and an unpredictable request
 token. The Nanoleaf credential never reaches the browser. `/api/state` reads map
 state; `/api/settings`, `/api/project`, `/api/assign`, `/api/task`, `/api/locate`, and
-`/api/mode` validate and save changes. All writes run in Windows Python, using the
-same database coordination as hooks. Only the existing bridge worker sends light
+`/api/mode` validate and save changes. All writes run in the installation's Python runtime, using the
+same operating system and private database as its hooks. Only the existing bridge worker sends light
 updates. The map server starts on demand and stays available until the next
 upgrade or uninstall. Exiting the tray leaves it running.
 

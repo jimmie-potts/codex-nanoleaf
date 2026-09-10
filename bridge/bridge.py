@@ -885,7 +885,7 @@ def write_json(path, value):
 
 
 def setup(args):
-    directory = data_dir()
+    directory = getattr(args, 'state_dir', None) or data_dir()
     directory.mkdir(parents=True, exist_ok=True)
     config_file = directory / 'config.json'
     if args.check or args.demo or args.reset or args.notify or args.refresh or args.comet:
@@ -1011,10 +1011,15 @@ def main():
     parser.add_argument('--state-dir', type=Path, help=argparse.SUPPRESS)
     parser.add_argument('selection', nargs='?', choices=MODES + ('classic', 'project'))
     parser.add_argument('--json', action='store_true')
+    parser.add_argument('--port', type=int, help='Wall-map loopback port; overrides the installation setting.')
+    parser.add_argument('--no-open', action='store_true', help='Print the wall-map URL without opening a browser.')
     group = parser.add_mutually_exclusive_group()
     for flag in ('check', 'demo', 'reset', 'uninstall', 'notify', 'refresh', 'comet'):
         group.add_argument('--' + flag, action='store_true')
     args = parser.parse_args()
+    if os.name != 'nt' and args.mode == 'setup' and not any(
+            getattr(args, flag) for flag in ('check', 'demo', 'reset', 'uninstall', 'notify', 'refresh', 'comet')):
+        parser.error('Use bridge/install_linux.py from the reviewed source checkout for a fresh Linux installation.')
     directory = args.state_dir or data_dir()
     if args.mode == 'map-status':
         with contextlib.closing(connect_state(directory)) as db:
@@ -1022,7 +1027,12 @@ def main():
         return
     if args.mode in ('map', 'serve', 'style'):
         import wall_server
-        wall_server.command(args, directory, sys.modules[__name__])
+        try:
+            wall_server.command(args, directory, sys.modules[__name__])
+        except RuntimeError as error:
+            parser.exit(1, f'Wall map: {error}\n')
+        except Exception:
+            parser.exit(1, 'Wall map command failed. Check local configuration and the selected port.\n')
         return
     if args.mode == 'mode':
         if args.selection not in MODES:
@@ -1061,7 +1071,7 @@ def main():
     if args.mode == 'hook':
         try:
             event = json.load(sys.stdin)
-            handle_event(data_dir(), event)
+            handle_event(directory, event)
         except Exception:
             # Never block an agent or put a credential-containing exception in its output.
             print('Nanoleaf status hook could not update. Run setup --check.', file=sys.stderr)

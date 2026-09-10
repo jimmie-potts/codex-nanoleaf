@@ -14,4 +14,9 @@ async function main() {
     process.once('SIGINT', stop);
     process.once('SIGTERM', stop);
 }
-main().catch(() => { process.stderr.write('Nanoleaf MCP could not start. Check private configuration, dependencies and the selected local port.\n'); process.exitCode = 1; });
+main().catch((error: NodeJS.ErrnoException) => {
+    process.stderr.write(error?.code === 'EADDRINUSE'
+        ? 'Nanoleaf MCP port is already in use. Stop its owner or choose another port in the private configuration.\n'
+        : 'Nanoleaf MCP could not start. Check private configuration, dependencies and the selected local port.\n');
+    process.exitCode = 1;
+});

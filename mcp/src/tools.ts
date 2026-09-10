@@ -9,7 +9,7 @@ const failures: Record<number, string[]> = { 400: ['invalid-request'], 401: ['un
 export function bindings(config: Config, store: Pick<CredentialStore, 'forDispatch'>, transport: Transport = exchange) {
     const failure = (code: string, possible: boolean, request?: Request) => ({ data: { kind: 'failure', code, priorEffects: possible ? 'possible' : 'none', retry: 'never-automatically', ...(request ? { requestId: request.requestId } : {}) }, isError: true });
     const extension = (write: boolean): ServiceExtension => ({
-        description: write ? 'Request Work, Quiet or Free through the Windows controller. Preserve the snapshot request identity; queued or sent is not visible-light confirmation.' : 'Read the Windows controller snapshot without refreshing tasks or sending light commands.',
+        description: write ? 'Request Work, Quiet or Free through the Nanoleaf controller. Preserve the snapshot request identity; queued or sent is not visible-light confirmation.' : 'Read the Nanoleaf controller snapshot without refreshing tasks or sending light commands.',
         scope: write ? 'control' : 'read', annotations: { readOnlyHint: !write, destructiveHint: write, idempotentHint: !write, openWorldHint: true },
         inputSchema: { type: 'object', additionalProperties: false, $defs: schema.$defs, properties: write ? { requestId: ref('ticket'), expectedConfigurationRevision: ref('counter'), expectedGeneration: ref('ticket'), mode: { enum: ['Work', 'Quiet', 'Free'] } } : {}, required: write ? ['requestId', 'expectedConfigurationRevision', 'expectedGeneration', 'mode'] : [] }, outputSchema,
         async invoke(args, context) {
