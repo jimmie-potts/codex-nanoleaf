@@ -67,7 +67,8 @@ def copy_runtime(directory):
         for path in (source / 'bridge').glob('*.py'):
             if path.name not in {'install_linux.py', 'backup_install.py'}:
                 shutil.copyfile(path, bridge / path.name)
-        for name in ('wall.html', 'requirements-controller.txt'):
+        for name in ('wall.html', 'prism.js', 'prism-adapters.js', 'prism-labels.js',
+                     'requirements-controller.txt'):
             shutil.copyfile(source / 'bridge' / name, bridge / name)
         shutil.copytree(source / 'bridge/vendor', bridge / 'vendor')
         shutil.copytree(source / 'vendor', runtime / 'vendor')

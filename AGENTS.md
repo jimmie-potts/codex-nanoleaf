@@ -20,7 +20,7 @@ controller API or credential changes, read [the controller API guide](docs/contr
 
 - Codex and Claude Code share these repository rules. Each active deliverable has one coordinating writer, branch, and writable worktree. Before editing, identify the owner and inspect existing worktrees. Never edit, reset, rebase, or remove another session's worktree or branch. Follow [concurrent development](docs/sdlc.md#concurrent-development-and-handoffs) for claims, handoff, shared Git operations, and cleanup.
 - For planning, implementation, and delivery, read [the SDLC guide](docs/sdlc.md). GitHub issues own requested outcomes, acceptance criteria, dependencies, and status here.
-- Reuse installed skills from the shared `agent-skills` catalog. For implementation, select `github-delivery`; for unsettled decisions, explicitly compose `grill-with-docs`; for meaningful executable changes, compose `tdd`; for review, use `code-review`. [Shared skill setup](docs/development.md#shared-skills) names the source and required skills. Report missing prerequisites instead of copying skills into this repository.
+- Reuse installed skills from the shared `agent-skills` catalog. Follow this SDLC for ordinary implementation; use `plan-work` or `deliver-work` only when explicitly invoked. For unsettled decisions, compose `grill-with-docs`; for meaningful executable changes, compose `tdd`; for review, use `code-review`. [Shared skill setup](docs/development.md#shared-skills) names the source and required skills. Report missing prerequisites instead of copying skills into this repository.
 - Keep only domain-specific skills with domain code. Reusable methods and OpenSpec integrations belong in `agent-skills`; domain contracts, verification commands, and policy remain here. This bootstrap needs no local skills.
 - Planning-only and review-only requests remain read-only. Explicit planning-document requests authorize those documents only. Standalone documentation maintenance follows the delivery default unless the user requests local edits only.
 - An implementation/delivery request normally includes issue updates, an isolated worktree, tests, PR publication, independent review, an eligible merge, and final readback. Narrower user instructions prevail. Routine authorized steps do not need repeated confirmation. Installation requires an explicit request.
@@ -57,3 +57,8 @@ that updates affected facts and records this delivery in
 that PR and synchronization status in this repository's PR and completion report.
 Pending guide synchronization remains unfinished delivery work. Read-only tasks
 do not authorize writes, and guide maintenance does not authorize devices or hosting.
+The shared skills consume that procedure at planning publication, candidate
+review, verified completion and authorized public publication. Report guide-source
+synchronization, public artifact publication and live verification separately,
+with evidence or a pending owner/next action. Tracker-only requests change only
+the tracker; a source merge does not update the public site.

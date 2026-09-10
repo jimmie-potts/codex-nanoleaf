@@ -276,6 +276,12 @@ procedure that depends on the Nanoleaf domain belongs in a local skill. This
 bootstrap has none.
 
 Install shared skills as described in [the development guide](development.md#shared-skills).
+Use `plan-work` and `deliver-work` only when explicitly invoked; ordinary work
+follows this SDLC. At planning, candidate review and completion, follow the
+[Hub guide checkpoints](https://github.com/jimmie-potts/agent-device-hub/blob/main/docs/work-guide/README.md).
+The coordinator owns the Hub companion and any authorized public publication.
+Report source/tracker completion, guide synchronization, public publication and
+live verification separately, retaining pending owners and narrower user limits.
 Do not vendor copies, renamed wrappers, or external symlinks into this repository.
 Review shared skill changes in their owning repository and record the evaluated
 catalog revision in PR evidence. Updating OpenSpec integrations is a catalog task;

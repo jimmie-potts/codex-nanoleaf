@@ -42,11 +42,35 @@ connection ends it, and it sends no requests and alters no task, assignment,
 unread, scene, or pulse state. It is a presentation flourish kept apart from
 physical effects, celebrations, and status animations.
 
+### Addendum (2026-09-09): Prism crystal material
+
+Issue #53 replaces the orb and simple stroke material with the approved Prism
+finish kit. Thick crystal tubes meet the flat faces of hexagonal connectors.
+Bright light cores, long tails, bevels, and broad diffuse spill use the same SVG
+components during motion and at rest. The six connector rim sections remain in
+place after unfolding. The central connector rotates with its attached structure
+as tubes eject and assembly spreads outward through the actual layout.
+
+Work uses two inward packets on each task-active Line, meeting at a center spark
+on a shared two-second cycle. Idle Lines stay steady, Quiet lowers the glow and
+stops travel, and Free dims and desaturates the crystal. Reduced motion retains
+static mode distinctions. Completion of opening, Replay, or interrupted
+assembly starts flow at the connectors. Polls and redraws preserve that clock.
+These UI clocks remain separate from physical task pulse and comet epochs.
+
+The existing page layout, status colors, allocation controls, local preferences,
+keyboard access, and multi-selection remain. Materials load through explicit
+local asset paths and use system font fallbacks on the hosting platform. The
+renderer releases observers and frames on removal and pauses while hidden.
+Issue #26 owns conditional luminous-number visibility and neighbour clearance.
+This direction includes no new tray artwork or service migration.
+
 ## Consequences
 
-The page matches the product it controls and the tray icon. Motion is confined
-to the wall, so its cost is bounded and measured before merge, with a stepped or
-interval fallback if paint exceeds the budget. Status tokens have one home,
+The page uses material and connector shapes derived from the lights it controls.
+Motion stays within the wall. Actual and larger-fixture frame measurements and
+current-candidate human review establish the practical rendering limits before
+merge; no 300-Line performance guarantee is inferred. Status tokens have one home,
 which issue #18 can later drive from configurable palettes. The wall map keeps
 its own acceptance and human UI approval gate; this decision changes no bridge,
 installed state, or physical behavior.

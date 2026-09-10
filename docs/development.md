@@ -60,7 +60,7 @@ Use a reviewed checkout of that repository. From its root, install the selected
 personal skills using its existing manager:
 
 ```bash
-./scripts/manage-skills.sh install --agent both github-delivery tdd grill-with-docs grilling domain-modeling code-review openspec-propose openspec-explore openspec-apply-change openspec-update-change openspec-sync-specs openspec-archive-change unslop
+./scripts/manage-skills.sh install --agent both plan-work deliver-work tdd grill-with-docs grilling domain-modeling code-review openspec-propose openspec-explore openspec-apply-change openspec-update-change openspec-sync-specs openspec-archive-change unslop
 ./scripts/manage-skills.sh status --agent both
 ```
 

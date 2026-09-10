@@ -190,14 +190,16 @@ class ControllerStateTest(unittest.TestCase):
 
     def test_commit_wait_respects_remaining_admission_budget(self):
         import sqlite3
-        import time
         from unittest.mock import patch
         before=self.app.snapshot();request=self.request()
         with contextlib.closing(self.state.readonly(self.directory)) as reader:
             self.state.read(reader)  # Keep a rollback-journal reader across commit.
-            with patch.object(self.app,'launch') as launch:
-                with self.assertRaises(sqlite3.OperationalError):
-                    self.app.admit(self.token,request,deadline=time.monotonic()+.1)
+            # Reserve this short budget for SQLite's real commit wait. Validation
+            # expiry has separate coverage and must not depend on runner speed.
+            with patch.object(self.service.time,'monotonic',return_value=0),patch.object(self.app,'launch') as launch:
+                with self.assertRaises(sqlite3.OperationalError) as failure:
+                    self.app.admit(self.token,request,deadline=.1)
+                self.assertEqual(failure.exception.sqlite_errorcode,sqlite3.SQLITE_BUSY)
                 launch.assert_not_called()
         after=self.app.snapshot()
         for field in ('configurationRevision','generation','nextRequestId','cursor','state'):

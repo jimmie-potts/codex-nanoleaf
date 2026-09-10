@@ -264,6 +264,42 @@ class LinuxInstallTest(unittest.TestCase):
                     install_linux.prepare_state(directory / 'new', '192.0.2.12', 'fixtureToken', **kwargs)
             self.assertFalse((directory / 'new').exists())
 
+    def test_copied_runtime_serves_all_wall_scripts(self):
+        import install_linux
+        import re
+        from urllib.request import ProxyHandler, build_opener
+        layout = json.loads((Path(b.__file__).parents[1] / 'tests/fixtures/lines-layout.json').read_text())
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary) / 'state'
+            install_linux.prepare_state(directory, '192.0.2.12', 'fixtureToken',
+                                        request=lambda *_: {'panelLayout': layout})
+            install_linux.copy_runtime(directory)
+            launcher = install_linux.write_launcher(directory, Path(sys.executable))
+            process = subprocess.Popen([str(launcher), 'serve', '--port', '0'],
+                                       stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+            try:
+                deadline = time.monotonic() + 5
+                url = None
+                while time.monotonic() < deadline and process.poll() is None:
+                    url = wall_server.map_url(directory)
+                    if url:
+                        break
+                    time.sleep(.02)
+                self.assertIsNotNone(url, 'Copied map did not become healthy')
+                opener = build_opener(ProxyHandler({}))
+                with opener.open(url, timeout=3) as response:
+                    scripts = re.findall(r'<script src="([^"]+)"', response.read().decode())
+                self.assertTrue(scripts, 'The installed map must load its renderer')
+                for script in scripts:
+                    with self.subTest(script=script), opener.open(url + script, timeout=3) as response:
+                        self.assertEqual(response.headers.get_content_type(), 'text/javascript')
+                        self.assertEqual(response.read(),
+                                         Path(b.__file__).with_name(Path(script).name).read_bytes())
+            finally:
+                if process.poll() is None:
+                    process.terminate()
+                process.communicate(timeout=5)
+
     def test_runtime_launcher_and_hooks_use_same_linux_state(self):
         import install_linux
         with tempfile.TemporaryDirectory() as temporary:

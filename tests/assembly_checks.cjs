@@ -1,238 +1,360 @@
 const assert = require('node:assert/strict');
 
-// Issue #38: wall-assembly-animation. Orb, outward assembly, triggers and preferences, completion, boundaries.
+/*
+ * Prism assembly acceptance contract.
+ *
+ * Required live selectors:
+ *   #wall.prism-scene
+ *   [data-root] containing [data-edge] and [data-node]
+ *   [data-slide], [data-rim][data-open], [data-charge], [data-shutters]
+ *   static .wall-line[data-line][role="button"], [data-hit], and
+ *   .number-tag[data-line-id]
+ *
+ * Required public bridge:
+ *   window.wallAssembly.play(reason), active(), snapshot()
+ * snapshot() forwards Prism.Renderer.snapshot(). The existing lexical `prism`
+ * handle is used for deterministic finish calls. Public Prism.Renderer is used
+ * directly only for disconnected-component acceptance. Tests assert visible
+ * geometry, timing, accessibility, request traffic, and app state rather than
+ * private traversal tables or frame IDs.
+ */
 module.exports = async function(page, root) {
   const failures = [];
-  const check = async (name, fn) => {try {await fn()} catch (error) {failures.push(`${name} -> ${error.message.split('\n')[0]}`)}};
+  const check = async (name, fn) => {
+    try { await fn(); }
+    catch (error) { failures.push(`${name} -> ${error.message.split('\n')[0]}`); }
+  };
   const settle = () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-  const refresh = () => page.evaluate(async () => {while (refreshing) await new Promise(resolve => setTimeout(resolve, 10)); await refresh()});
-  const running = () => page.evaluate(() => document.getElementById('wall').getAnimations({subtree: true}).filter(a => a.id === 'assembly' && a.playState === 'running').length);
-  const untilIdle = async (limit = 3000) => {const start = Date.now(); while (await running() > 0) {if (Date.now() - start > limit) return false; await page.waitForTimeout(50)} return Date.now() - start};
-  const geometry = () => page.evaluate(() => ({
-    groups: [...document.querySelectorAll('.wall-line')].map(g => [g.dataset.line, getComputedStyle(g).transform, getComputedStyle(g).opacity]),
-    numbers: [...document.querySelectorAll('#wall .number')].map(n => [n.dataset.lineId, n.getAttribute('x'), n.getAttribute('y'), getComputedStyle(n.closest('.number-tag')).opacity]),
-    joints: document.querySelectorAll('#wall .joints, #wall .joint').length,
-  }));
-  // Junctions: clusters of Line ends within 40 units; the hub is the most connected one, nearest the other junctions on ties (box center as a last resort).
-  const junctions = () => page.evaluate(() => {
-    const clusters = [];
-    for (const line of state.lines) for (const point of [transform(line.points[0]), transform(line.points[2])]) {
-      const near = clusters.find(c => Math.hypot(c.x - point[0], c.y - point[1]) <= 40);
-      if (near) {near.points.push(point); near.x = near.points.reduce((s, p) => s + p[0], 0) / near.points.length; near.y = near.points.reduce((s, p) => s + p[1], 0) / near.points.length}
-      else clusters.push({x: point[0], y: point[1], points: [point]});
-    }
-    const box = document.getElementById('wall').viewBox.baseVal, cx = box.x + box.width / 2, cy = box.y + box.height / 2;
-    const joints = clusters.filter(c => c.points.length >= 2).map(c => ({x: c.x, y: c.y, degree: c.points.length}));
-    const spread = j => joints.reduce((s, o) => s + Math.hypot(o.x - j.x, o.y - j.y), 0);
-    joints.sort((a, b) => b.degree - a.degree || spread(a) - spread(b) || Math.hypot(a.x - cx, a.y - cy) - Math.hypot(b.x - cx, b.y - cy));
-    return {joints, hub: joints[0] || {x: cx, y: cy, degree: 0}};
+  const refresh = () => page.evaluate(async () => {
+    while (refreshing) await new Promise(resolve => setTimeout(resolve, 10));
+    await refresh();
   });
+  const snapshot = () => page.evaluate(() => {
+    if (typeof window.wallAssembly?.snapshot !== 'function') throw Error('window.wallAssembly.snapshot() is required');
+    return window.wallAssembly.snapshot();
+  });
+  const waitProgress = (low, high) => page.waitForFunction(([min, max]) => {
+    const current = window.wallAssembly?.snapshot?.();
+    return current?.playing && current.progress >= min && current.progress <= max;
+  }, [low, high], {timeout: 4500});
+  const untilIdle = async () => {
+    const started = await page.evaluate(() => performance.now());
+    await page.waitForFunction(() => {
+      const current = window.wallAssembly?.snapshot?.();
+      return current && !current.playing && current.progress === 1;
+    }, null, {timeout: 4500});
+    return page.evaluate(value => performance.now() - value, started);
+  };
   const setPref = async (id, on) => {
     if (await page.locator('#' + id).isChecked() === on) return;
     if (!await page.locator('.assembly-prefs').evaluate(node => node.open)) await page.locator('.assembly-prefs > summary').click();
-    await page.locator('#' + id).click(); // a real pointer click, so a covered control fails here
-    assert.equal(await page.locator('#' + id).isChecked(), on, `${id} toggles with a mouse click`);
+    await page.locator('#' + id).click();
+    assert.equal(await page.locator('#' + id).isChecked(), on, `${id} toggles with a pointer click`);
     await page.keyboard.press('Escape');
   };
-  await page.setViewportSize({width: 1440, height: 1000});
-  await page.evaluate(() => {try {localStorage.removeItem('wall.assembly.opening'); localStorage.removeItem('wall.assembly.entry')} catch {}});
+  const finalGeometry = () => page.evaluate(() => ({
+    progress: wallAssembly.snapshot().progress,
+    roots: [...document.querySelectorAll('#wall [data-root]')].map(node => node.getAttribute('transform')),
+    edges: [...document.querySelectorAll('#wall [data-edge]')].map(node => ({
+      id: node.dataset.lineId,
+      visible: getComputedStyle(node).visibility,
+      transform: node.getAttribute('transform'),
+    })),
+    rims: [...document.querySelectorAll('#wall [data-node]')].map(node => [...node.querySelectorAll('[data-rim]')].map(rim => +rim.dataset.open)),
+    labels: [...document.querySelectorAll('#wall .number-tag[data-line-id]')].map(node => ({
+      id: node.dataset.lineId,
+      visibility: getComputedStyle(node).visibility,
+      opacity: +getComputedStyle(node).opacity,
+      transform: node.getAttribute('transform'),
+    })),
+    transientVisible: [...document.querySelectorAll('#wall [data-charge], #wall [data-shutters], #wall [data-socket]')]
+      .filter(node => getComputedStyle(node).visibility !== 'hidden' && +getComputedStyle(node).opacity > .01).length,
+    legacyOverlays: document.querySelectorAll('#wall .orb, #wall .joints, #wall .joint').length,
+  }));
 
-  await check('C1-C3: first load assembles outward from the orb and lands on exact geometry', async () => {
-    await page.reload(); await page.waitForSelector('.wall-line');
-    assert.ok(await running() > 0, 'Assembly animations run right after geometry loads');
-    const orb = await page.evaluate(() => {const o = document.querySelector('#wall .orb'); return o && {cx: +o.getAttribute('cx'), cy: +o.getAttribute('cy')}});
-    assert.ok(orb, 'A persistent orb exists on the wall');
-    const {joints, hub} = await junctions();
-    assert.ok(hub.degree >= 3, `The fixture has a central junction (degree ${hub.degree})`);
-    assert.ok(Math.hypot(orb.cx - hub.x, orb.cy - hub.y) < 1, `The orb sits at the most connected junction (${hub.x.toFixed(0)}, ${hub.y.toFixed(0)}), not the box center`);
-    const connectors = await page.evaluate(() => [...document.querySelectorAll('#wall .connector')].map(c => ({x: +c.dataset.x, y: +c.dataset.y, events: getComputedStyle(c).pointerEvents})));
-    assert.equal(connectors.length, joints.length - 1, 'A connector node marks every junction except the orb\'s');
-    assert.ok(connectors.every(c => joints.some(j => Math.hypot(j.x - c.x, j.y - c.y) < 1) && Math.hypot(hub.x - c.x, hub.y - c.y) >= 1), 'Connectors sit on junctions and never on the orb');
-    assert.ok(connectors.every(c => c.events === 'none'), 'Connectors never intercept clicks');
-    assert.ok(await page.evaluate(() => document.querySelectorAll('#wall .connector').length > 0 && [...document.querySelectorAll('#wall .connector')].every(c => c.getAnimations().some(a => a.id === 'assembly'))), 'Connectors take part in the assembly');
-    const hubStarts = await page.evaluate(([hx, hy]) => [...document.querySelectorAll('.wall-line')].filter(g => {const l = state.lines.find(l => l.id === g.dataset.line); return [transform(l.points[0]), transform(l.points[2])].some(p => Math.hypot(p[0] - hx, p[1] - hy) <= 40)}).map(g => g.getAnimations().find(a => a.id === 'assembly').effect.getTiming().delay), [hub.x, hub.y]);
-    assert.ok(hubStarts.length >= 3 && new Set(hubStarts).size === 1, `Every Line touching the hub starts together (${hubStarts.join(', ')})`);
-    const order = await page.evaluate(() => {
-      const o = document.querySelector('#wall .orb'), cx = +o.getAttribute('cx'), cy = +o.getAttribute('cy');
-      return [...document.querySelectorAll('.wall-line')].map(g => {const a = g.getAnimations().find(x => x.id === 'assembly'); const l = state.lines.find(l => l.id === g.dataset.line); const p = l.points.map(transform); const d = Math.min(...p.map(q => Math.hypot(q[0] - cx, q[1] - cy))); return [d, a ? a.effect.getTiming().delay : null]});
-    });
-    assert.ok(order.every(([, delay]) => delay !== null), 'Every Line has an assembly animation');
-    const nearest = order.reduce((a, b) => a[0] < b[0] ? a : b), farthest = order.reduce((a, b) => a[0] > b[0] ? a : b);
-    assert.ok(nearest[1] < farthest[1], `Lines near the orb start before far ones (near ${nearest[1]} ms, far ${farthest[1]} ms)`);
-    assert.ok(await page.evaluate(() => [...document.querySelectorAll('#wall .connector')].some(c => c.getAnimations().some(a => a.id === 'assembly' && a.playState === 'running'))), 'Connectors light as Lines settle');
-    const length = await page.evaluate(() => Math.max(...document.getElementById('wall').getAnimations({subtree: true}).filter(a => a.id === 'assembly').map(a => a.effect.getTiming().delay + a.effect.getTiming().duration)));
-    assert.ok(length >= 1800 && length <= 2400, `The sequence is roughly two seconds long (${length} ms)`);
-    const took = await untilIdle(); assert.ok(took !== false && took <= 2600, `Assembly finishes within about two seconds (${took} ms observed after load)`);
-    const final = await geometry();
-    assert.ok(final.groups.every(([, t, o]) => (t === 'none' || t === 'matrix(1, 0, 0, 1, 0, 0)') && o === '1'), 'Every Line settles at identity with full opacity');
-    assert.ok(final.numbers.every(([, , , o]) => o === '1'), 'Number tags are fully visible after assembly');
-    assert.equal(final.joints, 0, 'No transient joint elements remain after assembly');
-    assert.equal(await page.locator('#wall .connector').count(), joints.length - 1, 'Connectors persist after assembly');
-    const clean = await page.evaluate(() => {wallFingerprint = ''; drawWall(); return [...document.querySelectorAll('#wall .number')].map(n => [n.dataset.lineId, n.getAttribute('x'), n.getAttribute('y')])});
-    assert.deepEqual(final.numbers.map(([id, x, y]) => [id, x, y]), clean, 'Assembly leaves the geometry exactly as a plain draw');
-    assert.equal(await page.locator('.wall-line').count(), 15);
+  await page.setViewportSize({width: 1440, height: 1000});
+  await page.evaluate(() => {
+    try {
+      localStorage.removeItem('wall.assembly.opening');
+      localStorage.removeItem('wall.assembly.entry');
+      localStorage.setItem('wall.numbers.showAll', '1');
+    } catch {}
   });
 
-  await check('C4: preferences are browser-local, default on, and gate opening and entry playback', async () => {
-    assert.equal(await page.locator('#assemblyOnOpen').isChecked(), true, 'Play on opening defaults on');
-    assert.equal(await page.locator('#assemblyOnEntry').isChecked(), true, 'Play on view entry defaults on');
-    await setPref('assemblyOnOpen', false);
-    assert.equal(await page.evaluate(() => localStorage.getItem('wall.assembly.opening')), '0', 'Opening preference persists');
-    await page.reload(); await page.waitForSelector('.wall-line'); await page.waitForTimeout(300);
-    assert.equal(await running(), 0, 'No assembly on load when the opening preference is off');
-    assert.equal(await page.locator('#assemblyOnOpen').isChecked(), false, 'Preference survives reload');
-    assert.ok((await geometry()).groups.every(([, t]) => t === 'none' || t === 'matrix(1, 0, 0, 1, 0, 0)'), 'Structure is complete without assembly');
+  await check('first load is a two-second mechanical assembly rooted with its beams', async () => {
+    await page.reload();
+    await page.waitForSelector('#wall.prism-scene .wall-line[data-line]');
+    assert.equal(await page.locator('#showNumbers').getAttribute('aria-pressed'), 'true', 'Assembly checks explicitly enable all browser-local numbers');
+    assert.equal(await page.evaluate(() => typeof window.wallAssembly?.snapshot), 'function', 'snapshot bridge exists');
+    await waitProgress(.20, .46);
+    const middle = await page.evaluate(() => {
+      const current = wallAssembly.snapshot();
+      return {
+        current,
+        roots: [...document.querySelectorAll('#wall [data-root]')].map(root => ({
+          transform: root.getAttribute('transform'),
+          edges: root.querySelectorAll('[data-edge]').length,
+          nodes: root.querySelectorAll('[data-node]').length,
+        })),
+        slides: [...document.querySelectorAll('#wall [data-slide]')].map(node => node.getAttribute('transform')),
+        tubes: document.querySelectorAll('#wall [data-part="tube-body"]').length,
+        facets: document.querySelectorAll('#wall [data-part="tube-facets"]').length,
+        connectors: [...document.querySelectorAll('#wall [data-node]')].map(node => ({
+          events: getComputedStyle(node).pointerEvents,
+          rims: node.querySelectorAll('[data-rim]').length,
+        })),
+        materialEvents: getComputedStyle(document.querySelector('#wall [data-layer="materials"]')).pointerEvents,
+        controls: [...document.querySelectorAll('#wall .wall-line[data-line]')].map(node => ({
+          role: node.getAttribute('role'),
+          tab: node.getAttribute('tabindex'),
+          events: getComputedStyle(node).pointerEvents,
+          hit: !!node.querySelector('[data-hit]'),
+          transform: node.getAttribute('transform'),
+        })),
+        labels: [...document.querySelectorAll('#wall .number-tag[data-line-id]')].map(node => ({
+          visible: getComputedStyle(node).visibility,
+          opacity: +getComputedStyle(node).opacity,
+          transform: node.getAttribute('transform'),
+        })),
+      };
+    });
+    assert.ok(middle.current.playing && middle.current.progress > 0 && middle.current.progress < 1, 'Assembly is observably in flight');
+    assert.equal(middle.roots.length, middle.current.components, 'Each component has one moving root wrapper');
+    assert.ok(middle.roots.every(item => item.edges > 0 && item.nodes > 0), 'Root wrappers move connectors and beams as one mechanism');
+    assert.ok(middle.roots.some(item => item.transform && !/^rotate\(0(?:[ )]|$)/.test(item.transform)), 'At least one root wrapper is rotated during assembly');
+    assert.ok(middle.slides.some(value => /translate\((?!0(?:\.0+)?\s)/.test(value)), 'Tubes visibly slide out from connectors');
+    assert.equal(middle.tubes, middle.current.lines, 'Each Line keeps its full tube body while sliding');
+    assert.equal(middle.facets, middle.current.lines, 'Each Line keeps the approved tube facets while sliding');
+    assert.ok(middle.connectors.every(item => item.rims === 6), 'All six rim segments remain mounted throughout assembly');
+    assert.ok(middle.connectors.every(item => item.events === 'none') && middle.materialEvents === 'none', 'Materials and connectors cannot intercept input');
+    assert.equal(middle.controls.length, middle.current.lines, 'Static final-position controls exist throughout assembly');
+    assert.ok(middle.controls.every(item => item.role === 'button' && item.tab === '0' && item.hit && item.transform), 'Every static hit target remains keyboard and pointer usable');
+    assert.equal(middle.labels.length, middle.current.lines, 'Final label nodes remain mounted during assembly');
+    assert.ok(middle.labels.every(item => item.visible === 'visible' && item.transform), 'showAllNumbers keeps every final-position label available');
+    assert.ok(middle.labels.every(item => item.opacity < .05), 'Number labels wait until the final assembly beat to fade in');
+
+    const elapsed = await untilIdle();
+    assert.ok(elapsed > 900 && elapsed < 1900, `The remaining first-load sequence completes on the two-second schedule (${elapsed.toFixed(0)} ms from mid-sequence)`);
+    const final = await finalGeometry();
+    assert.equal(final.progress, 1);
+    assert.ok(final.edges.every(edge => edge.visible !== 'hidden'), 'Every physical Line is visible at its final geometry');
+    assert.ok(final.rims.every(rims => rims.length === 6 && rims.every(value => Math.abs(value - 1) < .001)), 'All six rim segments on every connector stay open and persistent');
+    assert.ok(final.labels.every(label => label.visibility === 'visible' && label.opacity > .99 && label.transform), 'All Line numbers finish visible at their final label transforms');
+    assert.equal(final.transientVisible, 0, 'Charges, shutters, and loop sockets leave no visible overlay');
+    assert.equal(final.legacyOverlays, 0, 'No legacy orb or joint overlays remain');
+  });
+
+  await check('Replay lasts two seconds and begins one fresh flow epoch at completion', async () => {
     await page.locator('#replay').click();
-    assert.ok(await running() > 0, 'Replay still plays with opening off');
+    await page.waitForFunction(() => wallAssembly.snapshot().playing);
+    const start = await page.evaluate(() => performance.now());
     await untilIdle();
+    const result = await page.evaluate(value => ({elapsed: performance.now() - value, ...wallAssembly.snapshot()}), start);
+    assert.ok(result.elapsed >= 1850 && result.elapsed <= 2350, `Replay takes about two seconds (${result.elapsed.toFixed(0)} ms)`);
+    assert.ok(result.lightPhase >= 0 && result.lightPhase < .08, `Flow starts at phase zero after Replay (${result.lightPhase.toFixed(3)})`);
+    await page.waitForFunction(() => wallAssembly.snapshot().lightPhase > .18);
+    const before = await page.evaluate(() => ({phase: wallAssembly.snapshot().lightPhase, time: performance.now()}));
+    await page.evaluate(() => prism.finish('finish'));
+    await page.waitForTimeout(120);
+    const after = await page.evaluate(() => ({phase: wallAssembly.snapshot().lightPhase, time: performance.now()}));
+    const expected = (before.phase + (after.time - before.time) / 2000) % 1;
+    const error = Math.min(Math.abs(after.phase - expected), 1 - Math.abs(after.phase - expected));
+    assert.ok(error <= .025, `A redundant finish preserves the flow clock within 50 ms (expected ${expected.toFixed(3)}, got ${after.phase.toFixed(3)})`);
+  });
+
+  await check('browser-local preferences gate opening and entry playback while Replay remains available', async () => {
+    assert.equal(await page.locator('#assemblyOnOpen').isChecked(), true, 'Opening playback defaults on');
+    assert.equal(await page.locator('#assemblyOnEntry').isChecked(), true, 'Entry playback defaults on');
+    await setPref('assemblyOnOpen', false);
+    assert.equal(await page.evaluate(() => localStorage.getItem('wall.assembly.opening')), '0', 'Opening preference is browser-local');
+    await page.reload(); await page.waitForSelector('#wall.prism-scene .wall-line[data-line]'); await page.waitForTimeout(250);
+    assert.equal((await snapshot()).playing, false, 'Opening disabled lands immediately on the final wall');
+    assert.equal((await snapshot()).progress, 1);
+    await page.locator('#replay').click();
+    assert.equal((await snapshot()).playing, true, 'Replay remains available when opening playback is disabled');
+    await untilIdle();
+
     await setPref('assemblyOnEntry', false);
     await page.evaluate(() => wallAssembly.play('entry')); await settle();
-    assert.equal(await running(), 0, 'Entry playback respects the entry preference');
+    assert.equal((await snapshot()).playing, false, 'Entry playback respects its local preference');
     await setPref('assemblyOnEntry', true);
-    await page.evaluate(() => wallAssembly.play('entry')); await settle();
-    assert.ok(await running() > 0, 'Entry playback is available through the integration point');
+    await page.evaluate(() => wallAssembly.play('entry'));
+    assert.equal((await snapshot()).playing, true, 'The public entry integration starts playback when enabled');
     await untilIdle();
     await setPref('assemblyOnOpen', true);
   });
 
-  await check('C5: polling, mode, and layout changes never trigger assembly', async () => {
-    await untilIdle();
-    await refresh(); await settle(); assert.equal(await running(), 0, 'A poll does not start assembly');
-    const failing = request => request.fulfill({status: 503, json: {error: 'Local map status unavailable. Retrying shortly.'}});
-    await page.route('**/api/state', failing); await refresh(); await page.unroute('**/api/state', failing);
-    await page.evaluate(() => {errorUntil = 0}); await refresh(); await settle();
-    assert.equal(await running(), 0, 'Reconnecting after a failed poll does not start assembly');
-    await page.evaluate(() => {window.dispatchEvent(new Event('focus')); document.dispatchEvent(new Event('visibilitychange'))}); await settle();
-    assert.equal(await running(), 0, 'Returning focus or visibility does not start assembly');
-    await page.evaluate(() => action('/api/mode', {mode: 'quiet'})); await page.waitForFunction(() => state.mode === 'quiet'); await settle();
-    assert.equal(await running(), 0, 'A mode change does not start assembly');
-    await page.evaluate(() => action('/api/settings', {style: 'classic'})); await page.waitForFunction(() => state.settings.style === 'classic'); await settle();
-    assert.equal(await running(), 0, 'A layout change does not start assembly');
-    await page.evaluate(() => action('/api/settings', {style: 'project'})); await page.waitForFunction(() => state.settings.style === 'project');
-    await page.evaluate(() => action('/api/mode', {mode: 'work'})); await page.waitForFunction(() => state.mode === 'work');
+  await check('polls, colors, selection, and focus do not restart completed assembly', async () => {
+    assert.equal((await snapshot()).playing, false);
+    await refresh(); await settle();
+    assert.equal((await snapshot()).playing, false, 'A normal poll does not assemble');
+    const changed = await page.evaluate(() => {
+      const value = structuredClone(state);
+      if (value.projects?.length) value.projects[0].color = '#12abef';
+      return value;
+    });
+    const route = request => request.fulfill({json: changed});
+    await page.route('**/api/state', route);
+    try { await refresh(); await settle(); assert.equal((await snapshot()).playing, false, 'A color poll does not assemble'); }
+    finally { await page.unroute('**/api/state', route); await refresh(); }
+    const id = await page.locator('#wall .wall-line[data-line]').first().getAttribute('data-line');
+    await page.locator(`#wall .wall-line[data-line="${id}"]`).click();
+    assert.equal((await snapshot()).playing, false, 'Selection does not assemble');
+    await page.locator(`#wall .wall-line[data-line="${id}"]`).focus();
+    await page.evaluate(() => { window.dispatchEvent(new Event('focus')); document.dispatchEvent(new Event('visibilitychange')); });
+    await page.waitForTimeout(1100);
+    assert.equal(await page.evaluate(value => document.activeElement?.dataset.line === value, id), true, 'Polling preserves keyboard focus');
+    assert.equal((await snapshot()).playing, false, 'Focus and visibility events do not assemble');
+    await page.locator('#clear').click();
   });
 
-  await check('C6: assembly settles into the current mode and reduced motion skips it', async () => {
-    await page.evaluate(() => action('/api/mode', {mode: 'quiet'})); await page.waitForFunction(() => state.mode === 'quiet' && document.body.dataset.mode === 'quiet');
-    await page.locator('#replay').click(); await untilIdle();
-    const quietHalo = await page.evaluate(() => parseFloat(getComputedStyle(document.querySelector('.wall-line[data-status] .glow')).opacity));
-    const quietToken = await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--glow-quiet')));
-    assert.equal(quietHalo, quietToken, 'Quiet halo after assembly');
-    await page.evaluate(() => action('/api/mode', {mode: 'work'})); await page.waitForFunction(() => state.mode === 'work');
+  await check('Quiet settles steady and reduced motion skips every assembly path', async () => {
+    await page.evaluate(() => action('/api/mode', {mode: 'quiet'}));
+    await page.waitForFunction(() => state.mode === 'quiet');
+    await page.locator('#replay').click();
+    assert.equal((await snapshot()).playing, true, 'Quiet may show the mechanical assembly');
+    await untilIdle();
+    const quiet = await snapshot();
+    assert.equal(quiet.mode, 'quiet');
+    assert.equal(await page.locator('#wall [data-packet]').evaluateAll(nodes => nodes.filter(node => +getComputedStyle(node).opacity > .02).length), 0, 'Quiet settles without flow');
+
+    await page.evaluate(() => action('/api/mode', {mode: 'work'}));
+    await page.waitForFunction(() => state.mode === 'work');
     await page.emulateMedia({reducedMotion: 'reduce'});
     try {
       await page.locator('#replay').click(); await settle();
-      assert.equal(await running(), 0, 'Reduced motion skips assembly');
-      assert.equal(await page.locator('#wall .orb').count(), 1, 'The orb is still present');
-      assert.ok((await geometry()).groups.every(([, t, o]) => (t === 'none' || t === 'matrix(1, 0, 0, 1, 0, 0)') && o === '1'), 'Structure is complete immediately');
-      await page.reload(); await page.waitForSelector('.wall-line'); await page.waitForTimeout(300);
-      assert.equal(await running(), 0, 'Reduced motion skips the opening assembly too');
-      assert.equal(await page.locator('#wall .orb').count(), 1, 'The orb is drawn at load under reduced motion');
-    } finally {await page.emulateMedia({reducedMotion: 'no-preference'})}
-    await page.evaluate(async () => {while (refreshing) await new Promise(resolve => setTimeout(resolve, 10)); await refresh()});
-    await page.evaluate(() => action('/api/mode', {mode: 'work'})); await page.waitForFunction(() => state.mode === 'work'); await untilIdle();
+      const reduced = await snapshot();
+      assert.equal(reduced.reducedMotion, true);
+      assert.equal(reduced.playing, false, 'Reduced motion skips Replay');
+      assert.equal(reduced.progress, 1, 'Reduced motion lands at final geometry');
+      await page.reload(); await page.waitForSelector('#wall.prism-scene .wall-line[data-line]'); await page.waitForTimeout(250);
+      assert.equal((await snapshot()).playing, false, 'Reduced motion skips opening playback');
+      assert.ok((await finalGeometry()).rims.every(rims => rims.length === 6 && rims.every(value => Math.abs(value - 1) < .001)), 'Final connector rims remain under reduced motion');
+    } finally {
+      await page.emulateMedia({reducedMotion: 'no-preference'});
+      await refresh();
+    }
   });
 
-  await check('C7: an interaction completes assembly and acts; repeated Replay does not queue', async () => {
-    const ids = await page.locator('.wall-line').evaluateAll(nodes => nodes.map(node => node.dataset.line));
-    await page.locator('#replay').click(); await page.waitForTimeout(150);
-    assert.ok(await running() > 0);
-    await page.locator(`[data-line="${ids[3]}"]`).click({delay: 600}); // a deliberate long press
-    assert.equal(await running(), 0, 'Interaction completes the assembly immediately');
-    await settle();
-    assert.equal(await page.locator('.wall-line.selected').getAttribute('data-line', {timeout: 2000}), ids[3], 'The intended selection happens for a held click');
+  await check('pointer and keyboard input finish assembly first and still execute the intended selection', async () => {
+    const ids = await page.locator('#wall .wall-line[data-line]').evaluateAll(nodes => nodes.map(node => node.dataset.line));
+    await page.locator('#replay').click(); await waitProgress(.05, .35);
+    const pointerTarget = page.locator(`#wall .wall-line[data-line="${ids[3]}"]`);
+    const box = await pointerTarget.boundingBox();
+    assert.ok(box && box.width > 0 && box.height > 0, 'The static hit layer has a pointer target during assembly');
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    const pressed = await snapshot();
+    assert.equal(pressed.playing, false, 'Pointer down commits assembly');
+    assert.ok(pressed.lightPhase < .08, 'Interaction completion starts the flow at phase zero');
+    await page.waitForTimeout(600);
+    await page.mouse.up(); await settle();
+    assert.equal(await page.locator(`#wall .wall-line[data-line="${ids[3]}"]`).getAttribute('aria-pressed'), 'true', 'The held click still selects its intended Line');
     await page.locator('#clear').click();
-    await page.locator('#replay').click(); await page.waitForTimeout(150);
-    await page.locator(`[data-line="${ids[4]}"]`).focus(); await page.keyboard.press('Enter');
-    assert.equal(await running(), 0, 'A key press completes the assembly');
-    await settle();
-    assert.equal(await page.locator('.wall-line.selected').getAttribute('data-line', {timeout: 2000}), ids[4], 'The intended selection happens for a key press');
-    assert.ok((await geometry()).groups.every(([, t, o]) => (t === 'none' || t === 'matrix(1, 0, 0, 1, 0, 0)') && o === '1'), 'Structure is complete after the interaction');
+
+    await page.locator('#replay').click(); await waitProgress(.05, .35);
+    await page.locator(`#wall .wall-line[data-line="${ids[4]}"]`).focus();
+    await page.keyboard.press('Enter');
+    assert.equal((await snapshot()).playing, false, 'Keyboard activation commits assembly');
+    assert.equal(await page.locator(`#wall .wall-line[data-line="${ids[4]}"]`).getAttribute('aria-pressed'), 'true', 'Enter still selects its intended Line');
     await page.locator('#clear').click();
-    await page.locator('#replay').click(); await page.waitForTimeout(100);
-    const first = await page.evaluate(() => document.getElementById('wall').getAnimations({subtree: true}).filter(a => a.id === 'assembly').length);
-    await page.locator('#replay').click(); await page.locator('#replay').click(); await page.waitForTimeout(100);
-    const after = await page.evaluate(() => document.getElementById('wall').getAnimations({subtree: true}).filter(a => a.id === 'assembly').length);
-    assert.equal(after, first, 'Repeated Replay does not add sequences');
-    await untilIdle(); await page.waitForTimeout(600);
-    assert.equal(await running(), 0, 'No queued sequence plays afterwards');
+
+    await page.locator('#replay').click(); await page.waitForTimeout(120);
+    const before = (await snapshot()).progress;
+    await page.locator('#replay').click(); await page.locator('#replay').click(); await page.waitForTimeout(120);
+    assert.ok((await snapshot()).progress >= before, 'Repeated Replay never restarts or queues the active sequence');
+    await untilIdle(); await page.waitForTimeout(350);
+    assert.equal((await snapshot()).playing, false, 'No queued replay begins later');
   });
 
-  await check('C8: lists update during assembly and disconnected sections assemble independently', async () => {
-    const snapshot = await page.evaluate(() => structuredClone(state));
-    const renamed = structuredClone(snapshot); renamed.tasks[0].title = 'Renamed during assembly';
-    const route = request => request.fulfill({json: renamed});
+  await check('task text updates during assembly; geometry and connection changes commit it', async () => {
+    const original = await page.evaluate(() => structuredClone(state));
+    const renamed = structuredClone(original);
+    renamed.tasks[0].title = 'Renamed during Prism assembly';
+    const renamedRoute = request => request.fulfill({json: renamed});
     await page.locator('#replay').click(); await page.waitForTimeout(100);
-    await page.route('**/api/state', route);
+    await page.route('**/api/state', renamedRoute);
+    try {
+      await refresh();
+      assert.equal((await snapshot()).playing, true, 'A text-only poll keeps assembly running');
+      assert.match(await page.locator('#taskList').textContent(), /Renamed during Prism assembly/, 'Task list updates immediately');
+      await untilIdle();
+      assert.match(await page.locator(`#wall .wall-line[data-line="${renamed.tasks[0].line}"] title`).textContent(), /Renamed during Prism assembly/, 'Final wall title uses the latest task text');
+    } finally { await page.unroute('**/api/state', renamedRoute); }
+
+    const rotated = structuredClone(original); rotated.settings.rotation = (original.settings.rotation + 90) % 360;
+    const rotatedRoute = request => request.fulfill({json: rotated});
+    await page.locator('#replay').click(); await page.route('**/api/state', rotatedRoute);
     try {
       await refresh(); await settle();
-      assert.ok(await running() > 0, 'Assembly keeps playing through a non-geometry poll');
-      assert.match(await page.locator('#taskList').textContent(), /Renamed during assembly/, 'The task list updates during assembly');
-      await untilIdle();
-      assert.match(await page.locator(`.wall-line[data-line="${renamed.tasks[0].line}"] title`).textContent(), /Renamed during assembly/, 'The wall finishes into the latest state');
-    } finally {await page.unroute('**/api/state', route)}
-    const split = structuredClone(snapshot);
-    split.lines.forEach((line, i) => {if (i >= 8) line.points = line.points.map(([x, y]) => [x + 3000, y])});
-    const splitRoute = request => request.fulfill({json: split});
-    await page.route('**/api/state', splitRoute);
-    try {
-      await refresh(); await settle(); await untilIdle();
-      await page.locator('#replay').click(); await page.waitForTimeout(50);
-      const sections = await page.evaluate(() => {
-        const o = document.querySelector('#wall .orb'), cx = +o.getAttribute('cx');
-        return [...document.querySelectorAll('.wall-line')].map(g => {const l = state.lines.find(l => l.id === g.dataset.line); const p = l.points.map(transform); const a = g.getAnimations().find(x => x.id === 'assembly'); return {right: p[1][0] > cx + 1000, delay: a.effect.getTiming().delay, near: Math.min(...p.map(q => Math.hypot(q[0] - cx, q[1] - +o.getAttribute('cy'))))}});
-      });
-      const left = sections.filter(s => !s.right), right = sections.filter(s => s.right);
-      assert.ok(left.length && right.length, 'The synthetic layout has two sections');
-      assert.equal(Math.min(...right.map(s => s.delay)), Math.min(...left.map(s => s.delay)), 'Each section starts from its own root at the same time');
-      const rightRoot = right.reduce((a, b) => a.delay < b.delay ? a : b), rightFar = right.reduce((a, b) => a.near > b.near ? a : b);
-      assert.ok(rightRoot.near <= rightFar.near && rightRoot.delay < rightFar.delay, 'The far section assembles outward from its nearest Line');
-      await untilIdle();
-    } finally {await page.unroute('**/api/state', splitRoute); await refresh(); await untilIdle()}
-  });
+      assert.equal((await snapshot()).playing, false, 'A geometry change commits assembly immediately');
+      assert.equal(await page.evaluate(() => state.settings.rotation), rotated.settings.rotation, 'The wall adopts the latest geometry');
+    } finally { await page.unroute('**/api/state', rotatedRoute); await refresh(); }
 
-  await check('C8: geometry changes and connection failures end assembly and the map shows the latest state', async () => {
-    const snapshot = await page.evaluate(() => structuredClone(state));
-    const rotated = structuredClone(snapshot); rotated.settings.rotation = 90;
-    const route = request => request.fulfill({json: rotated});
-    await page.locator('#replay').click();
-    assert.ok(await running() > 0, 'Assembly is running before the geometry changes');
-    await page.route('**/api/state', route);
-    try {
-      await refresh(); await settle();
-      assert.equal(await running(), 0, 'A geometry change ends assembly immediately');
-      assert.equal(await page.evaluate(() => state.settings.rotation), 90);
-      const drawn = await page.evaluate(() => wallFingerprint.includes('"rotation":90'));
-      assert.ok(drawn, 'The wall shows the latest geometry after assembly ends');
-    } finally {await page.unroute('**/api/state', route)}
-    await refresh(); await untilIdle();
     const failing = request => request.fulfill({status: 503, json: {error: 'Local map status unavailable. Retrying shortly.'}});
-    await page.locator('#replay').click();
-    assert.ok(await running() > 0, 'Assembly is running before the connection fails');
-    await page.route('**/api/state', failing);
+    await page.locator('#replay').click(); await page.route('**/api/state', failing);
     try {
       await refresh(); await settle();
-      assert.equal(await running(), 0, 'A connection failure ends assembly immediately');
+      assert.equal((await snapshot()).playing, false, 'A connection failure commits assembly');
       assert.match(await page.locator('#connection').textContent(), /Disconnected/);
-    } finally {await page.unroute('**/api/state', failing); await page.evaluate(() => {errorUntil = 0}); await refresh()}
+    } finally {
+      await page.unroute('**/api/state', failing);
+      await page.evaluate(() => { errorUntil = 0; });
+      await refresh();
+    }
   });
 
-  await check('C9: assembly writes nothing and keeps the status pulses on phase', async () => {
+  await check('provided roots start disconnected components together without inventing a controller root', async () => {
+    const result = await page.evaluate(async () => {
+      const host = document.createElement('div');
+      host.style.cssText = 'position:fixed;left:0;top:0;width:500px;height:500px;z-index:-1';
+      document.body.append(host);
+      const layout = {
+        version: 1,
+        rootIds: ['connector-a', 'connector-c'],
+        nodes: [
+          {id: 'connector-a', x: 0, y: 0, sourceIds: ['a']},
+          {id: 'connector-b', x: 200, y: 0, sourceIds: ['b']},
+          {id: 'connector-c', x: 0, y: 360, sourceIds: ['c']},
+          {id: 'connector-d', x: 200, y: 360, sourceIds: ['d']},
+        ],
+        lines: [
+          {id: 'physical-8', number: 8, a: 'connector-a', b: 'connector-b', zoneIds: ['8a', '8b'], colors: ['#12abef', '#ef8a12']},
+          {id: 'physical-2', number: 2, a: 'connector-c', b: 'connector-d', zoneIds: ['2a', '2b'], colors: ['#65e7ff', '#b489ff']},
+        ],
+      };
+      const renderer = new Prism.Renderer(host, layout, {animate: true});
+      await new Promise((resolve, reject) => {
+        const limit = performance.now() + 2500;
+        const poll = () => renderer.snapshot().progress >= .22 ? resolve() : performance.now() > limit ? reject(Error('synthetic assembly did not advance')) : requestAnimationFrame(poll);
+        poll();
+      });
+      const current = renderer.snapshot();
+      const extensions = [...host.querySelectorAll('[data-slide]')].map(node => (/translate\(([-\d.]+)/.exec(node.getAttribute('transform')) || [0, NaN])[1]).map(Number);
+      const identifiers = [...host.querySelectorAll('[data-edge]')].map(node => node.dataset.lineId);
+      const numbers = [...host.querySelectorAll('.number')].map(node => node.textContent);
+      renderer.destroy(); host.remove();
+      return {current, extensions, identifiers, numbers};
+    });
+    assert.equal(result.current.components, 2);
+    assert.deepEqual(result.current.rootIds, ['connector-a', 'connector-c'], 'App-provided root IDs are retained in component order');
+    assert.ok(Math.abs(result.extensions[0] - result.extensions[1]) < .5, 'Both disconnected component roots begin at the same assembly beat');
+    assert.deepEqual(result.identifiers, ['physical-8', 'physical-2'], 'Physical IDs and deployment order remain stable');
+    assert.deepEqual(result.numbers, ['08', '02'], 'Physical numbers are not derived from array position');
+  });
+
+  await check('assembly, Replay, and local preferences send no write requests', async () => {
     const writes = [];
-    const record = request => {if (request.method() !== 'GET') writes.push(request.url())};
+    const record = request => { if (request.method() !== 'GET') writes.push(request.url()); };
     page.on('request', record);
     try {
-      await page.locator('#replay').click(); await page.waitForTimeout(300);
-      const during = await page.evaluate(() => {const a = document.querySelector('.wall-line[data-status] .glow').getAnimations().find(x => x.animationName === 'pulse'); return a && a.startTime === 0 && a.playState === 'running'});
-      assert.equal(during, true, 'Status pulses keep running on the document timeline during assembly');
-      await untilIdle();
-      const after = await page.evaluate(() => {const a = document.querySelector('.wall-line[data-status] .glow').getAnimations().find(x => x.animationName === 'pulse'); return a && a.startTime === 0});
-      assert.equal(after, true, 'Status pulses keep the page-wide phase after assembly');
+      await page.locator('#replay').click(); await page.waitForTimeout(180);
+      await page.evaluate(() => prism.finish('finish'));
       await setPref('assemblyOnEntry', false); await setPref('assemblyOnEntry', true);
-      assert.deepEqual(writes, [], 'Assembly, Replay, and preferences issue no write requests');
-    } finally {page.off('request', record)}
+      assert.deepEqual(writes, [], 'Passive Prism behavior does not cross the controller write boundary');
+    } finally { page.off('request', record); }
   });
 
   if (failures.length) throw Error('Assembly checks failed:\n' + failures.join('\n'));
-  console.log('Assembly checks passed: orb, outward assembly, geometry, preferences, triggers, modes, reduced motion, completion, cancellation, and boundaries.');
+  console.log('Assembly checks passed: mechanical roots, persistent materials, timing, preferences, interruption, disconnected components, and passive boundaries.');
 };

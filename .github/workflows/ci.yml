@@ -1,11 +1,16 @@
 name: Checks
 on:
   push:
+    branches: [main]
   pull_request:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
   workflow:
+    timeout-minutes: 10
     name: Workflow checks on ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -22,6 +27,7 @@ jobs:
       - run: npm run check:workflow
       - run: npm run test:workflow
   python:
+    timeout-minutes: 10
     name: Python ${{ matrix.python }} on ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -44,6 +50,7 @@ jobs:
           ./tests/test_tray_icon.ps1
           ./tests/test_controller_install.ps1
   browser:
+    timeout-minutes: 10
     name: Wall map browser checks
     runs-on: ubuntu-latest
     steps:
@@ -57,7 +64,18 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
+      - run: npm run test:prism
+      - run: npm run build:prism
+      - run: git diff --exit-code -- bridge/assets/prism
       - run: npm run test:browser
+      - name: Retain Prism review evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: prism-wall-review
+          path: test-results/
+          retention-days: 14
+          if-no-files-found: warn
   mcp:
     name: MCP source checks on ${{ matrix.os }}
     strategy:

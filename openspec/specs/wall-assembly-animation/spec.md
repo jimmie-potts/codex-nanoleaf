@@ -1,21 +1,21 @@
 # wall-assembly-animation Specification
 
 ## Purpose
-Open the wall map with a brief assembly in which the structure unfolds outward from a persistent decorative orb, under browser-local preferences and a manual Replay, without touching bridge state or physical lights.
+Open the wall map with a brief mechanical assembly from crystal hexagonal connectors, under browser-local preferences and a manual Replay, without touching bridge state or physical lights.
 
 ## Requirements
 
-### Requirement: Orb and assembly sequence
+### Requirement: Connector and assembly sequence
 
-The wall map SHALL draw a persistent decorative orb at the layout's hub: the junction where the most Line ends meet, choosing the junction nearest the others when several tie, or the bounding-box center when no Lines meet. The orb SHALL represent neither a physical device nor system status. The map SHALL draw a connector node, shaped like the physical hexagonal connector, at every other junction; connectors SHALL never intercept selection. After valid geometry first loads, the map SHALL play an assembly sequence of about two seconds in which the orb lights, every Line meeting the hub unfolds first and together, each other Line unfolds through hinged rotation into its actual position in outward order, connectors light as the Lines meeting them settle, and number tags appear last. Lines that are not connected to the orb's section SHALL assemble independently in their own outward order. Covers issue #38 criteria 1, 2, and 3.
+The wall SHALL draw a crystal hexagonal connector at the most-connected hub, breaking ties by distance to other junctions, then the layout center and stable identity. Every other reported housing SHALL use the same connector component and SHALL never intercept selection. After first valid geometry, the map SHALL assemble in about two seconds. Hub-connected Lines SHALL start together, eject at full thickness and rotate with the hub into position, followed by outward deployment. Arriving connectors SHALL grow from the Line tip and unfold six permanent inner-border sections in either direction. Disconnected components SHALL assemble independently and cycle-closing Lines SHALL finish at exact endpoints. Temporary center shutters SHALL clear, with no triangle-to-border replacement or thin white completion flash. Numbers SHALL appear last. Covers issue #53 AC2 and retained issue #38 criteria 1–3.
 
 #### Scenario: First load assembles outward
 - **WHEN** the page first receives geometry with the opening preference on
-- **THEN** the orb lights at the hub, the Lines meeting it start together, Lines nearer the hub settle before Lines farther away, connectors light as their Lines settle, and the sequence ends within about two seconds
+- **THEN** the hexagonal hub turns with its attached Lines, the Lines meeting it start together, Lines nearer the hub settle before Lines farther away, connectors light as their Lines settle, and the sequence ends within about two seconds
 
 #### Scenario: Hub and connectors
 - **WHEN** two junctions join the same number of Lines
-- **THEN** the orb sits at the one nearest the other junctions, every other junction shows a connector node, and clicking through a connector still selects the Line beneath it
+- **THEN** the hexagonal connector sits at the one nearest the other junctions, every other junction shows a connector node, and clicking through a connector still selects the Line beneath it
 
 #### Scenario: Final geometry is exact
 - **WHEN** the assembly completes
@@ -35,7 +35,7 @@ Playback on opening and playback on entering the map SHALL be separate browser-l
 
 ### Requirement: Modes and reduced motion
 
-Assembly MAY run in any mode and SHALL settle into that mode's normal appearance. When the viewer prefers reduced motion, the map SHALL skip assembly and SHALL show the completed structure immediately, with the orb present. Covers criterion 6.
+Assembly MAY run in any mode and SHALL settle into that mode's normal appearance. When the viewer prefers reduced motion, the map SHALL skip assembly and SHALL show the completed structure immediately, with the hexagonal hub present. Covers criterion 6.
 
 #### Scenario: Quiet assembly settles quietly
 - **WHEN** assembly plays while the mode is Quiet
@@ -59,8 +59,8 @@ A map interaction during assembly SHALL complete the assembly immediately and th
 
 ### Requirement: Assembly never writes
 
-Assembly, Replay, and the preference controls SHALL send no requests other than the existing state polls, SHALL change no physical lights, tasks, assignments, unread state, scenes, or pulse epochs, and SHALL neither restart nor replay ongoing status animations. Covers criterion 9.
+Assembly, Replay, and the preference controls SHALL send no requests other than the existing state polls, SHALL change no physical lights, tasks, assignments, unread state, scenes, or pulse epochs, and SHALL neither restart nor replay physical task/comet epochs. The UI flow SHALL start at phase zero at both connectors only after first, explicit Replay, or interaction-completed assembly; routine updates SHALL preserve its established shared clock within 50 ms. Covers issue #53 AC4. Covers criterion 9.
 
 #### Scenario: Assembly is passive
 - **WHEN** assembly plays or Replay is pressed while Lines carry tasks in Work
-- **THEN** no write request is issued and the status pulses keep the page-wide phase throughout
+- **THEN** no write request is issued and physical epochs remain unchanged, and UI flow begins at both connectors at readiness on one shared clock

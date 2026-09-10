@@ -58,8 +58,11 @@ try {
         return
     }
     & (Join-Path $source 'install-modes.ps1') -SkipShortcuts -PythonRuntime $runtime
-    foreach ($name in @('controller_state.py','controller_contract.py','controller_server.py','requirements-controller.txt','bridge.py')) {
+    foreach ($name in @('controller_state.py','controller_contract.py','controller_server.py','requirements-controller.txt','bridge.py','wall.html','prism.js','prism-adapters.js','prism-labels.js')) {
         if (-not (Test-Path (Join-Path $destination $name))) { throw "Missing installed source asset $name" }
+    }
+    foreach ($name in @('wall.html','prism.js','prism-adapters.js','prism-labels.js')) {
+        if ((Get-FileHash (Join-Path $source $name)).Hash -ne (Get-FileHash (Join-Path $destination $name)).Hash) { throw "Installed wall asset differs: $name" }
     }
     if (-not (Test-Path (Join-Path $destination 'vendor/device-contracts-1.0.0/package/manifest.json'))) { throw 'Missing verified artifact.' }
     if ((Get-Content -Raw (Join-Path $destination 'config.json')) -notmatch 'synthetic-private-token') { throw 'Private configuration changed.' }
