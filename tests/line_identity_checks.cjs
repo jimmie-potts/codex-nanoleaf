@@ -115,7 +115,7 @@ module.exports = async function(page, root) {
         assert.equal(await page.locator('#locate').textContent(), 'Locate Line 8');
         assert.equal(await page.locator('#locate').isDisabled(), mode === 'free');
         if (mode !== 'free') {
-          const request = page.waitForRequest('**/api/locate');
+          const request = page.waitForResponse('**/api/locate');
           await page.locator('#locate').click(); await request;
         }
       }

@@ -364,7 +364,7 @@
 const token='__CSRF__', $=id=>document.getElementById(id), svgNS='http://www.w3.org/2000/svg';
 let state=null, selected=new Set(), projectFingerprint='', taskFingerprint='', taskFocus=null, wallFingerprint='', detailFingerprint='', errorUntil=0, refreshing=false;
 const statusColors={working:'var(--wall-working)',question:'var(--wall-question)',blocked:'var(--wall-blocked)',unread:'var(--wall-unread)'};
-const modeNotes={work:['Work · indicators on','Task indicators pulse on the wall at 30% brightness. The on-screen pulse follows task status, not the controller.'],quiet:['Quiet · steady at 10%','Steady task colors without pulses or outward waves.'],free:['Free · lights released','The lights follow the Nanoleaf app. The map shows saved task assignments.']};
+const modeNotes={work:['Work · indicators on','Task indicators pulse on the wall at 30% brightness. The map’s inward light flow follows task status.'],quiet:['Quiet · steady at 10%','Steady task colors without pulses or outward waves.'],free:['Free · lights released','The lights follow the Nanoleaf app. The map shows saved task assignments.']};
 function el(tag,text,cls){const node=document.createElement(tag);if(text!==undefined)node.textContent=text;if(cls)node.className=cls;return node}
 function message(text,error=false){$('notice').textContent=text;$('notice').style.display=text?'block':'none';$('notice').classList.toggle('error',error);if(error)errorUntil=Date.now()+6000}
 async function action(path,payload){endAssembly();try{const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-Wall-Token':token},body:JSON.stringify(payload)});const data=await r.json();if(!r.ok)throw Error(data.error);errorUntil=0;await refresh()}catch(e){message(e.message,true)}}
