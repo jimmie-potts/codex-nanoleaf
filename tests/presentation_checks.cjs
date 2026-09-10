@@ -189,16 +189,23 @@ module.exports = async function(page, root) {
 
     const resumed = await page.evaluate(async () => {
       const renderer = prism, original = renderer.setMode;
-      let transition;
-      // Observe the actual API-driven transition, before waiting for rendering.
+      let notifyTransition, timeout;
+      const transitioned = new Promise(resolve => { notifyTransition = resolve; });
+      // A poll already in flight can defer rendering beyond action() returning.
+      // Keep observing until the real transition, with a bounded failure wait.
       renderer.setMode = function(mode) {
         const previous = this.snapshot().mode, now = performance.now();
         const result = original.call(this, mode);
-        if (previous === 'free' && mode === 'work') transition = {now, phase: this.snapshot().lightPhase};
+        if (previous === 'free' && mode === 'work') notifyTransition({now, phase: this.snapshot().lightPhase});
         return result;
       };
-      try { await action('/api/mode', {mode: 'work'}); return transition; }
-      finally { renderer.setMode = original; }
+      try {
+        await action('/api/mode', {mode: 'work'});
+        return await Promise.race([
+          transitioned,
+          new Promise((_, reject) => { timeout = setTimeout(() => reject(Error('Work transition was not rendered within 5 s')), 5000); }),
+        ]);
+      } finally { clearTimeout(timeout); renderer.setMode = original; }
     });
     assert.ok(resumed, 'The mode action reaches the renderer');
     assert.equal(resumed.phase, quietStart, 'Returning to Work retains the exact frozen phase');
