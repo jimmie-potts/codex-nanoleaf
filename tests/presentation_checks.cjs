@@ -86,7 +86,16 @@ module.exports = async function(page, root) {
 
   await page.setViewportSize({width: 1440, height: 1000});
   await page.locator('#wall').scrollIntoViewIfNeeded();
-  await page.waitForFunction(() => window.wallAssembly?.snapshot?.().pauseReasons.length === 0);
+  try {
+    await page.waitForFunction(() => window.wallAssembly?.snapshot?.().pauseReasons.length === 0);
+  } catch (error) {
+    const visibleState = await page.evaluate(() => ({
+      pauseReasons: window.wallAssembly?.snapshot?.().pauseReasons,
+      documentVisibility: document.visibilityState,
+      host: document.getElementById('wallHost').getBoundingClientRect().toJSON(),
+    }));
+    throw Error(`Visible wall did not resume: ${JSON.stringify(visibleState)}`, {cause: error});
+  }
 
   await check('Prism integration is visible and exposes the accepted snapshot bridge', async () => {
     assert.equal(await page.locator('#wall.prism-scene').count(), 1, 'The live wall is the Prism scene');

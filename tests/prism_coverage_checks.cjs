@@ -235,6 +235,48 @@ module.exports = async function prismCoverageChecks(page) {
     }
   });
 
+  await check('batched visibility entries leave motion in the latest host state', async () => {
+    const result = await page.evaluate(async () => {
+      const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+      const until = async predicate => { for (let i = 0; i < 100; i++) { if (predicate()) return; await wait(10); } throw Error('Native visibility entry timed out'); };
+      const NativeObserver = window.IntersectionObserver, queued = [];
+      let notify, renderer;
+      const host = document.createElement('div');
+      host.style.cssText = 'position:fixed;left:10px;top:10px;width:600px;height:400px;z-index:-1';
+      document.body.append(host);
+      // Retain real browser entries, delivering them together as the observer
+      // API permits when multiple visibility changes are queued before a task.
+      window.IntersectionObserver = class {
+        constructor(callback, options) { notify = () => callback(queued.splice(0)); this.inner = new NativeObserver(entries => queued.push(...entries), options); }
+        observe(target) { this.inner.observe(target); }
+        disconnect() { this.inner.disconnect(); }
+      };
+      try {
+        const layout = PrismAdapters.fromState(state, zoneColors);
+        renderer = new Prism.Renderer(host, layout, {animate: false});
+        window.IntersectionObserver = NativeObserver;
+        renderer.setActivity(layout.lines.map(line => line.id));
+        await until(() => queued.length > 0); notify();
+        host.style.display = 'none'; await until(() => queued.some(entry => !entry.isIntersecting));
+        host.style.display = 'block'; await until(() => queued.at(-1)?.isIntersecting);
+        const firstBatch = queued.map(entry => entry.isIntersecting); notify();
+        const visiblePaused = renderer.snapshot().pauseReasons.includes('host-hidden');
+        host.style.display = 'none'; await until(() => queued.length > 0); notify();
+        host.style.display = 'block'; await until(() => queued.some(entry => entry.isIntersecting));
+        host.style.display = 'none'; await until(() => queued.at(-1)?.isIntersecting === false);
+        const secondBatch = queued.map(entry => entry.isIntersecting); notify();
+        return {firstBatch, secondBatch, visiblePaused, hiddenPaused: renderer.snapshot().pauseReasons.includes('host-hidden')};
+      } finally {
+        window.IntersectionObserver = NativeObserver;
+        renderer?.destroy(); host.remove();
+      }
+    });
+    assert.deepEqual(result.firstBatch, [false, true], 'The browser produced hidden then visible entries');
+    assert.equal(result.visiblePaused, false, 'A visible host resumes after a batched hide/show');
+    assert.deepEqual(result.secondBatch, [true, false], 'The browser produced visible then hidden entries');
+    assert.equal(result.hiddenPaused, true, 'A hidden host pauses after a batched show/hide');
+  });
+
   await check('document and host visibility pause in place; repeated renderers release every acquired resource', async () => {
     const visibility = await page.evaluate(async () => {
       const wait = ms => new Promise(resolve => setTimeout(resolve, ms));

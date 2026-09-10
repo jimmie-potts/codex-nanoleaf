@@ -92,7 +92,7 @@
    this.flowElapsed=0;this.flowLast=null;this.assemblyLast=null;this.lightPhase=0;this.frameId=0;this.selection=new Set();this.highlighted=new Set();this.activity=new Set();this.pending=new Set();this.hovered=new Set();this.focused=new Set();this.lineMetadata=new Map();this.labelTransforms=new Map();this.showNumbers=false;this.flowEpochEstablished=false;this.pauseReasons=new Set();this.destroyed=false;
    this.reduced=global.matchMedia?matchMedia('(prefers-reduced-motion: reduce)'):{matches:false,addEventListener(){},removeEventListener(){}};
    const rect=host.getBoundingClientRect();this._setPauseReason('host-hidden',!(rect.bottom>=0&&rect.top<innerHeight));
-   this.visibilityObserver=global.IntersectionObserver?new IntersectionObserver(entries=>this._setPauseReason('host-hidden',!entries[0]?.isIntersecting)):null;this.visibilityObserver?.observe(host);
+   this.visibilityObserver=global.IntersectionObserver?new IntersectionObserver(entries=>{const latest=entries.at(-1);if(latest)this._setPauseReason('host-hidden',!latest.isIntersecting)}):null;this.visibilityObserver?.observe(host);
    this._hidden=()=>this._setPauseReason('document-hidden',document.hidden);
    this._reduce=()=>{if(this.reduced.matches&&this.playing)this._completeAssembly(this.assemblyReason||'first');else{this.assemblyLast=null;this.flowLast=null;this.render(performance.now())}this.schedule()};
    document.addEventListener('visibilitychange',this._hidden);this.reduced.addEventListener('change',this._reduce);this._hidden();
