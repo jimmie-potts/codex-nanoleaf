@@ -33,10 +33,13 @@ def linux_state_directory(value):
     directory = Path(value).expanduser().resolve()
     if re.match(r'^/mnt/[a-zA-Z](?:/|$)', str(directory)):
         raise ValueError('State must be on the Linux filesystem, outside Windows-mounted drives.')
-    # Also catch Windows/network filesystems mounted somewhere other than /mnt/c.
+    # Require a known local type rather than trying to enumerate every remote
+    # filesystem that would undermine SQLite ownership or private permissions.
     mounts = Path('/proc/mounts')
+    local_filesystems = {'ext2', 'ext3', 'ext4', 'btrfs', 'xfs', 'f2fs', 'zfs',
+                         'bcachefs', 'jfs', 'reiserfs', 'nilfs2', 'tmpfs', 'ramfs', 'overlay', 'rootfs'}
+    candidates = []
     if mounts.exists():
-        candidates = []
         for line in mounts.read_text().splitlines():
             fields = line.split()
             if len(fields) < 3:
@@ -44,8 +47,8 @@ def linux_state_directory(value):
             mount = Path(re.sub(r'\\([0-7]{3})', lambda m: chr(int(m[1], 8)), fields[1]))
             if directory.is_relative_to(mount):
                 candidates.append((len(mount.parts), fields[2]))
-        if candidates and max(candidates)[1] in {'drvfs', '9p', 'ntfs', 'ntfs3', 'fuseblk', 'cifs', 'smb3'}:
-            raise ValueError('State must be on a local Linux filesystem.')
+    if not candidates or max(candidates)[1] not in local_filesystems:
+        raise ValueError('State must be on a supported local Linux filesystem, such as ext4.')
     if directory.exists() and (not directory.is_dir() or any(directory.iterdir())):
         raise ValueError('Fresh setup requires an empty Linux state directory.')
     return directory

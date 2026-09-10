@@ -51,8 +51,9 @@ Setup defaults to `~/.local/share/codex-nanoleaf`, creates it with owner-only
 permissions, and keeps its SQLite databases, credentials, copied runtime and
 Python virtual environment there. The selected Node executable is also copied
 into that installation, so services do not depend on the source checkout.
-`--state-dir` can choose an empty Linux directory. Mounted Windows and network
-filesystems are rejected, including resolved symlink destinations. Never place
+`--state-dir` can choose an empty directory on a supported local Linux filesystem,
+such as WSL's ext4. Mounted Windows, network and unrecognized filesystem types
+are rejected, including resolved symlink destinations. Never place
 runtime databases under `/mnt/c`.
 
 The installer replaces only entries with this integration's hook marker and

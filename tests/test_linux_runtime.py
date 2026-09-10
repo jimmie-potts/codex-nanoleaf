@@ -166,6 +166,23 @@ class MapCommandTest(unittest.TestCase):
 
 @unittest.skipUnless(sys.platform == 'linux', 'Native Linux installation')
 class LinuxInstallTest(unittest.TestCase):
+    def test_state_requires_a_supported_local_filesystem(self):
+        import install_linux
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary) / 'state'
+            for filesystem in ('nfs', 'nfs4', 'fuse.sshfs', 'ceph', 'cifs', 'unknown'):
+                mounts = f'root / ext4 rw 0 0\nserver {temporary} {filesystem} rw 0 0\n'
+                with self.subTest(filesystem=filesystem), patch.object(Path, 'read_text', return_value=mounts):
+                    with self.assertRaisesRegex(ValueError, 'local Linux filesystem'):
+                        install_linux.linux_state_directory(directory)
+            # Select the longest matching mount: a local directory can sit
+            # below a remote parent, and /tmp-other must not match /tmp.
+            mounts = (f'server / nfs4 rw 0 0\nlocal {temporary} ext4 rw 0 0\n'
+                      f'server {temporary}-other nfs4 rw 0 0\n')
+            with patch.object(Path, 'read_text', return_value=mounts):
+                self.assertEqual(install_linux.linux_state_directory(directory), directory)
+            self.assertFalse(directory.exists())
+
     def test_token_input_is_bounded_and_cannot_fall_back_to_echo(self):
         import getpass
         import install_linux
