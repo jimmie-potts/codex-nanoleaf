@@ -6,19 +6,23 @@ module.exports=async function(page,root){
  try {
  const result=await page.evaluate(async()=>{
   const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+  const frames=()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+  const until=async(predicate,message)=>{const deadline=performance.now()+5000;while(!predicate()&&performance.now()<deadline)await wait(20);if(!predicate())throw Error(message)};
   const actual=PrismAdapters.fromState(state,zoneColors),host=document.createElement('div');
   host.style.cssText='position:fixed;inset:0;background:#071019;z-index:9999';document.body.append(host);
   let callbacks=0;
   const renderer=new Prism.Renderer(host,actual,{animate:false,onFrame(){callbacks++}});
-  renderer.setActivity(actual.lines.map(line=>line.id));await wait(120);
-  const moving=callbacks;renderer.setMode('quiet');await wait(80);const quietStart=callbacks;await wait(100);const quietEnd=callbacks;
-  renderer.setMode('work');await wait(100);const resumed=callbacks;
-  renderer.pause();await wait(50);const pauseStart=callbacks;await wait(100);const pauseEnd=callbacks;renderer.resume();
-  host.remove();await wait(50);const removedStart=callbacks;await wait(100);const removedEnd=callbacks;
+  try {
+  const initial=callbacks;renderer.setActivity(actual.lines.map(line=>line.id));await until(()=>callbacks>initial,'Active visible Work never drew an animation frame');
+  const moving=callbacks;renderer.setMode('quiet');const quietStart=callbacks;await frames();const quietEnd=callbacks;
+  renderer.setMode('work');await until(()=>callbacks>quietEnd,'Work did not resume the same renderer');const resumed=callbacks;
+  renderer.pause();const pauseStart=callbacks;await frames();const pauseEnd=callbacks;renderer.resume();
+  host.remove();await frames();const removedStart=callbacks;await frames();const removedEnd=callbacks;
   const removed={destroyed:renderer.destroyed,frame:renderer.frameId};
   const invalidHost=document.createElement('div');document.body.append(invalidHost);let invalidError=false;
   try{new Prism.Renderer(invalidHost,{version:99})}catch{invalidError=true}invalidHost.remove();
   return {moving,quietStart,quietEnd,resumed,pauseStart,pauseEnd,removedStart,removedEnd,removed,invalidError};
+  } finally {renderer.destroy();host.remove();}
  });
  assert(result.moving>0,'Active visible Work draws frames');
  assert.equal(result.quietEnd,result.quietStart,'Quiet stops scheduling frames');
