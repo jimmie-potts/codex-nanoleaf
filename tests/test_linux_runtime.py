@@ -127,7 +127,8 @@ class MapCommandTest(unittest.TestCase):
             result = subprocess.run(self.command('serve'), capture_output=True, text=True, timeout=5)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(str(port), result.stderr)
-        self.assertIn('already in use', result.stderr)
+        # Windows may report access denied when a socket owns the port exclusively.
+        self.assertRegex(result.stderr, 'already in use|Cannot bind')
         self.assertFalse((self.directory / 'map-server.json').exists())
 
     def test_stale_receipt_does_not_accept_another_map_owner(self):
@@ -153,7 +154,7 @@ class MapCommandTest(unittest.TestCase):
                                     capture_output=True, text=True, timeout=5)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(str(port), result.stderr)
-        self.assertIn('already in use', result.stderr)
+        self.assertRegex(result.stderr, 'already in use|Cannot bind')
         self.assertFalse((self.directory / 'controller-server.json').exists())
         with contextlib.closing(sqlite3.connect(self.directory / 'controller-lock.sqlite')) as lock:
             lock.execute('BEGIN EXCLUSIVE')
