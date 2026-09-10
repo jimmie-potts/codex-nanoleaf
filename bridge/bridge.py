@@ -960,7 +960,7 @@ def setup(args):
     installed_script = directory / 'bridge.py'
     if Path(__file__).resolve() != installed_script.resolve():
         shutil.copytree(Path(__file__).parent / 'vendor', directory / 'vendor', dirs_exist_ok=True)
-        for name in ('project_map.py', 'wall_server.py', 'wall.html', 'tray.ps1', 'remove-modes.ps1', 'install-modes.ps1', 'backup_install.py', 'controller_state.py', 'controller_server.py', 'controller_contract.py', 'requirements-controller.txt', 'README.md'):
+        for name in ('project_map.py', 'wall_server.py', 'wall.html', 'prism.js', 'prism-adapters.js', 'prism-labels.js', 'tray.ps1', 'remove-modes.ps1', 'install-modes.ps1', 'backup_install.py', 'controller_state.py', 'controller_server.py', 'controller_contract.py', 'requirements-controller.txt', 'README.md'):
             shutil.copyfile(Path(__file__).with_name(name), directory / name)
         shutil.copyfile(__file__, installed_script)
     codex_dir.mkdir(parents=True, exist_ok=True)

@@ -82,20 +82,25 @@ returns with the scene.
 
 ## Project signatures and wall map
 
-Choose **Open wall map** from the tray. The map shows the controller's 15 physical
-Lines, with both zones drawn separately, in a neon HUD style that uses only Windows
-system fonts. It updates once a second. In Work, Lines with a task pulse on screen
-on a two-second rhythm like the lights'; Quiet shows them steady with a fainter
-halo, and Free dims the wall. A toolbar readout names the mode and counts Lines,
-tasks, blocked and question alerts, and pending edits. Lines meet at hexagonal
-connector nodes like the physical ones, and a decorative orb (neither a device nor
-a status) marks the hub where the most Lines meet. When the map opens, its
-structure unfolds outward from that orb in a two-second assembly; **Replay assembly** plays it again, and the **Playback**
-menu beside it holds two browser-local switches for playing on opening and on
-entering the map. Any click or key completes the assembly at once, reduced-motion
-settings skip it, and it never touches the lights or task state. A future view
-that navigates into the map can play it through the page's `wallAssembly.play('entry')`
-hook, which honors the view-entry switch. The
+Choose **Open wall map** from the existing launcher. The map draws the saved
+physical Lines with faceted Prism crystal tubes, separate colored zones, bright
+cores, and diffuse light around the crystal. It uses local system fonts and
+updates task state once a second. In Work, each Line carrying a task sends light
+from both connectors toward a brief center spark on a shared two-second cycle.
+Idle Lines stay steady. Quiet lowers the glow and stops travel; Free dims and
+desaturates the wall. The toolbar readout names the mode, Lines, tasks, alerts,
+and pending edits.
+
+The tubes meet the flat faces of hexagonal connectors. Opening assembly ejects
+tubes from the most-connected hub, rotates the hub with its structure, and then
+extends outward. Arriving connectors grow from the Line tips and unfold six
+permanent inner-border sections. The finished artwork uses the same components
+as the moving structure. **Replay assembly** repeats the two-second sequence.
+The **Playback** menu keeps opening and map-entry preferences separately in the
+browser. Interaction completes assembly before performing the action. Reduced
+motion skips assembly and traveling light, and a geometry change or connection
+failure ends assembly immediately. A future view can call
+`wallAssembly.play('entry')`, which honors the entry preference. The
 [wall assembly specification](../openspec/specs/wall-assembly-animation/spec.md)
 owns that behavior. The
 [wall Line identification specification](../openspec/specs/wall-line-identification/spec.md)
@@ -137,9 +142,11 @@ end. Line reservations use physical panel IDs rather than map order.
 
 The inspector shows task title, status, project, and time since the current turn
 started. Older tasks with no observed start time show "Start time unavailable."
-The on-screen pulse is an indicative status animation derived from task status
-alone; it does not replay outward waves or comets and does not mirror controller
-frames. Reduced-motion settings stop it while keeping the modes distinguishable.
+The on-screen flow indicates task status; it does not replay physical outward
+waves or comets or mirror controller frames. Its clock begins at the connectors
+after assembly. Polls, palette changes, selection, and layout rebuilds preserve
+that clock. Physical pulse and completion epochs remain unchanged. Reduced
+motion keeps static modes distinguishable.
 The [wall mode presentation specification](../openspec/specs/wall-mode-presentation/spec.md)
 owns that behavior and the readout. Use the inspector's
 project override for unresolved tasks; it changes only the bridge's assignment.
@@ -423,3 +430,39 @@ in Free mode. Restarting the map server permits a new bounded acquisition
 window. The geometry projection does not send light writes, change task epochs,
 or launch Windows helpers. Linux installation and multi-device support remain
 separate work.
+
+
+## Prism source and packaging
+
+`prism.js` owns scalable material factories, graph assembly, per-Line zone colors,
+and renderer lifecycle. `prism-adapters.js` accepts only the sanitized connector
+projection and presentation transforms. The wall keeps application operations,
+status colors, selection, and polling. Invalid connector data retains the last
+valid Prism shape; without one, the standard Line map remains available with a
+notice. Neutral luminous numbers appear for selected, highlighted, hovered or
+keyboard-focused Lines. Each reason independently keeps its number visible.
+Touch selection retains its number. **Show all numbers** reveals every number;
+**Hide idle numbers** restores conditional visibility. This display preference is
+off by default and stays in this browser. It does not send a bridge request.
+
+`prism-labels.js` places all numbers together against final screen geometry,
+regardless of which numbers are currently visible. Measured envelopes clear
+crystal bodies, selection and pending rings, connector borders and each other.
+Text stays at least 11 screen pixels with a minimum 24 by 24 pixel click target.
+A missing helper or unexpectedly unplaceable number shows a notice while Line
+controls retain their accessible physical numbers. Rotation, flips, resize and
+geometry replacement recompute placement without changing identity.
+
+All three JavaScript files ship beside `wall.html` and `wall_server.py`. Their three
+explicit `/assets/` routes retain the wall's Host and CSP checks and do not serve
+arbitrary files. The asset README documents the approved source fingerprint and
+reproducible SVG exports. The isolated packaged-server check copies these files
+and starts the foreground entry point with device and worker calls forbidden.
+This verifies source portability; installation and service setup belong to #54.
+
+The browser suite retains identity and action journeys, checks mechanical and
+flow behavior, and records desktop, compact, mobile, and high-DPI poses. Its
+frame receipt names the browser and reports 120 intervals for the actual
+15-Line layout and a 56-Line triangular-lattice fixture. These measurements
+support only those fixtures and that runner. Current UI approval belongs in the
+PR; source checks do not establish installed or physical-light acceptance.

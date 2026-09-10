@@ -26,7 +26,21 @@ const root = path.resolve(__dirname, '..');
     browser = await chromium.launch(options);
     const page = await browser.newPage({viewport: {width: 1440, height: 1000}});
     fs.mkdirSync(path.join(root, 'test-results'), {recursive: true});
-    await checks(page, new URL(url).port, root);
+    try {
+      await checks(page, new URL(url).port, root);
+      const detail=await browser.newPage({viewport:{width:1440,height:1000},deviceScaleFactor:2});
+      await detail.goto(url);await detail.waitForSelector('#wall.prism-scene');
+      await detail.waitForFunction(()=>window.wallAssembly?.snapshot()?.progress===1);
+      for(const progress of [.05,.3,.65,1]){
+        await detail.evaluate(value=>{prism.pause();prism.seek(value)},progress);
+        await detail.screenshot({path:path.join(root,`test-results/prism-hidpi-${Math.round(progress*100)}.png`),fullPage:true});
+      }
+      await detail.close();
+    }
+    catch (error) {
+      await page.screenshot({path:path.join(root,'test-results/prism-failure.png'),fullPage:true}).catch(()=>{});
+      throw error;
+    }
   } finally {
     if (browser) await browser.close();
     const stopped = new Promise(resolve => child.once('exit', resolve));
