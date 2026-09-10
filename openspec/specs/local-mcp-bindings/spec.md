@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Provide authenticated local Codex access to supported Nanoleaf controls while preserving Windows state ownership and explicit acceptance boundaries.
+Provide authenticated local Codex access to supported Nanoleaf controls while preserving the selected installation's state ownership and explicit acceptance boundaries.
 
 ## Requirements
 
@@ -20,7 +20,7 @@ The integration SHALL expose an opt-in loopback MCP host using the immutable sha
 - **AND** ordinary hooks, tray, wall editor and worker remain unaffected
 
 ### Requirement: Fixed status and mode delegation
-The tools SHALL expose only pure status and Work/Quiet/Free mode intent through the protected controller API. The host SHALL validate input and output with the released shared contract and SHALL preserve the existing Windows worker's ownership. This maps to issue #33 criteria 1 through 4.
+The tools SHALL expose only pure status and Work/Quiet/Free mode intent through the protected controller API. The host SHALL validate input and output with the released shared contract and SHALL preserve the existing designated worker's ownership. This maps to issue #33 criteria 1 through 4.
 
 #### Scenario: Pure status and exact mode request
 - **WHEN** status or discovery is requested
@@ -52,7 +52,7 @@ Each MCP principal SHALL use a distinct configured upstream controller credentia
 - **AND** a removed or downgraded principal cannot obtain control through an existing session
 
 ### Requirement: Bounded Windows and WSL transport
-Windows hosts SHALL call only the configured numeric loopback controller. WSL hosts SHALL use a bounded Windows Python helper for the same fixed routes. Neither route SHALL access the Windows database from Linux, launch a worker directly, accept arbitrary destinations or expose credentials. This maps to issue #33 criteria 5, 6 and 8.
+Direct HTTP hosts on Windows or Linux SHALL call only their configured numeric loopback controller. WSL hosts targeting a legacy Windows installation SHALL retain the bounded Windows Python helper for the same fixed routes. No MCP route SHALL open the bridge database, launch a worker directly, accept arbitrary destinations or expose credentials. This maps to issue #33 criteria 5, 6 and 8.
 
 #### Scenario: Same-machine helper exchange
 - **WHEN** a WSL host sends a valid request through the configured Windows runtime and helper
@@ -64,8 +64,12 @@ Windows hosts SHALL call only the configured numeric loopback controller. WSL ho
 - **THEN** the call settles with a bounded failure and no database access or automatic retry
 - **AND** possible effects after dispatch remain uncertain
 
+#### Scenario: Linux direct HTTP exchange
+- **WHEN** the Linux MCP host uses the direct HTTP configuration for its Linux controller
+- **THEN** it sends the same authenticated bounded controller requests over numeric loopback without launching a Windows helper
+
 ### Requirement: Immutable source qualification and acceptance boundary
-The source SHALL pin and verify the released shared package, provide Windows/WSL client templates and qualify both supported MCP versions with fake-controller protocol tests. Installation and physical acceptance SHALL remain separately authorized in #34. This maps to issue #33 criteria 7 and 8.
+The source SHALL pin and verify the released shared package, provide Windows, WSL-to-Windows and fresh Linux client templates and qualify both supported MCP versions with fake-controller protocol tests. Installation and physical acceptance SHALL remain separately authorized in #34 for legacy Windows and #55 for the Linux fresh install. This maps to issue #33 criteria 7 and 8.
 
 #### Scenario: Isolated consumer validation
 - **WHEN** the source is installed and tested without sibling repositories, personal credentials or devices

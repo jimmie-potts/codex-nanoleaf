@@ -1,6 +1,6 @@
 ## Purpose
 
-Provide authenticated local machine status and mode control for Nanoleaf while preserving its Windows worker, private state and existing task animation behavior.
+Provide authenticated local machine status and mode control for Nanoleaf while preserving its designated single worker, OS-local private state and existing task animation behavior.
 
 ## Requirements
 
@@ -44,7 +44,7 @@ The machine endpoint SHALL be opt-in, bind loopback by default, require its exac
 
 ### Requirement: Supported modes preserve existing ownership
 
-The controller SHALL advertise Work, Quiet and Free as supported modes and power, brightness, media, zones, scenes and preview as unsupported. Accepted mode requests SHALL use existing Windows state coordination and the single Windows light worker. Existing mode brightness, scene restoration, pulse timing, unread behavior, project reservations and WSL forwarding SHALL remain intact. This requirement maps to issue #28's worker-ownership and unavailable-preview criteria; the retained baseline is the [bridge guide](../../../bridge/README.md).
+The controller SHALL advertise Work, Quiet and Free as supported modes and power, brightness, media, zones, scenes and preview as unsupported. Accepted mode requests SHALL use the installation's existing state coordination and single light worker on its owning operating system. Existing mode brightness, scene restoration, pulse timing, unread behavior, project reservations SHALL remain intact; legacy Windows installations SHALL retain their WSL forwarding boundary. This requirement maps to issue #28's worker-ownership and unavailable-preview criteria; the retained baseline is the [bridge guide](../../../bridge/README.md).
 
 #### Scenario: A client requests Quiet
 
@@ -58,8 +58,13 @@ The controller SHALL advertise Work, Quiet and Free as supported modes and power
 
 #### Scenario: Installed WSL command dispatch
 
-- **WHEN** an installed WSL controller command is invoked
+- **WHEN** a WSL controller command targets the legacy Windows installation
 - **THEN** it forwards to Windows before opening controller state, or fails without state changes when Windows is unavailable
+
+#### Scenario: Linux-owned controller command
+
+- **WHEN** a controller command targets the fresh Linux installation
+- **THEN** it uses only that installation's Linux state and worker without Windows forwarding
 
 ### Requirement: Read-only snapshot and resynchronization
 
