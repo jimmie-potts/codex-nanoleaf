@@ -535,6 +535,7 @@ function zoneColors(line){
 }
 function drawWall(){
   if(!window.Prism||!window.PrismAdapters||!state?.lines.length){
+    prismError=state?.lines.length&&(!window.Prism||!window.PrismAdapters)?'Prism artwork unavailable. Showing standard Lines. Repair the app installation to restore the crystal artwork.':'';
     if(prism){prism.destroy();prism=null;prismGeometryKey='';$('wallHost').innerHTML='<svg id="wall" role="group" aria-label="Nanoleaf wall map"></svg>'}
     return drawStandardWall();
   }

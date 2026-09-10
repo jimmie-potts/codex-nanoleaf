@@ -5,7 +5,7 @@ Open the wall map with a brief mechanical assembly from crystal hexagonal connec
 
 ## Requirements
 
-### Requirement: Orb and assembly sequence
+### Requirement: Connector and assembly sequence
 
 The wall SHALL draw a crystal hexagonal connector at the most-connected hub, breaking ties by distance to other junctions, then the layout center and stable identity. Every other reported housing SHALL use the same connector component and SHALL never intercept selection. After first valid geometry, the map SHALL assemble in about two seconds. Hub-connected Lines SHALL start together, eject at full thickness and rotate with the hub into position, followed by outward deployment. Arriving connectors SHALL grow from the Line tip and unfold six permanent inner-border sections in either direction. Disconnected components SHALL assemble independently and cycle-closing Lines SHALL finish at exact endpoints. Temporary center shutters SHALL clear, with no triangle-to-border replacement or thin white completion flash. Numbers SHALL appear last. Covers issue #53 AC2 and retained issue #38 criteria 1–3.
 

@@ -212,6 +212,29 @@ module.exports = async function prismCoverageChecks(page) {
     } finally {await context.close();}
   });
 
+  await check('missing packaged artwork gives a visible notice and a usable standard map', async () => {
+    for (const asset of ['prism.js', 'prism-adapters.js']) {
+      const context = await page.context().browser().newContext();
+      const fallback = await context.newPage();
+      const writes = [];
+      fallback.on('request', request => {if (request.method() !== 'GET') writes.push(request.url());});
+      await fallback.addInitScript(() => localStorage.setItem('wall.assembly.opening', '0'));
+      await fallback.route('**/assets/' + asset, request => request.fulfill({status: 404, body: 'Missing'}));
+      try {
+        await fallback.goto(page.url());
+        await fallback.waitForSelector('#wall .wall-line');
+        assert.equal(await fallback.locator('#wall.prism-scene').count(), 0);
+        assert.equal(await fallback.locator('#wall .wall-line').count(), 15);
+        assert.equal(await fallback.locator('#notice').isVisible(), true);
+        assert.match(await fallback.locator('#notice').textContent(), /Prism artwork unavailable.*Showing standard Lines/i);
+        const control = fallback.locator('#wall .wall-line').first();
+        await control.press('Enter');
+        assert.equal(await control.getAttribute('aria-pressed'), 'true');
+        assert.deepEqual(writes, [], 'Missing-asset fallback selection stays local');
+      } finally {await context.close();}
+    }
+  });
+
   await check('document and host visibility pause in place; repeated renderers release every acquired resource', async () => {
     const visibility = await page.evaluate(async () => {
       const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
