@@ -24,7 +24,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Controller contract verification failed.' }
 if (Test-Path (Join-Path $destination 'vendor')) { Copy-Item -Recurse (Join-Path $destination 'vendor') (Join-Path $backup 'vendor') }
 Copy-Item -Recurse -Force $vendor $destination
 # Copy dependencies first so a hook arriving during the upgrade can import them.
-foreach ($name in @('tray-icon.ico', 'tray-icon.ps1', 'controller_state.py', 'controller_contract.py', 'controller_server.py', 'requirements-controller.txt', 'project_map.py', 'wall_server.py', 'wall.html', 'prism.js', 'prism-adapters.js', 'bridge.py', 'tray.ps1', 'remove-modes.ps1', 'backup_install.py', 'install-modes.ps1', 'README.md')) {
+foreach ($name in @('tray-icon.ico', 'tray-icon.ps1', 'controller_state.py', 'controller_contract.py', 'controller_server.py', 'requirements-controller.txt', 'project_map.py', 'wall_server.py', 'wall.html', 'prism.js', 'prism-adapters.js', 'prism-labels.js', 'bridge.py', 'tray.ps1', 'remove-modes.ps1', 'backup_install.py', 'install-modes.ps1', 'README.md')) {
     if (Test-Path (Join-Path $destination $name)) { Copy-Item (Join-Path $destination $name) $backup }
     Copy-Item (Join-Path $PSScriptRoot $name) (Join-Path $destination ($name + '.new'))
     Move-Item -Force (Join-Path $destination ($name + '.new')) (Join-Path $destination $name)

@@ -196,6 +196,8 @@ module.exports = async function(page, root) {
 
     await wallLine(11).click();
     snapshot.pending = {lines: {[line(8).id]: {project: 'a'}}, tasks: {}, settings: {}}; await refresh();
+    if (await page.locator('#showNumbers').getAttribute('aria-pressed') !== 'true') await page.locator('#showNumbers').click();
+    assert.equal(await page.locator('#showNumbers').getAttribute('aria-pressed'), 'true', 'The browser-local control exposes every number for identification checks');
     for (const [name, width, height] of [['desktop', 1440, 1000], ['compact', 800, 1000], ['mobile', 390, 844]]) {
       await page.setViewportSize({width, height});
       await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));

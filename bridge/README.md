@@ -439,10 +439,21 @@ and renderer lifecycle. `prism-adapters.js` accepts only the sanitized connector
 projection and presentation transforms. The wall keeps application operations,
 status colors, selection, and polling. Invalid connector data retains the last
 valid Prism shape; without one, the standard Line map remains available with a
-notice. Number identification stays available while issue #26 adds conditional
-luminous labels and neighbour clearance.
+notice. Neutral luminous numbers appear for selected, highlighted, hovered or
+keyboard-focused Lines. Each reason independently keeps its number visible.
+Touch selection retains its number. **Show all numbers** reveals every number;
+**Hide idle numbers** restores conditional visibility. This display preference is
+off by default and stays in this browser. It does not send a bridge request.
 
-Both JavaScript files ship beside `wall.html` and `wall_server.py`. Their two
+`prism-labels.js` places all numbers together against final screen geometry,
+regardless of which numbers are currently visible. Measured envelopes clear
+crystal bodies, selection and pending rings, connector borders and each other.
+Text stays at least 11 screen pixels with a minimum 24 by 24 pixel click target.
+A missing helper or unexpectedly unplaceable number shows a notice while Line
+controls retain their accessible physical numbers. Rotation, flips, resize and
+geometry replacement recompute placement without changing identity.
+
+All three JavaScript files ship beside `wall.html` and `wall_server.py`. Their three
 explicit `/assets/` routes retain the wall's Host and CSP checks and do not serve
 arbitrary files. The asset README documents the approved source fingerprint and
 reproducible SVG exports. The isolated packaged-server check copies these files

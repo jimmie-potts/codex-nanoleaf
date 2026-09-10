@@ -22,7 +22,7 @@ class PrismAssetTest(unittest.TestCase):
         self.server.shutdown();self.server.server_close();self.thread.join()
 
     def test_packaged_components_are_local_and_protected(self):
-        for name in ('prism.js','prism-adapters.js'):
+        for name in ('prism.js','prism-adapters.js','prism-labels.js'):
             with self.subTest(name=name),urlopen(self.url+'/assets/'+name) as response:
                 self.assertEqual(response.status,200)
                 self.assertEqual(response.headers.get_content_type(),'text/javascript')
@@ -61,7 +61,7 @@ class PrismAssetTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             package=Path(temporary)/'package';package.mkdir()
             state=Path(temporary)/'state';state.mkdir()
-            for name in ('bridge.py','project_map.py','wall_server.py','controller_state.py','controller_contract.py','wall.html','prism.js','prism-adapters.js'):
+            for name in ('bridge.py','project_map.py','wall_server.py','controller_state.py','controller_contract.py','wall.html','prism.js','prism-adapters.js','prism-labels.js'):
                 shutil.copy2(source/name,package/name)
             (state/'config.json').write_text(json.dumps({'ip':'192.0.2.1','token':'PRIVATE_PACKAGE_TOKEN'}))
             (state/'layout.json').write_text(json.dumps({'line_groups':groups,'line_positions':[[i,0] for i in range(15)],'zone_geometry':{'positionData':raw['layout']['positionData'],'orientation':raw['globalOrientation']['value']}}))
@@ -76,7 +76,7 @@ class PrismAssetTest(unittest.TestCase):
                     payload=response.read();status=json.loads(payload)
                 self.assertEqual(len(status['connector_layout']['lines']),15)
                 self.assertNotIn(b'PRIVATE_PACKAGE_TOKEN',payload)
-                for name in ('prism.js','prism-adapters.js'):
+                for name in ('prism.js','prism-adapters.js','prism-labels.js'):
                     with urlopen(address+'/assets/'+name,timeout=3) as response:
                         self.assertEqual(response.headers.get_content_type(),'text/javascript')
                         self.assertEqual(response.read(),(package/name).read_bytes())
