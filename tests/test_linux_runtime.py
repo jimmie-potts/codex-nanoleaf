@@ -74,6 +74,8 @@ class MapCommandTest(unittest.TestCase):
         b.write_json(self.directory / 'layout.json', {
             'line_groups': [[100, 101]], 'line_positions': [[0, 0]],
             'zone_geometry': {'orientation': 0, 'positionData': [
+                {'panelId': 98, 'x': 0, 'y': -5, 'o': 0, 'shapeType': 16},
+                {'panelId': 99, 'x': 0, 'y': 15, 'o': 0, 'shapeType': 16},
                 {'panelId': 100, 'x': 0, 'y': 0, 'o': 0, 'shapeType': 18},
                 {'panelId': 101, 'x': 0, 'y': 10, 'o': 0, 'shapeType': 18}]}})
 
@@ -209,6 +211,7 @@ class LinuxInstallTest(unittest.TestCase):
             self.assertEqual(config['controller_port'], 41231)
             self.assertEqual(config['mcp_port'], 41230)
             self.assertEqual(len(config['line_groups']), 15)
+            self.assertIsNotNone(b.wall.connector_layout(config))
             self.assertEqual(directory.stat().st_mode & 0o777, 0o700)
             for name in ('config.json', 'layout.json', 'status.sqlite'):
                 self.assertEqual((directory / name).stat().st_mode & 0o777, 0o600)

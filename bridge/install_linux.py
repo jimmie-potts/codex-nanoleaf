@@ -147,6 +147,12 @@ def prepare_state(directory, ip, token, *, wall_port=8765, controller_port=41231
         'zone_geometry': {'orientation': layout['globalOrientation']['value'],
                           'positionData': [p for p in zones.values() if p['shapeType'] == 18]},
     }
+    try:
+        saved['connector_geometry'], _ = b.wall.validated_connector_geometry({
+            'orientation': layout['globalOrientation']['value'],
+            'positionData': layout['layout']['positionData']}, groups)
+    except (ValueError, TypeError, KeyError, OverflowError):
+        pass  # Retain the existing standard-Line fallback for unsupported housings.
     config.update(wall_port=wall_port, controller_port=controller_port, mcp_port=mcp_port)
     for name, value in [('desktop_state_path', desktop_state_path),
                         ('metadata_path', metadata_path or desktop_state_path),
