@@ -36,10 +36,26 @@ module.exports = async function(page, root) {
     await page.waitForFunction(value => state.mode === value && document.body.dataset.mode === value, mode);
     await settle();
   };
-  const waitForPhase = (min, max) => page.waitForFunction(([low, high]) => {
-    const value = window.wallAssembly?.snapshot?.().lightPhase;
-    return Number.isFinite(value) && value >= low && value <= high;
-  }, [min, max], {timeout: 4500});
+  const waitForPhase = async (min, max, lineId = null) => {
+    const handle = await page.waitForFunction(([low, high, id]) => {
+      const value = window.wallAssembly?.snapshot?.().lightPhase;
+      if (!Number.isFinite(value) || value < low || value > high) return false;
+      // Capture the painted attributes in the same browser turn as the phase.
+      // A second browser call can arrive several frames later on a slow runner.
+      const edge = id === null ? null : document.querySelector(`#wall [data-edge][data-line-id="${id}"]`);
+      return {
+        phase: value,
+        packets: edge ? [...edge.querySelectorAll('[data-part="zone-core"] [data-packet]')].map(node => ({
+          zone: +node.dataset.zone,
+          x: +(/translate\(([-\d.]+)/.exec(node.getAttribute('transform')) || [0, NaN])[1],
+          opacity: +getComputedStyle(node).opacity,
+        })) : [],
+        spark: edge ? +getComputedStyle(edge.querySelector('[data-spark]')).opacity : 0,
+      };
+    }, [min, max, lineId], {timeout: 10000});
+    try { return await handle.jsonValue(); }
+    finally { await handle.dispose(); }
+  };
   const circularError = (actual, expected) => {
     const raw = Math.abs(actual - expected) % 1;
     return Math.min(raw, 1 - raw);
@@ -69,6 +85,8 @@ module.exports = async function(page, root) {
   });
 
   await page.setViewportSize({width: 1440, height: 1000});
+  await page.locator('#wall').scrollIntoViewIfNeeded();
+  await page.waitForFunction(() => window.wallAssembly?.snapshot?.().pauseReasons.length === 0);
 
   await check('Prism integration is visible and exposes the accepted snapshot bridge', async () => {
     assert.equal(await page.locator('#wall.prism-scene').count(), 1, 'The live wall is the Prism scene');
@@ -86,18 +104,8 @@ module.exports = async function(page, root) {
   await check('Work sends two colored packets inward and meets at the center every two seconds', async () => {
     const activeId = (await snapshot()).activity[0];
     const edge = `#wall [data-edge][data-line-id="${activeId}"]`;
-    await waitForPhase(.08, .16);
-    const early = await page.locator(`${edge} [data-part="zone-core"] [data-packet]`).evaluateAll(nodes => nodes.map(node => ({
-      zone: +node.dataset.zone,
-      x: +(/translate\(([-\d.]+)/.exec(node.getAttribute('transform')) || [0, NaN])[1],
-      opacity: +getComputedStyle(node).opacity,
-    })));
-    await waitForPhase(.42, .50);
-    const late = await page.locator(`${edge} [data-part="zone-core"] [data-packet]`).evaluateAll(nodes => nodes.map(node => ({
-      zone: +node.dataset.zone,
-      x: +(/translate\(([-\d.]+)/.exec(node.getAttribute('transform')) || [0, NaN])[1],
-      opacity: +getComputedStyle(node).opacity,
-    })));
+    const early = (await waitForPhase(.08, .16, activeId)).packets;
+    const late = (await waitForPhase(.42, .50, activeId)).packets;
     assert.deepEqual(early.map(item => item.zone), [0, 1], 'Packets preserve physical zone order');
     assert.ok(early.every(item => item.opacity > .8) && late.every(item => item.opacity > .8), 'Both zone packets are visibly traveling');
     assert.ok(early[0].x < late[0].x && early[0].x < 0, 'Zone 0 travels from its connector toward the center');
@@ -116,8 +124,7 @@ module.exports = async function(page, root) {
       return getComputedStyle(solid).fill;
     }));
     assert.equal(fills.length, 2, 'The tube exposes two independently paintable halves');
-    await waitForPhase(.64, .70);
-    assert.ok(await page.locator(`${edge} [data-spark]`).evaluate(node => +getComputedStyle(node).opacity) > .02,
+    assert.ok((await waitForPhase(.64, .70, activeId)).spark > .02,
       'A visible spark marks the inward packets meeting at the center');
     const idleId = await page.evaluate(id => wallAssembly.snapshot().activity.includes(id)
       ? [...document.querySelectorAll('#wall [data-edge]')].map(node => node.dataset.lineId).find(value => !wallAssembly.snapshot().activity.includes(value))
@@ -151,6 +158,7 @@ module.exports = async function(page, root) {
 
   await check('Quiet is steady and lower; Free is dim, desaturated, and released', async () => {
     const work = await firstBedOpacity();
+    await waitForPhase(.22, .58);
     await setMode('quiet');
     const quietStart = (await snapshot()).lightPhase;
     await page.waitForTimeout(220);
@@ -170,9 +178,31 @@ module.exports = async function(page, root) {
     assert.match(await page.locator('#readout').textContent(), /released/i, 'The readout says lights are released in Free');
     assert.equal(await page.locator('#locate').isDisabled(), true, 'Locate is disabled in Free');
 
-    await setMode('work');
-    await page.waitForTimeout(120);
-    assert.ok(circularError((await snapshot()).lightPhase, quietStart) < .12, 'Returning to Work resumes near the preserved phase');
+    const resumed = await page.evaluate(async () => {
+      const renderer = prism, original = renderer.setMode;
+      let transition;
+      // Observe the actual API-driven transition, before waiting for rendering.
+      renderer.setMode = function(mode) {
+        const previous = this.snapshot().mode, now = performance.now();
+        const result = original.call(this, mode);
+        if (previous === 'free' && mode === 'work') transition = {now, phase: this.snapshot().lightPhase};
+        return result;
+      };
+      try { await action('/api/mode', {mode: 'work'}); return transition; }
+      finally { renderer.setMode = original; }
+    });
+    assert.ok(resumed, 'The mode action reaches the renderer');
+    assert.equal(resumed.phase, quietStart, 'Returning to Work retains the exact frozen phase');
+    // Deliberately wait beyond the old 240 ms allowance. Slow rendering is
+    // legitimate elapsed Work time, not a reason to permit a phase reset.
+    await page.waitForTimeout(520);
+    const after = await page.evaluate(() => {
+      const now = performance.now(); prism.light(now);
+      return {now, phase: wallAssembly.snapshot().lightPhase};
+    });
+    const expected = (resumed.phase + (after.now - resumed.now) / 2000) % 1;
+    assert.ok(circularError(after.phase, expected) <= .025,
+      `Resumed Work preserves the 50 ms flow boundary (expected ${expected.toFixed(3)}, got ${after.phase.toFixed(3)})`);
   });
 
   await check('reduced motion removes assembly and flow while preserving static mode hierarchy and Locate feedback', async () => {
