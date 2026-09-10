@@ -10,7 +10,7 @@
  const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  const color=s=>typeof s==='string'&&/^#[0-9a-f]{6}$/i.test(s)?s:null;
  const pale=s=>'#'+s.slice(1).match(/../g).map(c=>Math.round(parseInt(c,16)*.16+255*.84).toString(16).padStart(2,'0')).join('');
- const attr=(el,key,val)=>el.setAttribute(key,String(val));
+ const attr=(el,key,val)=>{const text=String(val);if(el.getAttribute(key)!==text)el.setAttribute(key,text)};
  const median=values=>{const a=[...values].sort((a,b)=>a-b);return a[Math.floor(a.length/2)]};
  const mod=(a,b)=>((a%b)+b)%b;
  const delta60=a=>mod(a+30,60)-30;
@@ -114,6 +114,8 @@
    this.build();this.render(performance.now());this.schedule();return this;
   }
   build(){
+   this.inputAbort?.abort();this.inputAbort=new AbortController();
+   const listen=(node,type,callback)=>node.addEventListener(type,callback,{signal:this.inputAbort.signal});
    const p=this.p,{nodes,lines,roots}=this.layout,xs=nodes.map(n=>n.x),ys=nodes.map(n=>n.y),margin=95;let x=Math.min(...xs)-margin,y=Math.min(...ys)-margin,w=Math.max(...xs)-x+margin,h=Math.max(...ys)-y+margin;
    for(const root of roots){const n=nodes[root],members=nodes.filter(a=>a.root===root),reach=Math.max(...members.map(a=>Math.hypot(a.x-n.x,a.y-n.y)));x=Math.min(x,n.x-reach*.28-margin);y=Math.min(y,n.y-reach*.28-margin)}
    w=Math.max(...xs)+margin-x;h=Math.max(...ys)+margin-y;this.bounds=[x,y,w,h];
@@ -127,10 +129,10 @@
    this.packets=[...this.svg.querySelectorAll('[data-packet]')];this.beds=[...this.svg.querySelectorAll('[data-bed]')];this.spills=[...this.svg.querySelectorAll('[data-spill]')];this.sparks=[...this.svg.querySelectorAll('[data-spark]')];this.materialLayers=[...this.svg.querySelectorAll('[data-layer="lines"]')];this.rims=nodes.map(n=>[...this.parts.orient[n.index].querySelectorAll('[data-rim]')]);
    for(const line of lines){
     const control=this.parts.control[line.index],label=this.parts.label[line.index],finishOnPress=()=>{if(this.progress<1)this.finish('interaction')},activate=event=>{if(this.progress<1)this.finish('interaction');this.options.onSelect?.(event,line)};
-    control.addEventListener('pointerdown',finishOnPress);label.addEventListener('pointerdown',finishOnPress);control.addEventListener('click',activate);label.addEventListener('click',activate);
-    control.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();activate(event)}});
-    control.addEventListener('pointerenter',()=>{this.hovered.add(line.id);this.updateInteraction()});control.addEventListener('pointerleave',()=>{this.hovered.delete(line.id);this.updateInteraction()});
-    control.addEventListener('focus',()=>{this.focused.add(line.id);this.updateInteraction()});control.addEventListener('blur',()=>{this.focused.delete(line.id);this.updateInteraction()});this.paint(line);
+    listen(control,'pointerdown',finishOnPress);listen(label,'pointerdown',finishOnPress);listen(control,'click',activate);listen(label,'click',activate);
+    listen(control,'keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();activate(event)}});
+    listen(control,'pointerenter',()=>{this.hovered.add(line.id);this.updateInteraction()});listen(control,'pointerleave',()=>{this.hovered.delete(line.id);this.updateInteraction()});
+    listen(control,'focus',()=>{this.focused.add(line.id);this.updateInteraction()});listen(control,'blur',()=>{this.focused.delete(line.id);this.updateInteraction()});this.paint(line);
    }
    const restore=[...this.focused][0];if(restore)this.parts.control[this.layout.lines.find(line=>line.id===restore)?.index]?.focus({preventScroll:true});
   }
@@ -176,10 +178,10 @@
    this.svg.dataset.prismMode=this.mode;this.svg.dataset.reducedMotion=String(this.reduced.matches);
   }
   _needsFrame(){return !this.destroyed&&this.layout&&this.pauseReasons.size===0&&!this.reduced.matches&&(this.playing||this.progress>=1&&this.mode==='work'&&this.activity.size>0)}
-  schedule(){if(!this._needsFrame()||this.frameId)return;this.frameId=requestAnimationFrame(now=>{this.frameId=0;if(this.playing){const dt=this.assemblyLast===null?0:Math.max(0,(now-this.assemblyLast)/1000);this.assemblyLast=now;this.progress=clamp(this.progress+dt*this.speed/this.layout.duration);if(this.progress>=1){this.progress=1;this.playing=false;this.assemblyLast=null;this._establishFlowPhase()}this.render(now)}else{this.light(now);this.options.onFrame?.(this.snapshot())}this.schedule()})}
+  schedule(){if(!this._needsFrame()){cancelAnimationFrame(this.frameId);this.frameId=0;return}if(this.frameId)return;this.frameId=requestAnimationFrame(now=>{this.frameId=0;if(this.playing){const dt=this.assemblyLast===null?0:Math.max(0,(now-this.assemblyLast)/1000);this.assemblyLast=now;this.progress=clamp(this.progress+dt*this.speed/this.layout.duration);if(this.progress>=1){this.progress=1;this.playing=false;this.assemblyLast=null;this._establishFlowPhase()}this.render(now)}else{this.light(now);this.options.onFrame?.(this.snapshot())}this.schedule()})}
   snapshot(){const ordered=set=>this.layout.lines.filter(line=>set.has(line.id)).map(line=>line.id);return {progress:this.progress,playing:this.playing,lightPhase:this.lightPhase,selected:ordered(this.selection),highlighted:ordered(this.highlighted),activity:ordered(this.activity),pending:ordered(this.pending),mode:this.mode,pauseReasons:[...this.pauseReasons].sort(),lines:this.layout.lines.length,connectors:this.layout.nodes.length,components:this.layout.roots.length,rootIds:[...this.layout.rootIds],loops:this.layout.lines.filter(l=>!l.tree).length,reducedMotion:this.reduced.matches}}
   exportSVG({numbers=false}={}){const copy=this.svg.cloneNode(true);copy.querySelectorAll('[data-hit],[data-selection],[data-highlight-ring],[data-pending-ring]').forEach(element=>element.remove());if(!numbers)copy.querySelector('[data-layer="numbers"]')?.remove();copy.querySelectorAll('[tabindex],[role="button"]').forEach(element=>{element.removeAttribute('tabindex');element.removeAttribute('role');element.removeAttribute('aria-pressed')});return new XMLSerializer().serializeToString(copy)}
-  destroy(){if(this.destroyed)return;this.destroyed=true;this.visibilityObserver?.disconnect();this.removalObserver?.disconnect();cancelAnimationFrame(this.frameId);this.frameId=0;document.removeEventListener('visibilitychange',this._hidden);this.reduced.removeEventListener('change',this._reduce);this.host.replaceChildren()}
+  destroy(){if(this.destroyed)return;this.destroyed=true;this.inputAbort?.abort();this.visibilityObserver?.disconnect();this.removalObserver?.disconnect();cancelAnimationFrame(this.frameId);this.frameId=0;document.removeEventListener('visibilitychange',this._hidden);this.reduced.removeEventListener('change',this._reduce);this.host.replaceChildren()}
  }
  global.Prism={Renderer,validate,materials:{defs,beamDefs,tube,shell,front,connector,rimPiece,numeral},constants:{connectorRadius:R,innerRadius:INNER,faceDistance:D,tubeLength:256,tubeWidth:32,assemblySeconds:ASSEMBLY_SECONDS,flowSeconds:FLOW_SECONDS},utils:{esc,hex,rad,deg,point}};
 })(window);

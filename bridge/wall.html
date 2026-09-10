@@ -293,6 +293,7 @@
   }
 }
 /* Prism keeps its crystal material separate from the stable input regions. */
+body[data-mode="quiet"] #wall.prism-scene, body[data-mode="free"] #wall.prism-scene { --selection-anim: none; }
 #wall.prism-scene .wall-line .outline { stroke: var(--focus); stroke-width: 2; pointer-events: none; }
 #wall.prism-scene .wall-line.selected .outline { stroke: var(--selection); }
 #wall.prism-scene .wall-line:focus-visible:not(.selected) .outline { stroke: var(--focus); stroke-width: 2; }
@@ -558,21 +559,34 @@ function drawWall(){
   prism.setLineMetadata(Object.fromEntries(state.lines.filter(line=>available.has(line.id)).map(line=>[line.id,{ariaLabel:`Line ${line.number} · ${lineDescription(line)}`,status:lineTask(line)?.status||null}])));
   sizeLineNumbers();
 }
+let prismNumberLayoutKey='';
 function sizePrismNumbers(){
   const matrix=prism.svg.getScreenCTM();if(!matrix)return;
   const scale=Math.hypot(matrix.a,matrix.b);if(!scale)return;
-  const size=Math.max(11,parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--number-size'))||12)/scale;
-  for(const line of prism.layout.lines){
+  const pixels=Math.max(11,parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--number-size'))||12),size=pixels/scale;
+  const canvas=prism.host.getBoundingClientRect(),key=JSON.stringify([prism.p,prismGeometryKey,scale,canvas.width,canvas.height,pixels]);
+  if(key===prismNumberLayoutKey)return;prismNumberLayoutKey=key;
+  const placed=[],center={x:(Math.min(...prism.layout.nodes.map(n=>n.x))+Math.max(...prism.layout.nodes.map(n=>n.x)))/2,y:(Math.min(...prism.layout.nodes.map(n=>n.y))+Math.max(...prism.layout.nodes.map(n=>n.y)))/2};
+  for(const line of [...prism.layout.lines].sort((a,b)=>a.number-b.number)){
     const tag=prism.parts.label[line.index],mark=tag.querySelector('[data-part="luminous-numeral"]');
     mark.style.fontSize=size+'px';
     for(const text of tag.querySelectorAll('text')){text.style.fontSize=size+'px';text.textContent=line.number}
-    const anchor=prism._labelAnchor(line),width=tag.querySelector('.number').getComputedTextLength(),height=size*1.2;
-    const offset=21+Math.abs(anchor.nx)*width/2+Math.abs(anchor.ny)*height/2+4/scale;
-    prism.labelTransforms.set(line.id,`translate(${anchor.x+anchor.nx*offset} ${anchor.y+anchor.ny*offset})`);
+    const anchor=prism._labelAnchor(line),box=tag.querySelector('.number').getBBox(),width=box.width*scale+4,height=box.height*scale+4;
+    if(anchor.nx*(anchor.x-center.x)+anchor.ny*(anchor.y-center.y)<0){anchor.nx=-anchor.nx;anchor.ny=-anchor.ny}
+    const offset=21*scale+Math.abs(anchor.nx)*width/2+Math.abs(anchor.ny)*height/2+4;
+    const midpoint=new DOMPoint(anchor.x,anchor.y).matrixTransform(matrix),candidates=[];
+    for(const extra of [0,6,12,20,30,42,56])for(const side of [1,-1])for(const shift of [0,12,-12,24,-24]){
+      const x=midpoint.x+anchor.nx*side*(offset+extra)-anchor.ny*shift,y=midpoint.y+anchor.ny*side*(offset+extra)+anchor.nx*shift;
+      const rect={left:x-width/2,right:x+width/2,top:y-height/2,bottom:y+height/2};
+      if(rect.left>=canvas.left+3&&rect.right<=canvas.right-3&&rect.top>=canvas.top+3&&rect.bottom<=canvas.bottom-3&&!placed.some(other=>rect.left<other.right+3&&other.left<rect.right+3&&rect.top<other.bottom+3&&other.top<rect.bottom+3))candidates.push({x,y,rect});
+    }
+    const choice=candidates[0]||{x:midpoint.x+anchor.nx*offset,y:midpoint.y+anchor.ny*offset};
+    if(choice.rect)placed.push(choice.rect);
+    const point=new DOMPoint(choice.x,choice.y).matrixTransform(matrix.inverse());
+    prism.labelTransforms.set(line.id,`translate(${point.x} ${point.y})`);
   }
   prism.positionLabels();
 }
-
 /* Opening assembly: the structure unfolds outward from the orb. Presentation only; it never writes. */
 const assembly={active:false,hold:false,animations:[],key:'',seen:false};
 const assemblyPrefs={opening:'wall.assembly.opening',entry:'wall.assembly.entry'};

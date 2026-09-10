@@ -46,10 +46,10 @@ module.exports = async function(page, root) {
   };
   const phaseAcross = async (label, action) => {
     await waitForPhase(.22, .58);
-    const before = await page.evaluate(() => ({phase: wallAssembly.snapshot().lightPhase, now: performance.now()}));
+    const before = await page.evaluate(() => {prism.light(performance.now());return {phase: wallAssembly.snapshot().lightPhase, now: performance.now()}});
     await action();
     await page.waitForTimeout(140);
-    const after = await page.evaluate(() => ({phase: wallAssembly.snapshot().lightPhase, now: performance.now()}));
+    const after = await page.evaluate(() => {prism.light(performance.now());return {phase: wallAssembly.snapshot().lightPhase, now: performance.now()}});
     const expected = (before.phase + (after.now - before.now) / 2000) % 1;
     assert.ok(circularError(after.phase, expected) <= .025,
       `${label} preserves the shared 2 s flow clock (expected ${expected.toFixed(3)}, got ${after.phase.toFixed(3)})`);
@@ -176,6 +176,7 @@ module.exports = async function(page, root) {
   });
 
   await check('reduced motion removes assembly and flow while preserving static mode hierarchy and Locate feedback', async () => {
+    await setMode('work');
     await page.emulateMedia({reducedMotion: 'reduce'});
     try {
       await page.locator('#replay').click(); await settle();
