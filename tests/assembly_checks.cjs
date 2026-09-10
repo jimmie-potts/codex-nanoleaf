@@ -77,12 +77,14 @@ module.exports = async function(page, root) {
     try {
       localStorage.removeItem('wall.assembly.opening');
       localStorage.removeItem('wall.assembly.entry');
+      localStorage.setItem('wall.numbers.showAll', '1');
     } catch {}
   });
 
   await check('first load is a two-second mechanical assembly rooted with its beams', async () => {
     await page.reload();
     await page.waitForSelector('#wall.prism-scene .wall-line[data-line]');
+    assert.equal(await page.locator('#showNumbers').getAttribute('aria-pressed'), 'true', 'Assembly checks explicitly enable all browser-local numbers');
     assert.equal(await page.evaluate(() => typeof window.wallAssembly?.snapshot), 'function', 'snapshot bridge exists');
     await waitProgress(.20, .46);
     const middle = await page.evaluate(() => {
