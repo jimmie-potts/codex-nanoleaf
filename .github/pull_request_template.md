@@ -47,3 +47,9 @@ proof of installation or a physical-device update.
 - [ ] Linked the coordinated hub guide PR and recorded its synchronization status.
 - [ ] Updated affected facts or recorded a specific no-impact reason in the hub maintenance history.
 - [ ] Recorded guide validation and any pending post-merge reconciliation.
+
+- Source/tracker completion and revision:
+- Guide-source synchronization, Hub companion and revision:
+- Public publication PR and revision, or pending/not applicable reason:
+- Live deployment, required URLs and served-hash verification:
+- Pending stage owner and next action:
