@@ -26,6 +26,9 @@ class App:
         self.geometry_retry=time.monotonic()+10
         self.geometry_attempts=0
         self.layout_generation=self.config.get('_connector_source')
+        with contextlib.closing(self.b.connect_state(directory)) as db:
+            resume_shared = self.b.shared_input.selected(db)
+        if resume_shared: self.launch(directory)
 
     def state(self):
         with self.lock:
@@ -38,9 +41,11 @@ class App:
                 if ensure_geometry(self.directory,self.b,self.config,refresh=stale):
                     self.layout_generation=self.config.get('_connector_source')
                 connectors=wall.connector_layout(self.config)
-            self.metadata.refresh()
+            with contextlib.closing(self.b.connect_state(self.directory)) as check:
+                shared = self.b.shared_input.selected(check)
+            if not shared: self.metadata.refresh()
             with contextlib.closing(self.b.connect_state(self.directory)) as db,db:
-                changed=self.metadata.sync(db)
+                changed=False if self.b.shared_input.selected(db) else self.metadata.sync(db)
                 if changed: self.b.mark_dirty(db)
                 prefs=wall.owners(db,self.config); projects=[]
                 memberships=wall.task_projects(db); slots=dict(db.execute('SELECT session,slot FROM slots'))

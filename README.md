@@ -82,7 +82,7 @@ Credentials, hook configuration, live databases, task metadata, scene preference
 ## Shared monitoring direction
 
 [The hub integration plan](docs/hub-integration.md) records shared contracts,
-an opt-in session consumer and a future unified overview. Shared monitoring remains separate from the Linux runtime port. Source changes
+the [shared session consumer](docs/shared-input.md) and a future unified overview. Shared monitoring remains separate from the Linux runtime port. Source changes
 do not update the current installation. GitHub issues own the migration prerequisites.
 
 The optional [local MCP host](docs/local-mcp.md) supports Windows and WSL through the protected controller. Source delivery and separately authorized installed-client/light acceptance remain distinct.

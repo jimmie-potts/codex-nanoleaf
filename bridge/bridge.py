@@ -19,6 +19,7 @@ import urllib.request
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import project_map as wall
+import shared_input
 
 EVENTS = ('UserPromptSubmit', 'PreToolUse', 'PermissionRequest',
           'PostToolUse', 'Stop', 'Interrupt', 'SessionEnd')
@@ -258,8 +259,11 @@ def reconcile_read_state(db, unread, instant):
 
 def zone_color(config, snapshot, index, half, instant, delays):
     quiet = config.get('_mode') == 'quiet'
+    suppressed = set(config.get('_steady_slots', ())) | set(config.get('_wave_suppressed_slots', ()))
+    snapshot = [None if i in suppressed and i != index else item for i,item in enumerate(snapshot)]
     activity = snapshot[index]
-    base = (COLORS[activity[0]] if activity else BASELINE) if quiet else pixel_color(
+    steady = index in config.get('_steady_slots', ())
+    base = (COLORS[activity[0]] if activity else BASELINE) if quiet or steady else pixel_color(
         snapshot, index, instant, delays, config.get('_wave_cutoff', float('-inf')))
     signature = None
     if config.get('_style') == 'project':
@@ -269,7 +273,7 @@ def zone_color(config, snapshot, index, half, instant, delays):
             if half == side: signature = tuple(color) if color is not None else BASELINE
     if signature is not None:
         base = signature
-        if not quiet and config.get('_coverage') == 'whole':
+        if not quiet and not steady and config.get('_coverage') == 'whole':
             candidates = []
             for source, item in enumerate(snapshot):
                 if not item or item[0] == 'unread' or item[1] <= config.get('_wave_cutoff', float('-inf')): continue
@@ -282,7 +286,7 @@ def zone_color(config, snapshot, index, half, instant, delays):
             if candidates:
                 _, amount, status = max(candidates)
                 base = tuple(round(a*(1-amount)+b*amount) for a,b in zip(signature,COLORS[status]))
-    if not quiet and (signature is None or config.get('_coverage') == 'whole'):
+    if not quiet and not steady and (signature is None or config.get('_coverage') == 'whole'):
         base = comet_color(config, snapshot, index, instant, delays, base)
     locate = config.get('_locate')
     if locate and locate['source'] == index and 0 <= instant - locate['started'] < 1:
@@ -425,6 +429,7 @@ def connect_state(directory):
         with db:
             db.execute('BEGIN IMMEDIATE')
             wall.init(db)
+            shared_input.init(db)
             db.execute('CREATE TABLE IF NOT EXISTS sessions '
                        '(id TEXT PRIMARY KEY, turn TEXT, status TEXT, updated REAL)')
             db.execute('CREATE TABLE IF NOT EXISTS slots (session TEXT PRIMARY KEY, slot INTEGER UNIQUE)')
@@ -629,7 +634,8 @@ def current_comet(db, instant):
 
 def update_display(db, config, snapshot, instant, loop, send=None):
     encoded = json.dumps([snapshot, config.get('_comet'), config.get('_locate'),
-                          config.get('_style'), config.get('_coverage'), config.get('_signatures')])
+                          config.get('_style'), config.get('_coverage'), config.get('_signatures'),
+                          config.get('_steady_slots'), config.get('_wave_suppressed_slots'), config.get('_wave_cutoff')])
     previous = db.execute('SELECT snapshot,looping FROM display_v3 WHERE id=1').fetchone()
     if not loop or previous != (encoded, 1):
         (send or render)(config, snapshot, instant, loop)
@@ -651,6 +657,9 @@ def handle_event(directory, event, launch=None, now=time.time):
     with contextlib.closing(connect_state(directory)) as db, db:
         db.execute('BEGIN IMMEDIATE')
         instant = now()
+        if shared_input.selected(db):
+            return
+        db.execute('DELETE FROM shared_stale WHERE session=?', (event.get('session_id'),))
         changed = transition(db, event, instant)
         metadata_changed = wall.record_event(db, event, instant)
         if changed or metadata_changed:
@@ -690,13 +699,13 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
             guard.execute('BEGIN EXCLUSIVE')
         except sqlite3.OperationalError as error:
             if error.sqlite_errorcode == sqlite3.SQLITE_BUSY:
-                return
+                return False
             raise
         import controller_state
         with contextlib.closing(connect_state(directory)) as db, db:
             db.execute('BEGIN IMMEDIATE')
             controller_state.recover(db, attempts=True)
-            if controller_state.held(db, control_state(db)['revision']):
+            if controller_state.held(db, control_state(db)['revision']) and not shared_input.selected(db):
                 return
         config = load_config(directory)
         read_unread = read_unread or unread_reader(config)
@@ -713,13 +722,21 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
         config['_controller_request'] = controller_request
         if scenes:
             scenes.request = controller_request
+        from types import SimpleNamespace
+        projection = SimpleNamespace(connect_state=connect_state, mark_dirty=mark_dirty,
+                                     control_state=control_state, COLORS=COLORS, wall=wall)
+        poller = shared_input.Poller(directory, projection)
         while True:
-            metadata.refresh()
+            shared = poller.tick(now())
+            if not shared: metadata.refresh()
             with contextlib.closing(connect_state(directory)) as db, db:
-                if metadata.sync(db): mark_dirty(db)
+                if not shared_input.selected(db) and metadata.sync(db): mark_dirty(db)
                 control = control_state(db)
-                if controller_state.held(db, control['revision']):
-                    return
+                held = controller_state.held(db, control['revision'])
+            if held:
+                if not shared: return
+                sleep(1)
+                continue
             mode = control['mode']
             pending_mode = control['revision'] != control['applied']
             config.update(_mode=mode, _wave_cutoff=control['wave_cutoff'])
@@ -757,20 +774,21 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
                     db.execute('DELETE FROM display_v3')
                 continue
             started = now()
-            unread = read_unread()
+            unread = None if shared else read_unread()
             with contextlib.closing(connect_state(directory)) as db, db:
                 db.execute('BEGIN IMMEDIATE')
                 if controller_state.held(db, control['revision']):
                     return
                 if control_state(db)['revision'] != control['revision']:
                     continue
-                reconcile_read_state(db, unread, started)
+                if not shared_input.selected(db): reconcile_read_state(db, unread, started)
                 prune_comets(db, started, mode)
                 if wall.apply_pending(db): mark_dirty(db)
                 config['_locate'] = wall.locate_state(db, config, started, mode)
                 snapshot = dashboard(db, config, started)
                 config['_comet'] = current_comet(db, started) if mode == 'work' and not config['_locate'] else None
                 wall.render_config(db, config, snapshot)
+                shared_input.render_config(db, config)
                 generation = db.execute("SELECT value FROM meta WHERE key='event_revision'").fetchone()
                 db.commit()
                 db.execute('BEGIN IMMEDIATE')
@@ -808,7 +826,7 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
                     continue
                 db.execute("INSERT OR REPLACE INTO meta VALUES ('mode_applied', ?)", (str(control['revision']),))
                 db.execute("DELETE FROM meta WHERE key IN ('dirty','control_error')")
-                watching = (bool(db.execute('SELECT 1 FROM receipts LIMIT 1').fetchone()) or
+                watching = (shared_input.selected(db) or bool(db.execute('SELECT 1 FROM receipts LIMIT 1').fetchone()) or
                             bool(scenes and mode != 'free' and (any(snapshot) or config['_comet'] or config['_locate'] or mode == 'quiet')))
                 settling = db.execute('SELECT MIN(completed + ?) FROM receipts WHERE observed=0',
                                       (READ_SETTLE_SECONDS,)).fetchone()[0]
@@ -818,6 +836,7 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
                     return
                 db.execute("INSERT OR REPLACE INTO meta VALUES ('rendering','1')")
             deadline = started + (1.0 if loop else PULSE_SECONDS)
+            if shared: deadline = min(deadline, started + 1)
             if config['_locate']:
                 deadline = min(deadline, config['_locate']['started'] + 1)
             if config['_comet']:
@@ -828,7 +847,7 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
                 sleep(min(0.25, deadline - now()))
                 with contextlib.closing(sqlite3.connect(directory / 'status.sqlite', timeout=2.5)) as db:
                     dirty = db.execute("SELECT 1 FROM meta WHERE key IN ('dirty','preview') LIMIT 1").fetchone()
-                if dirty or (watching and read_unread() != unread):
+                if dirty or (watching and not shared and read_unread() != unread):
                     break
 
 
@@ -990,7 +1009,7 @@ def main():
     # Windows and WSL SQLite locks on the same mounted file do not exclude
     # each other. Installed WSL hooks delegate before opening any state files,
     # so all live state writes and workers use Windows Python and its locks.
-    if os.name != 'nt' and sys.argv[1:2] and sys.argv[1] in ('hook', 'worker', 'setup', 'mode', 'status', 'tray', 'map', 'serve', 'style', 'map-status', 'controller-configure', 'controller-token', 'controller-revoke', 'controller-serve', 'controller-status', 'controller-disable'):
+    if os.name != 'nt' and sys.argv[1:2] and (sys.argv[1].startswith('shared-') or sys.argv[1] in ('hook', 'worker', 'setup', 'mode', 'status', 'tray', 'map', 'serve', 'style', 'map-status', 'controller-configure', 'controller-token', 'controller-revoke', 'controller-serve', 'controller-status', 'controller-disable')):
         installed = Path(__file__).resolve()
         if installed.parent.name == 'CodexNanoleaf' and installed.parent.parent.name == 'Local':
             account = installed.parent.parents[2]
@@ -1003,6 +1022,9 @@ def main():
             command = [str(runtime), windows_path(str(installed)),
                        *(windows_path(arg) for arg in sys.argv[1:])]
             raise SystemExit(subprocess.call(command))
+    if sys.argv[1:2] and sys.argv[1].startswith('shared-'):
+        from types import SimpleNamespace
+        return shared_input.command(sys.argv[1:], SimpleNamespace(**globals()))
     if sys.argv[1:2] and sys.argv[1].startswith('controller-'):
         import controller_server
         return controller_server.command(sys.argv[1:], sys.modules[__name__])
@@ -1057,8 +1079,11 @@ def main():
     if args.mode == 'worker':
         while True:
             try:
-                run_worker(directory)
-                return
+                if run_worker(directory) is False: return
+                with contextlib.closing(connect_state(directory)) as db:
+                    resume_shared = shared_input.selected(db)
+                if not resume_shared: return
+                time.sleep(1)
             except Exception:
                 try:
                     with contextlib.closing(connect_state(directory)) as db, db:

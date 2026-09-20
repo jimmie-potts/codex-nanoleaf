@@ -27,8 +27,9 @@ class ControllerCLITest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             directory=Path(temporary)/'User/AppData/Local/CodexNanoleaf';directory.mkdir(parents=True)
             shutil.copyfile(b.__file__,directory/'bridge.py')
-            shutil.copyfile(Path(b.__file__).with_name('project_map.py'),directory/'project_map.py')
-            for command in ('controller-configure','controller-token','controller-revoke','controller-serve','controller-status','controller-disable'):
+            for name in ('project_map.py','shared_input.py'):
+                shutil.copyfile(Path(b.__file__).with_name(name),directory/name)
+            for command in ('controller-configure','controller-token','controller-revoke','controller-serve','controller-status','controller-disable','shared-configure','shared-preflight','shared-select','shared-status','shared-acknowledge'):
                 result=subprocess.run([sys.executable,str(directory/'bridge.py'),command],capture_output=True,text=True)
                 self.assertIn('Windows runtime is unavailable',result.stderr)
                 self.assertFalse((directory/'status.sqlite').exists())
