@@ -259,7 +259,8 @@ def reconcile_read_state(db, unread, instant):
 
 def zone_color(config, snapshot, index, half, instant, delays):
     quiet = config.get('_mode') == 'quiet'
-    snapshot = [None if i in config.get('_steady_slots', ()) and i != index else item for i,item in enumerate(snapshot)]
+    suppressed = set(config.get('_steady_slots', ())) | set(config.get('_wave_suppressed_slots', ()))
+    snapshot = [None if i in suppressed and i != index else item for i,item in enumerate(snapshot)]
     activity = snapshot[index]
     steady = index in config.get('_steady_slots', ())
     base = (COLORS[activity[0]] if activity else BASELINE) if quiet or steady else pixel_color(
@@ -634,7 +635,7 @@ def current_comet(db, instant):
 def update_display(db, config, snapshot, instant, loop, send=None):
     encoded = json.dumps([snapshot, config.get('_comet'), config.get('_locate'),
                           config.get('_style'), config.get('_coverage'), config.get('_signatures'),
-                          config.get('_steady_slots'), config.get('_wave_cutoff')])
+                          config.get('_steady_slots'), config.get('_wave_suppressed_slots'), config.get('_wave_cutoff')])
     previous = db.execute('SELECT snapshot,looping FROM display_v3 WHERE id=1').fetchone()
     if not loop or previous != (encoded, 1):
         (send or render)(config, snapshot, instant, loop)

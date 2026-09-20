@@ -207,6 +207,52 @@ class RecoveryTest(SelectionTest):
         self.assertEqual(self.rows('SELECT status FROM sessions'),[('working',)])
         self.assertEqual(self.rows('SELECT * FROM comets'),[])
 
+    def test_stale_peer_does_not_suppress_healthy_outward_wave(self):
+        value=envelope();healthy=value['snapshot']['sessions'][0];healthy['activity']='active'
+        stale=copy.deepcopy(healthy);stale['identity']['sessionId']='stale'
+        stale['freshness']='uncertain';stale['restartUncertain']=True
+        value['snapshot']['sessions'].append(stale);self.select(value)
+        with contextlib.closing(b.connect_state(self.path)) as db,db:
+            db.execute('INSERT INTO slots VALUES (?,1)',(self.s.identity_key(stale['identity']),))
+        value=copy.deepcopy(value);value['snapshot']['revision']+=1
+        value['snapshot']['sessions'][0]['turn']={'status':'known','id':'next'}
+        self.s.accept(self.path,b,value,now=lambda:1001)
+        layout={'line_groups':[[100,101],[102,103],[104,105]],'line_positions':[[0,0],[1,0],[2,0]],'_mode':'work'}
+        with contextlib.closing(b.connect_state(self.path)) as db,db:
+            snapshot=b.dashboard(db,layout,1002);self.s.render_config(db,layout)
+        delays=[b.travel_delays(layout,i) for i in range(3)]
+        expected=b.pixel_color([snapshot[0],None,None],2,1002,delays)
+        self.assertNotEqual(expected,b.BASELINE)
+        self.assertEqual(b.zone_color(layout,snapshot,2,0,1002,delays),expected)
+
+    def test_recovered_session_keeps_epoch_without_replaying_outward_wave(self):
+        value=envelope();value['snapshot']['sessions'][0]['activity']='active';self.select(value)
+        value=copy.deepcopy(value);value['snapshot']['revision']+=1
+        session=value['snapshot']['sessions'][0];session['turn']={'status':'known','id':'next'}
+        self.s.accept(self.path,b,value,now=lambda:1001)
+        session['freshness']='uncertain';session['restartUncertain']=True
+        self.s.accept(self.path,b,value,now=lambda:1001.1)
+        session['freshness']='current';session['restartUncertain']=False
+        self.s.accept(self.path,b,value,now=lambda:1001.2)
+        layout={'line_groups':[[100,101],[102,103]],'line_positions':[[0,0],[1,0]],'_mode':'work'}
+        with contextlib.closing(b.connect_state(self.path)) as db,db:
+            snapshot=b.dashboard(db,layout,1002);self.s.render_config(db,layout)
+        delays=[b.travel_delays(layout,i) for i in range(2)]
+        self.assertEqual(self.rows('SELECT started FROM activity'),[(1001,)])
+        self.assertEqual(b.zone_color(layout,snapshot,1,0,1002,delays),b.BASELINE)
+        self.assertEqual(b.zone_color(layout,snapshot,0,0,1002,delays),b.pixel_color(snapshot,0,1002,delays))
+
+    def test_read_during_comet_retains_source_until_finish(self):
+        value=envelope();self.select(value)
+        key=self.s.identity_key(value['snapshot']['sessions'][0]['identity'])
+        with contextlib.closing(b.connect_state(self.path)) as db,db:
+            db.execute('INSERT INTO comets VALUES (?,?,?,0,?)',(key,'turn',1000,1000))
+        value=copy.deepcopy(value);value['snapshot']['revision']+=1
+        value['snapshot']['sessions'][0]['read']='read'
+        self.s.accept(self.path,b,value,now=lambda:1000.5)
+        self.assertEqual(self.rows('SELECT session,source,started FROM comets'),[(key,0,1000)])
+        self.assertEqual(self.rows('SELECT status FROM sessions'),[('idle',)])
+
     def test_new_turn_cancels_active_old_notice_comet(self):
         value=envelope();self.select(value)
         key=self.s.identity_key(value['snapshot']['sessions'][0]['identity'])
@@ -282,7 +328,7 @@ class ReleaseTest(unittest.TestCase):
             for path in (package/'package').rglob('*'):
                 if not path.is_file() or '__pycache__' in path.parts:continue
                 with self.subTest(path=str(path.relative_to(package))):
-                    self.assertEqual(path.read_bytes(),tar.extractfile(str(path.relative_to(package))).read())
+                    self.assertEqual(path.read_bytes(),tar.extractfile(path.relative_to(package).as_posix()).read())
 
     def test_released_owner_clears_only_nanoleaf_on_evidenced_new_turn(self):
         import subprocess

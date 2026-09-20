@@ -204,6 +204,7 @@ def init(db):
     db.execute('CREATE TABLE IF NOT EXISTS shared_input (id INTEGER PRIMARY KEY, source TEXT, generation INTEGER, config TEXT, envelope TEXT, received REAL, connection TEXT, error TEXT, backup TEXT)')
     db.execute("INSERT OR IGNORE INTO shared_input VALUES (1,'legacy',0,NULL,NULL,NULL,'unavailable',NULL,NULL)")
     db.execute('CREATE TABLE IF NOT EXISTS shared_stale (session TEXT PRIMARY KEY)')
+    db.execute('CREATE TABLE IF NOT EXISTS shared_suppressed_waves (session TEXT PRIMARY KEY, epoch REAL)')
     db.execute('CREATE TABLE IF NOT EXISTS shared_ack (id INTEGER PRIMARY KEY, payload TEXT, result TEXT)')
 
 
@@ -308,6 +309,7 @@ def select_source(directory, bridge, source, fetch=fetch_snapshot, now=time.time
             db.execute('DELETE FROM shared_stale')
             db.execute('INSERT INTO shared_stale SELECT id FROM sessions')
             db.execute("UPDATE shared_input SET source='legacy',generation=generation+1,connection='unavailable',error=NULL WHERE id=1")
+        db.execute('DELETE FROM shared_suppressed_waves')
         db.execute('DELETE FROM display_v3')
         bridge.mark_dirty(db)
 
@@ -344,8 +346,6 @@ def _project(db, bridge, envelope, config, instant, resync=False):
         if stale and old:
             turn, status = old
         was_stale = bool(db.execute('SELECT 1 FROM shared_stale WHERE session=?', (key,)).fetchone())
-        if was_stale:
-            db.execute("INSERT OR REPLACE INTO meta VALUES ('shared_wave_cutoff',?)", (str(instant),))
         if stale: db.execute('INSERT OR IGNORE INTO shared_stale VALUES (?)', (key,))
         else: db.execute('DELETE FROM shared_stale WHERE session=?', (key,))
         changed = old != (turn,status)
@@ -358,7 +358,12 @@ def _project(db, bridge, envelope, config, instant, resync=False):
                          else instant - 10 if resync or stale or was_stale else instant)
                 db.execute('INSERT OR REPLACE INTO activity VALUES (?,?,?,?)', (key,turn,status,epoch))
             else: db.execute('DELETE FROM activity WHERE session=?', (key,))
-            db.execute('DELETE FROM comets WHERE session=?', (key,))
+            if (old and old[0] != turn) or session['activity'] in ('active','interrupted'):
+                db.execute('DELETE FROM comets WHERE session=?', (key,))
+            else:
+                db.execute('DELETE FROM comets WHERE session=? AND started IS NULL', (key,))
+        if stale or was_stale:
+            db.execute('INSERT OR REPLACE INTO shared_suppressed_waves SELECT session,started FROM activity WHERE session=?', (key,))
         if stale or resync or was_stale:
             db.execute('DELETE FROM comets WHERE session=?', (key,))
         elif changed and status == 'unread' and bridge.control_state(db)['mode'] == 'work' and key in prior:
@@ -377,7 +382,7 @@ def _project(db, bridge, envelope, config, instant, resync=False):
                    (key,session.get('label',''),'',inherited,manual,turn,started))
     for (key,) in db.execute('SELECT id FROM sessions').fetchall():
         if key not in live:
-            for table, column in (('sessions','id'),('activity','session'),('task_info','session'),('comets','session'),('slots','session'),('shared_stale','session')):
+            for table, column in (('sessions','id'),('activity','session'),('task_info','session'),('comets','session'),('slots','session'),('shared_stale','session'),('shared_suppressed_waves','session')):
                 db.execute('DELETE FROM ' + table + ' WHERE ' + column + '=?', (key,))
     db.execute("UPDATE shared_input SET envelope=?,received=?,connection='current',error=NULL WHERE id=1", (dumps(envelope),instant))
     if previous != envelope: bridge.mark_dirty(db)
@@ -436,6 +441,7 @@ def inspect(directory, now=time.time):
 
 def render_config(db, config):
     config['_steady_slots'] = [slot for (slot,) in db.execute('SELECT slot FROM slots JOIN shared_stale ON slots.session=shared_stale.session')]
+    config['_wave_suppressed_slots'] = [slot for (slot,) in db.execute('SELECT slot FROM slots JOIN shared_suppressed_waves USING (session) JOIN activity USING (session) WHERE epoch=started')]
     row = db.execute("SELECT value FROM meta WHERE key='shared_wave_cutoff'").fetchone()
     if row: config['_wave_cutoff'] = max(config.get('_wave_cutoff',float('-inf')),float(row[0]))
 
