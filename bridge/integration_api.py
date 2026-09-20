@@ -71,10 +71,23 @@ def projection(db, pairs):
     if current['source'] == 'shared' and current['envelope']:
         for session in current['envelope']['snapshot']['sessions']:
             shared[shared_input.identity_key(session['identity'])] = session
+    pending = wall.pending(db)
+    pending_view = None
+    if pending:
+        pending_view = dict(settings={k:v for k,v in pending.get('settings', {}).items() if k in ('style','coverage')}, elements=[], tasks=[])
+        for key, value in pending.get('lines', {}).items():
+            if key not in {wall.line_id(pair) for pair in pairs}: continue
+            item = {'id': key}
+            if 'project' in value: item['projectId'] = project_id(value['project'])
+            if 'signature' in value: item['signature'] = value['signature']
+            pending_view['elements'].append(item)
+        for key, value in pending.get('tasks', {}).items():
+            pending_view['tasks'].append(dict(taskId=task_id(key), projectId=project_id(value)))
+        if len(pending_view['tasks']) > MAX_ITEMS: raise Failure('capacity')
     view = dict(apiVersion=VERSION, identity=data['identity'], configurationRevision=data['revision'],
                 mode=state.snapshot(db)['state']['desired']['mode']['value'],
                 settings={k: v for k, v in wall.settings(db).items() if k in ('style', 'coverage')},
-                source=current['source'], projects=[], tasks=[], elements=[], wallPending=bool(wall.pending(db)))
+                source=current['source'], projects=[], tasks=[], elements=[], wallPending=pending_view)
     for p, color in project_rows:
         item = dict(id=project_id(p), color=color)
         # These names originate in the qualified shared feed, never local metadata.

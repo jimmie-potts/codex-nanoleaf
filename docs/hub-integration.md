@@ -98,3 +98,12 @@ The Linux runtime and local API specifications define the Linux port independent
 The [controller API guide](controller-api.md) records the pinned Hub #4 release, mode-only capabilities, local route wrappers, optional Python dependencies and source validation. Native reads use a separate pure projection. This adoption does not activate shared ingestion, a personal listener or physical previews.
 
 The optional [local MCP host](local-mcp.md) supports Windows and WSL through the protected controller. Source delivery and separately authorized installed-client/light acceptance remain distinct.
+
+## Machine integration settings
+
+The [integration settings extension](integration-api.md) exposes existing layout, coverage,
+reservations, task-project overrides and saved colors through the protected
+controller. It has separate versioned requests and configuration receipts; shared
+controller v1 mode commands remain unchanged. Pure reads exclude local titles and
+paths. The existing worker applies edits on the installation's native database.
+Source delivery does not enable the listener, switch task input or change an installation.

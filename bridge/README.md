@@ -477,3 +477,12 @@ The [shared input guide](../docs/shared-input.md) describes explicit legacy/shar
 steady stale indicators, clear-on-new-turn notices and rollback. Its
 [specification](../openspec/specs/shared-session-consumer/spec.md) owns shared-mode additions;
 the legacy task, mode, allocation and scene rules above remain unchanged.
+
+## Machine integration settings
+
+The [integration settings extension](../docs/integration-api.md) exposes existing layout, coverage,
+reservations, task-project overrides and saved colors through the protected
+controller. It has separate versioned requests and configuration receipts; shared
+controller v1 mode commands remain unchanged. Pure reads exclude local titles and
+paths. The existing worker applies edits on the installation's native database.
+Source delivery does not enable the listener, switch task input or change an installation.
