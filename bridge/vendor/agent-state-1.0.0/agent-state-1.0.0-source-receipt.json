@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "artifact": {
+    "name": "@jimmie-potts/agent-state",
+    "version": "1.0.0",
+    "archive": "jimmie-potts-agent-state-1.0.0.tgz",
+    "sha256": "ae589d311e282c3356579c85507a3aa973ab7990e06e062143aeb08d8d2dcc99",
+    "bytes": 348086,
+    "bundledLifecycleSha256": "669c8e3d8b2bac5255ea613eae96134c324515b4e7a767887e86fa59b87fef85"
+  },
+  "source": {
+    "repository": "https://github.com/jimmie-potts/agent-device-hub",
+    "commit": "f550bcd6b7d3b7da0f34c90c622b343afe2b25fb",
+    "tree": "55a5156c99839c20d02098483dea881350dd6517",
+    "pullRequest": 105,
+    "reviewedHead": "ab6c7f5e7324b64a783441f8e02e2bba02125e36",
+    "reviewBase": "897208ad31d48d10c1d4e45906a6c7a1c9101a4e",
+    "mergedTreeMatchesReviewedHead": true
+  },
+  "reviews": {
+    "standards": "no findings",
+    "specification": "no findings"
+  },
+  "localValidation": {
+    "node": "24.21.0",
+    "python": "3.14.4",
+    "commands": [
+      "npm ci",
+      "npm run test:agent-state:package",
+      "npm run typecheck",
+      "npm run check:workflow",
+      "npm run test:workflow"
+    ],
+    "result": "all exited zero",
+    "isolatedConsumer": "imports, declarations, 41 state and 12 lifecycle manifest file hashes, 96 Node/process tests and 36 Python snapshot fixtures passed",
+    "reproducibility": "two packs have identical bytes; fresh merged-revision staging matches the independently reviewed candidate checksum",
+    "specifications": 6,
+    "requirements": 34,
+    "archives": 5,
+    "workflowTests": 15
+  },
+  "hostedCI": {
+    "status": "blocked before execution by account billing or spending limit",
+    "revision": "f550bcd6b7d3b7da0f34c90c622b343afe2b25fb",
+    "configuredJobs": 13,
+    "executedSteps": 0,
+    "runs": [
+      "https://github.com/jimmie-potts/agent-device-hub/actions/runs/35526714391",
+      "https://github.com/jimmie-potts/agent-device-hub/actions/runs/35526714393"
+    ],
+    "issueClosure": "pending successful merged-revision CI"
+  },
+  "scope": "Private reusable source package. Production durable storage, installed-provider qualification and physical acceptance remain separate work."
+}

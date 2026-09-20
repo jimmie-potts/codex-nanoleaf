@@ -1,6 +1,7 @@
 # Shared hub integration
 
-Status: Accepted direction; implementation remains in GitHub issues.
+Status: Shared consumer source is described in [the input guide](shared-input.md);
+installation and remaining integration work stay with their GitHub issues.
 
 ## Ownership
 
@@ -26,7 +27,7 @@ The shared adoption requirements below describe separate future work. Their expo
 ## Adoption and independent work
 
 - [codex-nanoleaf#28](https://github.com/jimmie-potts/codex-nanoleaf/issues/28) owns the authenticated machine-client API over the existing
-  worker and Windows state coordination using [agent-device-hub#4](https://github.com/jimmie-potts/agent-device-hub/issues/4).
+  worker and installation-local state coordination using [agent-device-hub#4](https://github.com/jimmie-potts/agent-device-hub/issues/4).
 - [codex-nanoleaf#29](https://github.com/jimmie-potts/codex-nanoleaf/issues/29) consumes the shared core's versioned feed, initially available
   from Pixoo [divoom-app-upgrade#31](https://github.com/jimmie-potts/divoom-app-upgrade/issues/31). It maps shared state into existing presentation and
   does not implement a Python copy of provider interpretation.

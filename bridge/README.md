@@ -470,3 +470,10 @@ frame receipt names the browser and reports 120 intervals for the actual
 15-Line layout and a 56-Line triangular-lattice fixture. These measurements
 support only those fixtures and that runner. Current UI approval belongs in the
 PR; source checks do not establish installed or physical-light acceptance.
+
+## Shared input
+
+The [shared input guide](../docs/shared-input.md) describes explicit legacy/shared selection,
+steady stale indicators, clear-on-new-turn notices and rollback. Its
+[specification](../openspec/specs/shared-session-consumer/spec.md) owns shared-mode additions;
+the legacy task, mode, allocation and scene rules above remain unchanged.

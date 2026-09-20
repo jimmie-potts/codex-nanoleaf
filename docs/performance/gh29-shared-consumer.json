@@ -1,0 +1,114 @@
+{
+  "schemaVersion": 1,
+  "scope": "synthetic loopback fetch, released validation, SQLite projection, allocation and pure effect construction",
+  "limitations": [
+    "Not Hub #30 integrated qualification or a full-hook baseline comparison.",
+    "No Windows performance, real producer, installed service, device submission or optical measurement."
+  ],
+  "python": "3.14.4",
+  "platform": "Linux",
+  "samplesPerRepetition": 100,
+  "sourceHashes": {
+    "bridge/shared_input.py": "cf76216f09ddf499b503d7fc05697b0dfbb93204d39e3ee9fdc06266b6d52b95",
+    "bridge/bridge.py": "594671617b0d158cb35a824ae8bb72eb8f09e2ccae0d359ad9b96a29b07acad5",
+    "scripts/measure-shared.py": "7e9a01154be378037fb1a1018fad2b68de7f7ec151100d12be27dee4b9d228cf"
+  },
+  "profiles": [
+    {
+      "sessions": 1,
+      "visibleCapacity": 15,
+      "repetitions": [
+        {
+          "samples": 100,
+          "p50Ms": 2.938343503046781,
+          "p95Ms": 3.3327650162391365,
+          "p99Ms": 3.4572069998830557,
+          "maximumMs": 3.72170697664842,
+          "processCpuMs": 304.743401
+        },
+        {
+          "samples": 100,
+          "p50Ms": 2.9069835145492107,
+          "p95Ms": 3.32688499474898,
+          "p99Ms": 3.5361560294404626,
+          "maximumMs": 3.872798988595605,
+          "processCpuMs": 301.955637
+        },
+        {
+          "samples": 100,
+          "p50Ms": 2.9005044780205935,
+          "p95Ms": 3.256176016293466,
+          "p99Ms": 3.539215016644448,
+          "maximumMs": 3.7682080292142928,
+          "processCpuMs": 299.812877
+        }
+      ]
+    },
+    {
+      "sessions": 10,
+      "visibleCapacity": 15,
+      "repetitions": [
+        {
+          "samples": 100,
+          "p50Ms": 8.639714971650392,
+          "p95Ms": 9.677894995547831,
+          "p99Ms": 10.786939994432032,
+          "maximumMs": 11.462814989499748,
+          "processCpuMs": 890.0615819999999
+        },
+        {
+          "samples": 100,
+          "p50Ms": 8.536955021554604,
+          "p95Ms": 9.082651988137513,
+          "p99Ms": 9.760684974025935,
+          "maximumMs": 10.666709975339472,
+          "processCpuMs": 870.025692
+        },
+        {
+          "samples": 100,
+          "p50Ms": 8.681920502567664,
+          "p95Ms": 9.30733303539455,
+          "p99Ms": 9.515464014839381,
+          "maximumMs": 10.569430014584213,
+          "processCpuMs": 881.7977720000001
+        }
+      ]
+    },
+    {
+      "sessions": 50,
+      "visibleCapacity": 15,
+      "repetitions": [
+        {
+          "samples": 100,
+          "p50Ms": 34.96466201613657,
+          "p95Ms": 37.67639596480876,
+          "p99Ms": 38.3343180292286,
+          "maximumMs": 38.65894000045955,
+          "processCpuMs": 3484.078883
+        },
+        {
+          "samples": 100,
+          "p50Ms": 34.394730493659154,
+          "p95Ms": 37.128280964680016,
+          "p99Ms": 38.48759800894186,
+          "maximumMs": 38.62436895724386,
+          "processCpuMs": 3443.2634579999994
+        },
+        {
+          "samples": 100,
+          "p50Ms": 34.346905507845804,
+          "p95Ms": 36.66375996544957,
+          "p99Ms": 37.822015990968794,
+          "maximumMs": 40.02652398776263,
+          "processCpuMs": 3446.2844760000007
+        }
+      ]
+    }
+  ],
+  "bounds": {
+    "pollIntervalSeconds": 1,
+    "transportDeadlineSeconds": 2.5,
+    "responseBytes": 16777216,
+    "concurrentRequestsPerWorker": 1
+  }
+}
