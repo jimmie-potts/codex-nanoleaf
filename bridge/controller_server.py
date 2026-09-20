@@ -63,6 +63,8 @@ def issue(directory,b,principal,scopes):
             state.finish(db,sequence,'cancelled','forbidden')
             db.execute("INSERT OR REPLACE INTO meta VALUES ('controller_hold_revision',?)",(str(revision),))
         db.execute('INSERT OR REPLACE INTO controller_credentials VALUES (?,?,?,1)',(principal,hashlib.sha256(token.encode()).hexdigest(),state.encoded(scopes)))
+        import integration_api
+        integration_api.recover(db,principal=principal,cancel=True)
     return token
 
 
@@ -70,6 +72,8 @@ def revoke(directory,b,principal):
     with contextlib.closing(b.connect_state(directory)) as db,db:
         db.execute('BEGIN IMMEDIATE')
         db.execute('UPDATE controller_credentials SET active=0 WHERE principal=?',(principal,))
+        import integration_api
+        integration_api.recover(db,principal=principal,cancel=True)
         for sequence,revision in list(db.execute("SELECT sequence,mode_revision FROM controller_requests WHERE principal=? AND phase IN ('queued','attempting')",(principal,))):
             state.finish(db,sequence,'cancelled','forbidden')
             db.execute("INSERT OR REPLACE INTO meta VALUES ('controller_hold_revision',?)",(str(revision),))
@@ -93,6 +97,18 @@ class App:
     def snapshot(self):
         with contextlib.closing(state.readonly(self.directory)) as db:
             snapshot=state.snapshot(db);snapshot['serviceHealth']='ready';return snapshot
+
+    def integration_snapshot(self,token,device,**checks):
+        import integration_api
+        return integration_api.snapshot(self,token,device,**checks)
+
+    def integration_admit(self,token,request,body_bytes=None,deadline=None,**checks):
+        import integration_api
+        return integration_api.admit(self,token,request,body_bytes,deadline,**checks)
+
+    def integration_cancel(self,token,device,ticket,deadline=None,**checks):
+        import integration_api
+        return integration_api.cancel(self,token,device,ticket,deadline,**checks)
 
     def feed(self,cursor):
         with contextlib.closing(state.readonly(self.directory)) as db:
@@ -210,7 +226,7 @@ def make_server(app,port=0):
                 if any(len(v)!=1 for v in query.values()):raise ValueError('Repeated query.')
                 query={k:v[0] for k,v in query.items()}
                 if write:
-                    if parts.path!='/controller/v1/commands' or query:return self.respond(404,{'failure':{'code':'invalid-request'}})
+                    if parts.path not in ('/controller/v1/commands','/controller/integration/v1/commands','/controller/integration/v1/cancel') or query:return self.respond(404,{'failure':{'code':'invalid-request'}})
                     lengths=self.headers.get_all('Content-Length',[])
                     if len(lengths)!=1 or not re.fullmatch(r'[0-9]{1,8}',lengths[0]) or self.headers.get_all('Transfer-Encoding'):raise ValueError('Invalid framing.')
                     length=int(lengths[0])
@@ -219,6 +235,15 @@ def make_server(app,port=0):
                     raw=self.rfile.read(length)
                     if len(raw)!=length:raise ValueError('Incomplete body.')
                     body=strict_json(raw)
+                    if parts.path=='/controller/integration/v1/commands':
+                        code,result=app.integration_admit(token,body,length,deadline=self.admission_deadline,**checks)
+                        return self.respond(code,result)
+                    if parts.path=='/controller/integration/v1/cancel':
+                        import integration_api
+                        if type(body) is not dict or set(body)!={'apiVersion','deviceId','requestId'} or body['apiVersion']!=integration_api.VERSION:
+                            raise ValueError('Invalid cancellation.')
+                        code,result=app.integration_cancel(token,body['deviceId'],body['requestId'],deadline=self.admission_deadline,**checks)
+                        return self.respond(code,result)
                     code,result=app.admit(token,body,length,deadline=self.admission_deadline,**checks)
                     return self.respond(code,result)
                 if parts.path=='/controller/v1/devices' and not query:
@@ -227,6 +252,12 @@ def make_server(app,port=0):
                 if device is None:raise ValueError('Explicit target required.')
                 permitted=app.authorize(token,device,**checks)
                 if permitted!='allowed':return self.failure(permitted)
+                if parts.path=='/controller/integration/v1/snapshot' and set(query)=={'deviceId'}:
+                    return self.respond(200,app.integration_snapshot(token,device,**checks))
+                if parts.path=='/controller/integration/v1/receipt' and set(query)=={'deviceId','epoch','sequence'}:
+                    import integration_api
+                    ticket=dict(epoch=query['epoch'],sequence=int(query['sequence']))
+                    return self.respond(200,integration_api.receipt(app,token,device,ticket,**checks))
                 if parts.path=='/controller/v1/snapshot' and set(query)=={'deviceId'}:
                     return self.respond(200,app.snapshot())
                 if parts.path=='/controller/v1/feed' and set(query)<= {'deviceId','epoch','sequence'}:
@@ -239,7 +270,9 @@ def make_server(app,port=0):
                         return self.respond(200,app.feed(cursor))
                     finally:self.server.feed_slots.release()
                 return self.respond(404,{'failure':{'code':'invalid-request'}})
-            except (ValueError,TypeError,KeyError,RecursionError,UnicodeError):self.failure('invalid-request')
+            except (ValueError,TypeError,KeyError,RecursionError,UnicodeError) as error:
+                import integration_api
+                self.failure(error.code if isinstance(error,integration_api.Failure) else 'invalid-request')
             except (BrokenPipeError,ConnectionError,TimeoutError):pass
             except Exception:self.failure('transport-failure')
 
@@ -300,6 +333,8 @@ def serve(directory,b,port=0):
                 try:
                     with contextlib.closing(b.connect_state(directory)) as db,db:
                         db.execute('BEGIN IMMEDIATE');state.recover(db)
+                        import integration_api
+                        integration_api.recover(db)
                         disabled=state.read(db).get('stopped')
                     if disabled:
                         server.shutdown();return
@@ -339,6 +374,8 @@ def command(argv,b):
         elif args.action=='controller-disable':
             with contextlib.closing(b.connect_state(directory)) as db,db:
                 db.execute('BEGIN IMMEDIATE');data=state.read(db);data['stopped']=True;state.save(db,data)
+                import integration_api
+                integration_api.recover(db,cancel=True)
                 for sequence,revision in list(db.execute("SELECT sequence,mode_revision FROM controller_requests WHERE phase IN ('queued','attempting')")):
                     state.finish(db,sequence,'cancelled','forbidden')
                     db.execute("INSERT OR REPLACE INTO meta VALUES ('controller_hold_revision',?)",(str(revision),))

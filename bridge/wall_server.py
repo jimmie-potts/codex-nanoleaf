@@ -78,41 +78,46 @@ class App:
         if not isinstance(payload,dict): raise ValueError('Expected an object.')
         with self.lock,contextlib.closing(self.b.connect_state(self.directory)) as db,db:
             db.execute('BEGIN IMMEDIATE')
-            projects={row[0] for row in db.execute('SELECT id FROM projects')}
-            ids={wall.line_id(pair) for pair in self.config['line_groups']}
-            patch={}
-            if route=='/api/settings':
-                checks={'style':('classic','project'),'coverage':('whole','status'),'rotation':(0,90,180,270),'flip_x':(0,1),'flip_y':(0,1)}
-                if not payload or any(k not in checks or v not in checks[k] for k,v in payload.items()): raise ValueError('Invalid setting.')
-                patch={'settings':payload}
-            elif route=='/api/assign':
-                values=payload.get('lines')
-                if not isinstance(values,dict) or not values: raise ValueError('Select at least one Line.')
-                for key,value in values.items():
-                    if key not in ids or not isinstance(value,dict) or not value or set(value)-{'project','signature'}: raise ValueError('Invalid Line assignment.')
-                    if 'project' in value and value['project'] is not None and value['project'] not in projects: raise ValueError('Unknown project.')
-                    if 'signature' in value and (type(value['signature']) is not int or value['signature'] not in (0,1)): raise ValueError('Invalid half.')
-                patch={'lines':values}
-            elif route=='/api/project':
-                if payload.get('id') not in projects or not isinstance(payload.get('color'),str) or not re.fullmatch(r'#[0-9a-fA-F]{6}',payload['color']): raise ValueError('Invalid project color.')
-                db.execute('UPDATE projects SET color=? WHERE id=?',(payload['color'].lower(),payload['id']))
-            elif route=='/api/task':
-                sid=payload.get('id'); project=payload.get('project')
-                if not db.execute('SELECT 1 FROM task_info WHERE session=?',(sid,)).fetchone(): raise ValueError('Unknown task.')
-                if project is not None and project not in projects: raise ValueError('Unknown project.')
-                patch={'tasks':{sid:project}}
-            elif route=='/api/locate':
-                if payload.get('line') not in ids: raise ValueError('Unknown Line.')
-                if self.b.control_state(db)['mode']=='free': raise ValueError('Choose Work or Quiet to locate a Line.')
-                db.execute('INSERT OR REPLACE INTO locate VALUES (1,?,NULL)',(payload['line'],))
-            else: raise ValueError('Unknown action.')
-            if patch: wall.request_patch(db,patch,self.config)
+            apply_operation(db,self.b,self.config,route,payload)
             import controller_state
             controller_state.changed(db)
             self.b.mark_dirty(db)
         self.launch(self.directory)
         return {'ok':True}
 
+
+def apply_operation(db,b,config,route,payload):
+    """Shared wall/machine operation inside the caller's write transaction."""
+    if not isinstance(payload,dict): raise ValueError('Expected an object.')
+    projects={row[0] for row in db.execute('SELECT id FROM projects')}
+    ids={wall.line_id(pair) for pair in config['line_groups']}
+    patch={}
+    if route=='/api/settings':
+        checks={'style':('classic','project'),'coverage':('whole','status'),'rotation':(0,90,180,270),'flip_x':(0,1),'flip_y':(0,1)}
+        if not payload or any(k not in checks or v not in checks[k] for k,v in payload.items()): raise ValueError('Invalid setting.')
+        patch={'settings':payload}
+    elif route=='/api/assign':
+        values=payload.get('lines')
+        if not isinstance(values,dict) or not values: raise ValueError('Select at least one Line.')
+        for key,value in values.items():
+            if key not in ids or not isinstance(value,dict) or not value or set(value)-{'project','signature'}: raise ValueError('Invalid Line assignment.')
+            if 'project' in value and value['project'] is not None and value['project'] not in projects: raise ValueError('Unknown project.')
+            if 'signature' in value and (type(value['signature']) is not int or value['signature'] not in (0,1)): raise ValueError('Invalid half.')
+        patch={'lines':values}
+    elif route=='/api/project':
+        if payload.get('id') not in projects or not isinstance(payload.get('color'),str) or not re.fullmatch(r'#[0-9a-fA-F]{6}',payload['color']): raise ValueError('Invalid project color.')
+        db.execute('UPDATE projects SET color=? WHERE id=?',(payload['color'].lower(),payload['id']))
+    elif route=='/api/task':
+        sid=payload.get('id'); project=payload.get('project')
+        if not db.execute('SELECT 1 FROM task_info WHERE session=?',(sid,)).fetchone(): raise ValueError('Unknown task.')
+        if project is not None and project not in projects: raise ValueError('Unknown project.')
+        patch={'tasks':{sid:project}}
+    elif route=='/api/locate':
+        if payload.get('line') not in ids: raise ValueError('Unknown Line.')
+        if b.control_state(db)['mode']=='free': raise ValueError('Choose Work or Quiet to locate a Line.')
+        db.execute('INSERT OR REPLACE INTO locate VALUES (1,?,NULL)',(payload['line'],))
+    else: raise ValueError('Unknown action.')
+    if patch: wall.request_patch(db,patch,config)
 
 def handler(app,token,instance=None):
     class Handler(BaseHTTPRequestHandler):
