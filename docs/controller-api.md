@@ -75,3 +75,12 @@ Before import, the bridge verifies the archive checksum, the manifest against th
 | Real native client / installed bridge / physical device | Separate acceptance; source tests do not establish these results |
 
 Run `python -m pip install -r requirements-controller.txt`, `python scripts/check.py`, `npm run test:browser`, `npm run check:workflow` and `npm run test:workflow` in an isolated source checkout. Windows source tooling has a temporary-state fixture in `tests/test_controller_install.ps1`. The normal installer backs up the Windows database, including private machine credentials and request history. Rollback stops this installation's listener and restores backed-up program files; keep the current database to preserve newer task records. Older code ignores the new controller tables. Do not use fresh setup/reset for upgrade or rollback.
+
+## Machine integration settings
+
+The [integration settings extension](integration-api.md) exposes existing layout, coverage,
+reservations, task-project overrides and saved colors through the protected
+controller. It has separate versioned requests and configuration receipts; shared
+controller v1 mode commands remain unchanged. Pure reads exclude local titles and
+paths. The existing worker applies edits on the installation's native database.
+Source delivery does not enable the listener, switch task input or change an installation.

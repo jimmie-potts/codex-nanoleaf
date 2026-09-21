@@ -430,6 +430,8 @@ def connect_state(directory):
             db.execute('BEGIN IMMEDIATE')
             wall.init(db)
             shared_input.init(db)
+            import integration_api
+            integration_api.init(db)
             db.execute('CREATE TABLE IF NOT EXISTS sessions '
                        '(id TEXT PRIMARY KEY, turn TEXT, status TEXT, updated REAL)')
             db.execute('CREATE TABLE IF NOT EXISTS slots (session TEXT PRIMARY KEY, slot INTEGER UNIQUE)')
@@ -783,6 +785,8 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
                     continue
                 if not shared_input.selected(db): reconcile_read_state(db, unread, started)
                 prune_comets(db, started, mode)
+                import integration_api
+                integration_api.process(db, projection, config, now=started)
                 if wall.apply_pending(db): mark_dirty(db)
                 config['_locate'] = wall.locate_state(db, config, started, mode)
                 snapshot = dashboard(db, config, started)
