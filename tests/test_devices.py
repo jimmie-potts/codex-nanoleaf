@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import shutil
 import sqlite3
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -101,6 +102,7 @@ class DeviceTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             b.load_config(self.directory)
 
+    @unittest.skipUnless(sys.platform == 'linux', 'Native Linux installation')
     def test_installer_writes_per_device_layout_and_registry(self):
         import install_linux
         layout = json.loads((ROOT / 'tests/fixtures/lines-layout.json').read_text())
