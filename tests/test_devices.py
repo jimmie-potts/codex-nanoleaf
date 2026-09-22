@@ -154,6 +154,31 @@ class DeviceTest(unittest.TestCase):
             self.assertEqual(wall.owners(db, lines)[0], (None, 1))
             self.assertEqual(wall.owners(db, panels)[0], ('b', 0))
 
+    def test_literally_equal_element_ids_on_two_devices_keep_separate_state(self):
+        b.write_json(self.directory / 'config.json', {
+            'ip': '192.0.2.1', 'token': 'fakeLines', 'secondToken': 'fakeSecond',
+            'devices': {'wall': {'kind': 'lines', 'ip': '192.0.2.1', 'token_ref': 'token'},
+                        'second': {'kind': 'lines', 'ip': '192.0.2.3', 'token_ref': 'secondToken'}}})
+        element = {'id': '5:6', 'number': 1, 'zones': [5, 6], 'position': [0, 0]}
+        b.write_json(self.directory / 'layout.json', {'version': 2, 'devices': {
+            'wall': {'kind': 'lines', 'elements': [element]}, 'second': {'kind': 'lines', 'elements': [element]}}})
+        first = b.load_config(self.directory)
+        second = b.load_config(self.directory, 'second')
+        self.assertEqual([e['id'] for e in first['elements']], [e['id'] for e in second['elements']])
+        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+            db.executemany('INSERT INTO projects VALUES (?,?,?,?)', [('a', 'A', '#111111', '[]'), ('b', 'B', '#222222', '[]')])
+            wall.apply_patch(db, {'lines': {'5:6': {'project': 'a', 'signature': 1}}}, 'wall')
+            wall.apply_patch(db, {'lines': {'5:6': {'project': 'b'}}}, 'second')
+            self.assertEqual(wall.owners(db, first), [('a', 1)])
+            self.assertEqual(wall.owners(db, second), [('b', 0)])
+            self.assertEqual(db.execute("SELECT device, project FROM line_prefs WHERE line_id='5:6' ORDER BY device").fetchall(),
+                             [('second', 'b'), ('wall', 'a')])
+            with self.assertRaises(sqlite3.IntegrityError):
+                db.execute("INSERT INTO line_prefs (line_id, project, signature, device) VALUES ('5:6', 'c', 0, 'wall')")
+            db.execute("INSERT OR REPLACE INTO locate (line_id, started, device) VALUES ('5:6', NULL, 'second')")
+            self.assertIsNone(wall.locate_state(db, first, 1000.0, 'work'))
+            self.assertEqual(wall.locate_state(db, second, 1000.0, 'work'), {'source': 0, 'started': 1000.0})
+
     # AC3: device-scoped placements, modes and scenes
     def test_one_task_one_placement_per_device_and_unique_slot_per_device(self):
         self.write_two_devices()
