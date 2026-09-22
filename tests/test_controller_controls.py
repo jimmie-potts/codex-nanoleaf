@@ -239,6 +239,14 @@ class ControlsTest(unittest.TestCase):
         self.device.calls.clear(); self.run_worker()
         self.assertEqual(self.device.calls, [])
 
+    def test_free_brightness_is_an_external_change_that_becomes_the_preference(self):
+        self.mode('free'); self.run_worker()
+        self.command({'kind': 'brightness.set', 'percent': 42}); self.run_worker()
+        self.assertEqual(self.saved()['scene'], {'name': 'Beach Waves', 'brightness': 43})
+        self.mode('work'); self.run_worker()
+        self.assertEqual(self.saved()['scene'], {'name': 'Beach Waves', 'brightness': 42})
+        self.assertEqual(self.saved()['quiet_scene'], None)
+
     def test_discovery_is_bounded_named_only_in_extension_and_quiet_between_changes(self):
         self.device.names = ['Scene %d' % i for i in range(300)] + ['x' * 81]
         self.device.selected = 'Scene 0'
@@ -280,6 +288,39 @@ class ControlsTest(unittest.TestCase):
                 self.assertEqual(value, 70)
                 self.assertEqual(writes[0], 70)
                 self.assertTrue(all(w == 70 for w in writes), writes)
+
+    def test_control_admitted_after_observation_is_seen_by_the_same_pass_guards(self):
+        # Admission after the device round trip, during the unread read, must still be honored.
+        self.event('UserPromptSubmit', 'late')
+        admitted = []
+        def unread():
+            if not admitted:
+                admitted.append(self.command({'kind': 'power.set', 'on': False})[1][1]['outcome'])
+            return self.unread
+        self.device.calls.clear()
+        pending = [(1002, lambda: self.event('Interrupt', 'late'))]
+        def advance(seconds):
+            self.clock.sleep(seconds)
+            self.assertLess(self.clock.now(), 1025, 'Worker did not release control after idle')
+            while pending and self.clock.now() >= pending[0][0]:
+                pending.pop(0)[1]()
+        b.run_worker(self.directory, sleep=advance, now=self.clock.now, read_unread=unread)
+        self.assertEqual(admitted, ['queued'])
+        self.assertEqual([p for e, p in self.puts() if 'on' in p], [{'on': {'value': False}}])
+        self.assertFalse(self.device.on)
+
+    def test_ledger_without_scene_key_publishes_new_ids_with_an_event(self):
+        self.run_worker()
+        before = self.app.snapshot()
+        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+            db.execute('BEGIN IMMEDIATE')
+            data = state.read(db); del data['sceneKey']; state.save(db, data)
+        self.assertEqual(self.scene_ids(), [])
+        self.run_worker()
+        after = self.app.snapshot()
+        self.assertEqual(len(after['capabilities']['scenes']['sceneIds']), 2)
+        self.assertNotEqual(after['capabilities']['scenes']['sceneIds'], before['capabilities']['scenes']['sceneIds'])
+        self.assertGreater(after['cursor']['sequence'], before['cursor']['sequence'])
 
     def test_scene_ids_are_not_recoverable_from_published_snapshot_fields(self):
         self.run_worker()

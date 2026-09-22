@@ -925,6 +925,8 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
                     return
                 if control_state(db)['revision'] != control['revision']:
                     continue
+                if controller_state.overrides(db) != overrides or controller_state.controls(db, control['revision']):
+                    continue  # A control admitted mid-apply keeps its wake-up and runs next pass.
                 db.execute("INSERT OR REPLACE INTO meta VALUES ('mode_applied', ?)", (str(control['revision']),))
                 db.execute("DELETE FROM meta WHERE key IN ('dirty','control_error')")
                 watching = (shared_input.selected(db) or bool(db.execute('SELECT 1 FROM receipts LIMIT 1').fetchone()) or

@@ -163,7 +163,7 @@ The controller SHALL consume a verified immutable contract artifact with a recor
 
 ### Requirement: Brightness and power overrides persist until the next explicit mode command
 
-A `brightness.set` command SHALL be accepted in Work, Quiet and Free and SHALL record a user override that the worker applies to every brightness it writes in the current mode: Work task indicators and comets, Quiet steady colors, the blue fallback, and the remembered scene when it is restored while idle. A `power.set` command SHALL be accepted in all three modes as one write; while desired power is off the worker SHALL send no indicator, restoration or preview writes, and task tracking SHALL continue. The next explicit mode command from any owner, including the same mode, SHALL clear both overrides and reapply that mode's policy: Work indicators at 30% and the remembered scene at its remembered brightness, Quiet at 10%, Free's one-time handoff, and lights on. Overrides SHALL NOT change the remembered scene brightness. This requirement maps to issue #64 AC3.
+A `brightness.set` command SHALL be accepted in Work, Quiet and Free and SHALL record a user override that the worker applies to every brightness it writes in the current mode: Work task indicators and comets, Quiet steady colors, the blue fallback, and the remembered scene when it is restored while idle. A `power.set` command SHALL be accepted in all three modes as one write; while desired power is off the worker SHALL send no indicator, restoration or preview writes, and task tracking SHALL continue. The next explicit mode command from any owner, including the same mode, SHALL clear both overrides and reapply that mode's policy: Work indicators at 30% and the remembered scene at its remembered brightness, Quiet at 10%, Free's one-time handoff, and lights on. While the bridge owns the lights in Work or Quiet, overrides SHALL NOT change the remembered scene brightness; a brightness set in Free is an external change, like one made in the Nanoleaf app, and becomes the preference on the next Work or Quiet observation. This requirement maps to issue #64 AC3.
 
 #### Scenario: Work indicators use the override
 
@@ -184,6 +184,11 @@ A `brightness.set` command SHALL be accepted in Work, Quiet and Free and SHALL r
 
 - **WHEN** power off is accepted in Work and a task status then changes
 - **THEN** the device receives one power-off write and no indicator writes, task placements and epochs continue, and the next explicit mode command renders the current indicators with lights on
+
+#### Scenario: Brightness set in Free becomes the preference
+
+- **WHEN** brightness 42 is accepted in Free and the user later chooses Work
+- **THEN** the remembered scene brightness observed on return is 42, as it would be after a change in the Nanoleaf app
 
 #### Scenario: Free handoff clears an override
 

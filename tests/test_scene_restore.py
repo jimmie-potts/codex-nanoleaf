@@ -230,6 +230,21 @@ class SceneTest(unittest.TestCase):
         self.assertEqual(set(saved['scene']), {'name', 'brightness'})
         self.assertNotIn('PRIVATE_TEST_TOKEN', json.dumps(saved))
 
+    def test_legacy_quiet_state_file_keeps_remembered_brightness_after_upgrade(self):
+        # Files written before the recorded level existed only ever dimmed to 10.
+        b.write_json(self.directory / 'scene-state.json',
+                     {'version': 1, 'scene': {'name': 'Beach Waves', 'brightness': 43}, 'owned': True, 'quiet_scene': 'Beach Waves'})
+        self.device.brightness = 10
+        manager = self.manager()
+        self.assertEqual(manager.state['quiet_brightness'], 10)
+        manager.observe()
+        self.assertEqual(self.saved()['scene'], {'name': 'Beach Waves', 'brightness': 43})
+        manager.send(dict(self.config, _mode='free'), self.idle, 1000, True)
+        self.assertEqual(self.device.brightness, 43)
+        b.write_json(self.directory / 'scene-state.json', {'version': 1, 'scene': None, 'owned': False, 'quiet_scene': None, 'quiet_brightness': 101})
+        with self.assertRaises(ValueError):
+            self.manager()
+
     def test_upgrade_adopts_cached_indicators_before_restoring_idle_baseline(self):
         self.event('UserPromptSubmit')
         self.device.selected = '*Dynamic*'

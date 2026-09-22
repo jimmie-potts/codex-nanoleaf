@@ -22,8 +22,9 @@ can also set power, brightness and, in Free only, a saved scene. Brightness and
 power set that way are overrides: they govern the bridge's writes in the current
 mode until the next explicit mode choice, including the same mode, from the tray,
 CLI, wall map or a native client. While power is off the bridge writes nothing and
-keeps tracking tasks. The remembered scene brightness is never replaced by an
-override.
+keeps tracking tasks. In Work and Quiet the remembered scene brightness is never
+replaced by an override; in Free the bridge does not own the lights, so a
+brightness set there becomes the preference like a change made in the Nanoleaf app.
 
 Returning to Work shows current tasks without replaying waves from statuses that
 arose while away. Future status changes get their normal wave or completion comet. Modes do not mark

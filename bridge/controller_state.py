@@ -73,9 +73,9 @@ def discovered(db,names):
     for name in names:
         if isinstance(name,str) and name and name not in clean and len(clean)<MAX_SCENES:clean.append(name)
     data=read(db)
-    if 'sceneKey' not in data:
-        data['sceneKey']=secrets.token_hex(32);save(db,data)  # Ledgers created before discovery existed.
-    if data.get('scenes',[])==clean:return False
+    minted='sceneKey' not in data  # Ledgers created before discovery existed.
+    if minted:data['sceneKey']=secrets.token_hex(32)
+    if not minted and data.get('scenes',[])==clean:return False
     data['scenes']=clean;save(db,data);event(db);return True
 
 

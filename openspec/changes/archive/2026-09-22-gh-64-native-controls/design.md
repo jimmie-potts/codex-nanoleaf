@@ -24,7 +24,7 @@ See proposal.md. Native mode commands are admitted through the vendored contract
 - [Power off and a pending mode race] → mode application is exempt from the gate and one-shots run afterwards in admission order, so the last command wins visibly and receipts stay truthful.
 - [Override captured as scene preference] → `quiet_brightness` marker plus the observation guard; tests cover Work and Quiet idle with a same-mode reapply.
 - [Discovery churn producing feed events] → the ledger updates only on an actual list change; the order and bound are deterministic.
-- [Legacy scene state files] → unknown keys are ignored by older code; new code defaults the marker; the state test asserts the key set and privacy.
+- [Legacy scene state files] → unknown keys are ignored by older code; new code defaults the marker to 10, covered by a test that loads a pre-change Quiet file and keeps the remembered brightness; the state test asserts the key set and privacy.
 - [Hub pinned fixtures drift] → the companion PR re-pins the changed source hashes and the compatibility record; the vendored contract archive is untouched.
 
 ## Migration Plan
