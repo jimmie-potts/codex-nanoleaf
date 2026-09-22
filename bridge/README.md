@@ -258,7 +258,8 @@ pending edits, comets, Locate, mode and the saved scene are stored per device,
 and the layout file holds one entry per device with each element's physical
 ID, number and zones. The
 [device state specification](../openspec/specs/device-state/spec.md) owns that
-contract and the in-place Linux migration; [ADR 0009](../docs/decisions/0009-device-aware-state.md)
+contract and the in-place migration, which runs wherever this source opens a
+database and is qualified on Linux; [ADR 0009](../docs/decisions/0009-device-aware-state.md)
 records the decisions. This worker still renders the original device only.
 
 A local worker sends custom Nanoleaf animations. During the initial outward pulse,

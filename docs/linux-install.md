@@ -61,7 +61,8 @@ device is `wall` and its token stays under `token`. `layout.json` holds one
 entry per device. When newer source opens an existing installation's database,
 the [device state specification](../openspec/specs/device-state/spec.md) upgrade
 adds the device key in place and preserves tasks, preferences, pending edits,
-the active comet and controller history.
+the active comet and controller history. The same upgrade runs wherever this
+source opens a database; only this Linux path is qualified.
 
 The installer replaces only entries with this integration's hook marker and
 preserves unrelated handlers and settings. By default it uses

@@ -196,9 +196,11 @@ def fetch_snapshot(config, minimum_revision=0):
     config = validate_config(config)
     return check_envelope(request(config, '/sessions'), config, minimum_revision)
 
+import devices
+
 # All tables are local presentation/configuration, never another agent reducer.
 TABLES = ('sessions','slots','waits','activity','receipts','comets','task_info')
-DEFAULT_DEVICE = 'wall'  # The original Lines device; see devices.DEFAULT.
+DEFAULT_DEVICE = devices.DEFAULT  # The original Lines device.
 
 
 def init(db):
@@ -255,8 +257,13 @@ def _dump_tables(db):
 def _restore_tables(db, saved):
     for table in TABLES:
         db.execute('DELETE FROM ' + table)
+        legacy = devices.REBUILT.get(table)
         for row in saved[table]:
-            db.execute('INSERT INTO ' + table + ' VALUES (' + ','.join('?' for _ in row) + ')', row)
+            columns = ''
+            if legacy and len(row) == legacy.count(',') + 1:
+                # A backup taken before the device key existed restores to the original device.
+                columns = ' (' + legacy + ')'
+            db.execute('INSERT INTO ' + table + columns + ' VALUES (' + ','.join('?' for _ in row) + ')', row)
 
 
 def _bound_preferences(db, config):

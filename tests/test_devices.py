@@ -282,6 +282,26 @@ class DeviceTest(unittest.TestCase):
             self.assertEqual(db.execute("SELECT COUNT(*) FROM controller_requests WHERE phase='done'").fetchone(), (1,))
             self.assertEqual(db.execute("SELECT COUNT(*) FROM integration_requests WHERE phase='done'").fetchone(), (1,))
 
+    def test_pre_change_shared_input_backup_restores_after_migration(self):
+        import shared_input
+        for name in ('config.json', 'layout.json', 'scene-state.json'):
+            shutil.copyfile(FIXTURE / name.replace('.json', '-fixture.json'), self.directory / name)
+        backup = {'sessions': [['legacy', 'turn', 'working', 900.0]], 'slots': [['legacy', 7]], 'waits': [],
+                  'activity': [['legacy', 'turn', 'working', 900.0]], 'receipts': [], 'comets': [['legacy', 'turn', 901.0, 7, 902.0]],
+                  'task_info': [['legacy', 'Old title', '', None, None, 'turn', 900.0]]}
+        with contextlib.closing(sqlite3.connect(self.directory / 'status.sqlite')) as db:
+            db.executescript((FIXTURE / 'status.sql').read_text())
+            db.execute("UPDATE shared_input SET source='shared', backup=? WHERE id=1", (json.dumps(backup),))
+            db.commit()
+        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+            db.execute('BEGIN IMMEDIATE')
+            shared_input._restore_tables(db, backup)
+            self.assertEqual(db.execute('SELECT session, slot, device FROM slots').fetchall(), [('legacy', 7, 'wall')])
+            self.assertEqual(db.execute('SELECT session, source, started, device FROM comets').fetchall(), [('legacy', 7, 902.0, 'wall')])
+            restored = shared_input._dump_tables(db)
+            shared_input._restore_tables(db, restored)
+            self.assertEqual(shared_input._dump_tables(db), restored)
+
     # AC6: untargeted callers
     def test_untargeted_callers_address_default_device(self):
         self.write_two_devices()
