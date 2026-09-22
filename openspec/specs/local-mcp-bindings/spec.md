@@ -12,7 +12,7 @@ The integration SHALL expose an opt-in loopback MCP host using the immutable sha
 #### Scenario: Native initialization and scoped discovery
 - **WHEN** a native client initializes using a current machine credential and no Origin
 - **THEN** the shared handler authenticates it and discovery contains only the configured target's tools allowed by its current scopes
-- **AND** unsupported power, brightness, scene, zone and raw commands are unavailable
+- **AND** the tool surface exposes no power, brightness, scene, zone or raw command, whatever the controller advertises
 
 #### Scenario: Invalid transport or revoked principal
 - **WHEN** the path, Host, supplied Origin or credential is invalid, or a principal is removed before new dispatch

@@ -17,6 +17,15 @@ controls the lights. An already-playing user scene is left playing. After releas
 even blocked tasks cannot interrupt it. Free does not launch music or Screen Mirror;
 start those in the Nanoleaf apps.
 
+A native client of the [controller API](../docs/controller-api.md#general-controls)
+can also set power, brightness and, in Free only, a saved scene. Brightness and
+power set that way are overrides: they govern the bridge's writes in the current
+mode until the next explicit mode choice, including the same mode, from the tray,
+CLI, wall map or a native client. While power is off the bridge writes nothing and
+keeps tracking tasks. In Work and Quiet the remembered scene brightness is never
+replaced by an override; in Free the bridge does not own the lights, so a
+brightness set there becomes the preference like a change made in the Nanoleaf app.
+
 Returning to Work shows current tasks without replaying waves from statuses that
 arose while away. Future status changes get their normal wave or completion comet. Modes do not mark
 tasks read or discard task assignments. Quiet preserves the scene's original
@@ -51,7 +60,10 @@ mode. Uninstall requests Free mode and removes the tray shortcuts and hooks.
 To roll back, close the tray and stop this installation's worker and map server.
 Restore the backed-up program files, then run `setup --refresh`. The older bridge
 ignores the extra database tables. Keep the current database if you want to retain
-task events received since the upgrade. The backup includes a consistent database
+task events received since the upgrade. Older program files do not know the
+recorded native brightness level in `scene-state.json`; if a native override was
+active at rollback, choose a mode once so the older worker re-observes the scene
+rather than adopting that level as the remembered brightness. The backup includes a consistent database
 snapshot and copies of the credentials, layout, and scene preference for recovery.
 
 
@@ -324,11 +336,12 @@ and tool results are not stored or sent to the lights. The Nanoleaf token stays
 in the installation's private `config.json`.
 
 The installation's `scene-state.json` stores only the scene name, brightness,
-whether the bridge currently controls the display, and the scene temporarily dimmed
-by Quiet mode. It survives worker
-restarts. No saved Nanoleaf scenes are added, edited, or deleted.
+whether the bridge currently controls the display, and the playing scene whose
+brightness the bridge changed (Quiet's 10% or a native override) with the level it
+wrote. It survives worker restarts. No saved Nanoleaf scenes are added, edited, or
+deleted; a native scene choice selects an existing one.
 
-All 100 tests pass in WSL and the bundled Windows Python. They cover
+The regression suite (`python3 scripts/check.py`) passes in WSL and the bundled Windows Python. It covers
 one outward pulse, spatial propagation, continuing local pulses, concurrent
 status changes, question/block distinctions, unread receipt handling, read-state
 failures, task assignments, migration, privacy, identical paired-zone frames in Classic,
@@ -395,7 +408,7 @@ Locate let you adjust it to your viewing position.
 
 ## Optional native controller API
 
-The [controller API guide](../docs/controller-api.md) describes opt-in local machine authentication, mode-only control, pure snapshots, bounded recovery and verified dependency adoption. The [protected controller specification](../openspec/specs/protected-controller-api/spec.md) owns the machine contract. Existing wall-map authentication and the animation/scene behavior above remain unchanged. Source delivery does not enable the listener or install credentials.
+The [controller API guide](../docs/controller-api.md) describes opt-in local machine authentication, mode, power, brightness and saved-scene control, pure snapshots, bounded recovery and verified dependency adoption. The [protected controller specification](../openspec/specs/protected-controller-api/spec.md) owns the machine contract. Existing wall-map authentication and the animation/scene behavior above remain unchanged. Source delivery does not enable the listener or install credentials.
 
 ## Connector geometry for the wall
 

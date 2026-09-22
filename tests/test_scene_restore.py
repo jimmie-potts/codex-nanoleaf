@@ -15,6 +15,7 @@ class Device:
         self.names = ['Beach Waves', 'Cotton Candy']
         self.selected = 'Beach Waves'
         self.brightness = 43
+        self.on = True
         self.calls = []
         self.fail = None
         self.lose_selection_reply = False
@@ -27,9 +28,12 @@ class Device:
         if method == 'GET' and endpoint == '/effects':
             return {'select': self.selected, 'effectsList': list(self.names)}
         if method == 'GET' and endpoint == '/state':
-            return {'brightness': {'value': self.brightness}, 'on': {'value': True}}
+            return {'brightness': {'value': self.brightness}, 'on': {'value': self.on}}
         if method == 'PUT' and endpoint == '/state':
-            self.brightness = payload['brightness']['value']
+            if 'brightness' in payload:
+                self.brightness = payload['brightness']['value']
+            if 'on' in payload:
+                self.on = payload['on']['value']
         elif method == 'PUT' and endpoint == '/effects':
             if 'select' in payload:
                 assert payload['select'] in self.names
@@ -222,9 +226,24 @@ class SceneTest(unittest.TestCase):
         manager.observe()
         manager.send(self.config, self.active, 1000, True)
         saved = self.saved()
-        self.assertEqual(set(saved), {'version', 'scene', 'owned', 'quiet_scene'})
+        self.assertEqual(set(saved), {'version', 'scene', 'owned', 'quiet_scene', 'quiet_brightness'})
         self.assertEqual(set(saved['scene']), {'name', 'brightness'})
         self.assertNotIn('PRIVATE_TEST_TOKEN', json.dumps(saved))
+
+    def test_legacy_quiet_state_file_keeps_remembered_brightness_after_upgrade(self):
+        # Files written before the recorded level existed only ever dimmed to 10.
+        b.write_json(self.directory / 'scene-state.json',
+                     {'version': 1, 'scene': {'name': 'Beach Waves', 'brightness': 43}, 'owned': True, 'quiet_scene': 'Beach Waves'})
+        self.device.brightness = 10
+        manager = self.manager()
+        self.assertEqual(manager.state['quiet_brightness'], 10)
+        manager.observe()
+        self.assertEqual(self.saved()['scene'], {'name': 'Beach Waves', 'brightness': 43})
+        manager.send(dict(self.config, _mode='free'), self.idle, 1000, True)
+        self.assertEqual(self.device.brightness, 43)
+        b.write_json(self.directory / 'scene-state.json', {'version': 1, 'scene': None, 'owned': False, 'quiet_scene': None, 'quiet_brightness': 101})
+        with self.assertRaises(ValueError):
+            self.manager()
 
     def test_upgrade_adopts_cached_indicators_before_restoring_idle_baseline(self):
         self.event('UserPromptSubmit')

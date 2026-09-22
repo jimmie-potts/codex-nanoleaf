@@ -17,7 +17,8 @@ controller listener serves both APIs on the same authenticated loopback endpoint
 | `task.assign` | Opaque task ID, nullable project override | Machine `control` |
 | `project.color` | Opaque project ID, `#RRGGBB` saved color | Machine `control` |
 | Cancel a configuration edit | Its original request ticket | Owning machine principal with `control` |
-| Locate, preview, power, brightness, scene selection, source switching, orientation, new devices or combined layouts | Unsupported by this extension | No operation |
+| Power, brightness, saved-scene activation | Shared v1 `power.set`, `brightness.set`, `scene.activate` | Machine `control`, unchanged `/controller/v1/commands`; see [general controls](controller-api.md#general-controls) |
+| Locate, preview, source switching, orientation, new devices or combined layouts | Unsupported by this extension | No operation |
 
 The four extension edits preserve the selected Work/Quiet/Free mode. They are
 available in all three modes, using the existing wall application operations.
@@ -74,7 +75,12 @@ credential rotation or revocation.
 
 Snapshots expose `identity`, `configurationRevision`, `revision`, `mode`,
 `settings`, `source`, `projects`, `tasks`, `elements`, `wallPending`, `pending`,
-`outcomes`, `nextRequestId`, `capabilities` and `limits`. Current values and desired
+`outcomes`, `scenes`, `nextRequestId`, `capabilities` and `limits`. `scenes` lists
+the discovered saved scenes as `{id, name?}` in device order, bounded to 256; the
+`id` matches the shared v1 `scenes` capability and `name` is the user's Nanoleaf
+app name, present only when it fits the 80-character label bound. Nothing else is
+copied into names. Consumers that validate the snapshot shape exactly must accept
+this optional key; the hub companion for #64 extends its validator. Current values and desired
 pending edits remain separate. `wallPending` is null or an allowlisted object
 with settings, element changes and task overrides. `pending` contains only the
 caller's queued extension request; `outcomes` contains its latest 32 receipts.

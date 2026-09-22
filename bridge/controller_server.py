@@ -123,7 +123,7 @@ class App:
             auth=self.facts(db,token,scope='control',**checks)
             rows=list(db.execute('SELECT request,receipt,phase FROM controller_requests ORDER BY sequence'))
             admission=dict(controllerId=data['identity']['controllerId'],deviceId=data['identity']['deviceId'],epoch=data['epoch'],nextSequence=data['nextSequence'],
-                           configurationRevision=data['revision'],generation=state.ticket(data,data['generation']),capabilities=state.CAPABILITIES,
+                           configurationRevision=data['revision'],generation=state.ticket(data,data['generation']),capabilities=state.capabilities(data),
                            maxBodyBytes=65536,maxInFlight=32,maxQueue=32,maxReceipts=256,inFlight=sum(r[2]!='done' for r in rows),queueDepth=sum(r[2]!='done' for r in rows),
                            cache=[dict(request=json.loads(r),receipt=json.loads(v)) for r,v,p in rows if p=='done'],pending=[dict(request=json.loads(r)) for r,v,p in rows if p!='done'])
             result=self.contract.admit(dict(state=admission,auth=auth,request=request,bodyBytes=body_bytes if body_bytes is not None else len(state.encoded(request).encode())))
@@ -134,19 +134,31 @@ class App:
             if not result['reserved']:return HTTP.get(decision,400),{'failure':{'code':decision}}
             check_deadline(deadline)
             receipt=result['receipt'];sequence=request['requestId']['sequence']
-            data['nextSequence']=result['nextSequence'];data['revision']=receipt['configurationRevision'];state.save(db,data)
+            command=request['command'];kind=command['kind']
             control=self.b.control_state(db)
-            if result['scheduled']:
+            if result['scheduled'] and kind=='scene.activate' and control['mode']!='free':
+                # Scenes are content controls; Work and Quiet present agent status. Typed, retained, no write.
+                decision='unsupported-capability';result['scheduled']=0
+                receipt.update(outcome='failed',failure={'code':decision},configurationRevision=data['revision'])
+            data['nextSequence']=result['nextSequence'];data['revision']=receipt['configurationRevision'];state.save(db,data)
+            if result['scheduled'] and kind=='mode.set':
                 # A policy generation is distinct from the request's optimistic expectation.
                 state.changed(db,mode=True,native=True)
                 data=state.read(db);receipt['generation']=state.ticket(data,data['generation'])
-                self.b.change_mode(db,request['command']['mode'].lower(),time.time(),notify=False)
+                self.b.change_mode(db,command['mode'].lower(),time.time(),notify=False)
                 control=self.b.control_state(db)
+                launch=True
+            elif result['scheduled']:
+                # A fresh native request authorizes another attempt; the override is desired state at once.
+                db.execute("DELETE FROM meta WHERE key='controller_hold_revision'")
+                if kind=='power.set':db.execute("INSERT OR REPLACE INTO meta VALUES ('controller_power',?)",('1' if command['on'] else '0',))
+                elif kind=='brightness.set':db.execute("INSERT OR REPLACE INTO meta VALUES ('controller_brightness',?)",(str(command['percent']),))
+                self.b.mark_dirty(db)
                 launch=True
             principal=state.credential(db,token)[0]
             db.execute('INSERT INTO controller_requests VALUES (?,?,?,?,?,?,?)',(sequence,state.encoded(request),state.encoded(receipt),principal,'queued' if launch else 'done',time.time(),control['revision']))
             if not launch:state.finish(db,sequence,'failed',decision)
-            elif control['revision']==control['applied'] and not control['error']:
+            elif kind=='mode.set' and control['revision']==control['applied'] and not control['error']:
                 state.finish(db,sequence,'cancelled');launch=False
                 receipt=json.loads(db.execute('SELECT receipt FROM controller_requests WHERE sequence=?',(sequence,)).fetchone()[0])
             else:state.event(db)
