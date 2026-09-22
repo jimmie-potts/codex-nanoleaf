@@ -21,6 +21,7 @@ None.
 
 - `protected-controller-api`: the supported-capability requirement changes from mode-only to power, brightness and scenes with typed constraints; new requirements cover general-control execution, the brightness and power override policy, Free-only scene activation and desired-state reporting.
 - `integration-settings-api`: the pure projection additionally lists discovered scene IDs with their user-chosen names; general lighting moves from "unsupported by this extension" to "served by shared v1 with names here".
+- `local-mcp-bindings`: wording only; the MCP tool surface still exposes no power, brightness, scene, zone or raw command, but the scenario no longer calls those controller capabilities unsupported.
 
 ## Impact
 

@@ -77,10 +77,43 @@ class ControlsTest(unittest.TestCase):
             self.assertEqual(receipt['failure'], {'code': 'unsupported-capability'})
             self.assertTrue(self.app.contract.validate('receipt', receipt))
             self.assertEqual(self.app.admit(self.token, req), (200, receipt))
+        self.mode('free'); self.run_worker()  # Only the identity check can reject in Free.
+        self.device.calls.clear()
         _, (code, receipt) = self.command({'kind': 'scene.activate', 'sceneId': 'scene-unknown'})
         self.assertEqual(code, 422); self.assertEqual(receipt['failure']['code'], 'unsupported-capability')
         self.assertEqual([c for c in self.device.calls if c[1] == 'PUT'], [])
         self.assertEqual(self.app.snapshot()['state']['pending'], [])
+
+    def test_power_and_brightness_in_free_are_one_write_each_without_polling(self):
+        self.mode('free'); self.run_worker()
+        self.device.calls.clear()
+        for command, write in (({'kind': 'brightness.set', 'percent': 42}, ('/state', {'brightness': {'value': 42, 'duration': 0}})),
+                               ({'kind': 'power.set', 'on': False}, ('/state', {'on': {'value': False}}))):
+            req, (code, receipt) = self.command(command)
+            self.assertEqual((code, receipt['outcome']), (202, 'queued'))
+            self.run_worker()
+            self.assertEqual(self.device.calls[-1][1:], ('PUT',) + write)
+            self.assertEqual(self.receipt(req)['outcome'], 'sent')
+            self.assertEqual([c for c in self.device.calls if c[1] == 'GET'], [])
+        desired = self.app.snapshot()['state']['desired']
+        self.assertEqual((desired['brightness'], desired['power']), ({'status': 'known', 'value': 42}, {'status': 'known', 'value': False}))
+        self.assertEqual((self.device.brightness, self.device.on), (42, False))
+        self.device.calls.clear(); self.run_worker()
+        self.assertEqual(self.device.calls, [])
+
+    def test_scene_that_disappears_before_send_fails_typed_without_a_write(self):
+        self.run_worker()
+        ids = self.scene_ids()
+        self.mode('free'); self.run_worker()
+        req, (code, _) = self.command({'kind': 'scene.activate', 'sceneId': ids[1]})
+        self.assertEqual(code, 202)
+        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+            db.execute('BEGIN IMMEDIATE')
+            state.discovered(db, ['Beach Waves'])
+        self.device.calls.clear(); self.run_worker()
+        self.assertEqual([c for c in self.device.calls if c[1] == 'PUT'], [])
+        self.assertEqual((self.receipt(req)['outcome'], self.receipt(req)['failure']), ('failed', {'code': 'unsupported-capability'}))
+        self.assertEqual(self.app.admit(self.token, req), (200, self.receipt(req)))
 
     def receipt(self, req):
         return json.loads(self.query('SELECT receipt FROM controller_requests WHERE sequence=%d' % req['requestId']['sequence'])[0][0])
@@ -223,6 +256,42 @@ class ControlsTest(unittest.TestCase):
         self.assertEqual(listed[1], {'id': self.scene_ids()[1]})
         self.assertNotIn('Beach Waves', json.dumps(self.app.snapshot()))
         self.assertNotIn('Beach Waves', json.dumps(self.app.feed(None)))
+
+    def test_control_admitted_during_observation_is_not_undone_by_that_iteration(self):
+        # The listener can admit a control while the worker is inside its device round trip.
+        for command, check in (({'kind': 'power.set', 'on': False}, lambda: (self.device.on, [p for e, p in self.puts() if 'on' in p])),
+                               ({'kind': 'brightness.set', 'percent': 70}, lambda: (self.device.brightness, [p['brightness']['value'] for e, p in self.puts() if 'brightness' in p]))):
+            self.mode('work')
+            self.event('UserPromptSubmit', 'race')
+            self.device.calls.clear()
+            admitted = []
+            original = self.device.request
+            def request(config, method, endpoint='', payload=None):
+                if method == 'GET' and endpoint == '/effects' and not admitted:
+                    admitted.append(self.command(command)[1][1]['outcome'])
+                return original(config, method, endpoint, payload)
+            with patch.object(b, 'light_request', request):
+                self.run_worker([(1002, lambda: self.event('Interrupt', 'race'))])
+            self.assertEqual(admitted, ['queued'])
+            value, writes = check()
+            if command['kind'] == 'power.set':
+                self.assertEqual((value, writes), (False, [{'on': {'value': False}}]))
+            else:
+                self.assertEqual(value, 70)
+                self.assertEqual(writes[0], 70)
+                self.assertTrue(all(w == 70 for w in writes), writes)
+
+    def test_scene_ids_are_not_recoverable_from_published_snapshot_fields(self):
+        self.run_worker()
+        snap = self.app.snapshot()
+        ids = snap['capabilities']['scenes']['sceneIds']
+        for epoch in (snap['identity']['controllerEpoch'], snap['generation']['epoch'], snap['nextRequestId']['epoch']):
+            guesses = {state.scene_id({'epoch': epoch, 'sceneKey': epoch}, name) for name in self.device.names}
+            self.assertFalse(guesses & set(ids))
+        with contextlib.closing(state.readonly(self.directory)) as db:
+            data = state.read(db)
+        self.assertNotIn(data['sceneKey'], json.dumps(snap))
+        self.assertNotIn(data['sceneKey'], json.dumps(self.app.integration_snapshot(self.token, 'device')))
 
 
 if __name__ == '__main__':

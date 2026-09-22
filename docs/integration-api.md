@@ -79,7 +79,8 @@ Snapshots expose `identity`, `configurationRevision`, `revision`, `mode`,
 the discovered saved scenes as `{id, name?}` in device order, bounded to 256; the
 `id` matches the shared v1 `scenes` capability and `name` is the user's Nanoleaf
 app name, present only when it fits the 80-character label bound. Nothing else is
-copied into names. Current values and desired
+copied into names. Consumers that validate the snapshot shape exactly must accept
+this optional key; the hub companion for #64 extends its validator. Current values and desired
 pending edits remain separate. `wallPending` is null or an allowlisted object
 with settings, element changes and task overrides. `pending` contains only the
 caller's queued extension request; `outcomes` contains its latest 32 receipts.

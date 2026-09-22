@@ -59,7 +59,10 @@ mode. Uninstall requests Free mode and removes the tray shortcuts and hooks.
 To roll back, close the tray and stop this installation's worker and map server.
 Restore the backed-up program files, then run `setup --refresh`. The older bridge
 ignores the extra database tables. Keep the current database if you want to retain
-task events received since the upgrade. The backup includes a consistent database
+task events received since the upgrade. Older program files do not know the
+recorded native brightness level in `scene-state.json`; if a native override was
+active at rollback, choose a mode once so the older worker re-observes the scene
+rather than adopting that level as the remembered brightness. The backup includes a consistent database
 snapshot and copies of the credentials, layout, and scene preference for recovery.
 
 
@@ -337,7 +340,7 @@ brightness the bridge changed (Quiet's 10% or a native override) with the level 
 wrote. It survives worker restarts. No saved Nanoleaf scenes are added, edited, or
 deleted; a native scene choice selects an existing one.
 
-All 100 tests pass in WSL and the bundled Windows Python. They cover
+The regression suite (`python3 scripts/check.py`) passes in WSL and the bundled Windows Python. It covers
 one outward pulse, spatial propagation, continuing local pulses, concurrent
 status changes, question/block distinctions, unread receipt handling, read-state
 failures, task assignments, migration, privacy, identical paired-zone frames in Classic,
@@ -404,7 +407,7 @@ Locate let you adjust it to your viewing position.
 
 ## Optional native controller API
 
-The [controller API guide](../docs/controller-api.md) describes opt-in local machine authentication, mode-only control, pure snapshots, bounded recovery and verified dependency adoption. The [protected controller specification](../openspec/specs/protected-controller-api/spec.md) owns the machine contract. Existing wall-map authentication and the animation/scene behavior above remain unchanged. Source delivery does not enable the listener or install credentials.
+The [controller API guide](../docs/controller-api.md) describes opt-in local machine authentication, mode, power, brightness and saved-scene control, pure snapshots, bounded recovery and verified dependency adoption. The [protected controller specification](../openspec/specs/protected-controller-api/spec.md) owns the machine contract. Existing wall-map authentication and the animation/scene behavior above remain unchanged. Source delivery does not enable the listener or install credentials.
 
 ## Connector geometry for the wall
 

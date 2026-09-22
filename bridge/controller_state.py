@@ -1,6 +1,7 @@
 """Standard-library controller ledger in the existing Windows-owned database."""
 import contextlib
 import hashlib
+import hmac
 import json
 import secrets
 import sqlite3
@@ -32,7 +33,7 @@ def init(db, identity):
     if not db.execute('SELECT 1 FROM controller_meta').fetchone():
         epoch=secrets.token_hex(16)
         data=dict(identity=dict(identity,controllerEpoch=epoch),epoch=epoch,nextSequence=0,
-                  revision=0,generation=0,cursor=0,clockEpoch=secrets.token_hex(16),
+                  revision=0,generation=0,cursor=0,clockEpoch=secrets.token_hex(16),sceneKey=secrets.token_hex(32),
                   lastSuccessfulSend=UNKNOWN,lastOutcome=UNKNOWN)
         save(db,data)
 
@@ -46,12 +47,13 @@ def save(db,data):
 
 
 def scene_id(data,name):
-    import hmac
-    return 'scene-'+hmac.new(data['epoch'].encode(),('scene\0'+name).encode(),hashlib.sha256).hexdigest()
+    # Keyed by a private ledger secret, never by an epoch the snapshot publishes.
+    return 'scene-'+hmac.new(data['sceneKey'].encode(),('scene\0'+name).encode(),hashlib.sha256).hexdigest()
 
 
 def scenes(data):
     """Discovered saved scenes as [(id, name)], bounded and ordered as the device reported them."""
+    if 'sceneKey' not in data:return []
     return [(scene_id(data,name),name) for name in data.get('scenes',[])]
 
 
@@ -71,6 +73,8 @@ def discovered(db,names):
     for name in names:
         if isinstance(name,str) and name and name not in clean and len(clean)<MAX_SCENES:clean.append(name)
     data=read(db)
+    if 'sceneKey' not in data:
+        data['sceneKey']=secrets.token_hex(32);save(db,data)  # Ledgers created before discovery existed.
     if data.get('scenes',[])==clean:return False
     data['scenes']=clean;save(db,data);event(db);return True
 

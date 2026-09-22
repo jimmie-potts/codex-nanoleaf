@@ -824,6 +824,8 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
                     continue
                 if observing:
                     controller_state.discovered(db, scenes.names)
+                if controller_state.overrides(db) != overrides:
+                    continue  # A control admitted during the device round trip restarts the pass.
                 preview = db.execute("SELECT value FROM meta WHERE key='preview'").fetchone()
                 if preview:
                     db.execute("DELETE FROM meta WHERE key='preview'")
@@ -876,6 +878,8 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
                 if (control_state(db)['revision'] != control['revision'] or
                         db.execute("SELECT value FROM meta WHERE key='event_revision'").fetchone() != generation):
                     continue
+                if controller_state.overrides(db) != overrides:
+                    continue  # Overrides and queued controls must come from one locked read.
                 waves = [item if item and item[1] > control['wave_cutoff'] else None for item in snapshot]
                 loop = not config['_locate'] and (mode != 'work' or (not config['_comet'] and started >= introduction_ends(waves)))
                 if pending_mode or (scenes and mode != 'free' and
