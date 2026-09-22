@@ -1,0 +1,10 @@
+{
+  "controllerToken": "rNWp0tV8hjAEPF1gFbCHa277bNITg_4eIKbHV73A_zs",
+  "comet": {
+    "source": 4,
+    "started": 1010.0
+  },
+  "cometSourceLine": "108:109",
+  "pendingLocateLine": "110:111",
+  "deviceToken": "fixtureToken"
+}

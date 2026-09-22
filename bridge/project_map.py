@@ -7,6 +7,9 @@ from pathlib import Path
 import posixpath
 import re
 import sqlite3
+import devices
+
+DEFAULT_SETTINGS=('classic','whole',0,0,0)
 
 
 def init(db):
@@ -14,22 +17,25 @@ def init(db):
     for statement in (
         'CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY,name TEXT,color TEXT,roots TEXT)',
         'CREATE TABLE IF NOT EXISTS task_info (session TEXT PRIMARY KEY,title TEXT,cwd TEXT,project TEXT,manual_project TEXT,turn TEXT,started REAL)',
-        'CREATE TABLE IF NOT EXISTS line_prefs (line_id TEXT PRIMARY KEY,project TEXT,signature INTEGER DEFAULT 0)',
-        'CREATE TABLE IF NOT EXISTS map_settings (id INTEGER PRIMARY KEY,style TEXT,coverage TEXT,rotation INTEGER,flip_x INTEGER,flip_y INTEGER)',
-        'CREATE TABLE IF NOT EXISTS map_pending (id INTEGER PRIMARY KEY,payload TEXT)',
-        'CREATE TABLE IF NOT EXISTS locate (id INTEGER PRIMARY KEY,line_id TEXT,started REAL)',
-        "INSERT OR IGNORE INTO map_settings VALUES (1,'classic','whole',0,0,0)",
     ):
         db.execute(statement)
+    for table in ('line_prefs','map_settings','map_pending','locate'):
+        devices.create(db,table)
 
 
-def settings(db):
-    row=db.execute('SELECT style,coverage,rotation,flip_x,flip_y FROM map_settings WHERE id=1').fetchone()
-    return dict(zip(('style','coverage','rotation','flip_x','flip_y'),row))
+def seed(db):
+    # The original device keeps its row; other devices are seeded on their first setting.
+    db.execute('INSERT OR IGNORE INTO map_settings (id,style,coverage,rotation,flip_x,flip_y,device) VALUES (1,?,?,?,?,?,?)',
+               (*DEFAULT_SETTINGS,devices.DEFAULT))
+
+
+def settings(db,device=devices.DEFAULT):
+    row=db.execute('SELECT style,coverage,rotation,flip_x,flip_y FROM map_settings WHERE device=?',(device,)).fetchone()
+    return dict(zip(('style','coverage','rotation','flip_x','flip_y'),row or DEFAULT_SETTINGS))
 
 
 def line_id(pair):
-    return ':'.join(map(str,sorted(pair)))
+    return devices.element_id(pair)
 
 
 def normalize(path):
@@ -143,19 +149,21 @@ def task_projects(db):
 
 
 def owners(db,config):
-    prefs={key:(project,signature) for key,project,signature in db.execute('SELECT * FROM line_prefs')}
-    return [prefs.get(line_id(pair),(None,0)) for pair in config['line_groups']]
+    device=devices.device_of(config)
+    prefs={key:(project,signature) for key,project,signature in db.execute('SELECT line_id,project,signature FROM line_prefs WHERE device=?',(device,))}
+    return [prefs.get(element['id'],(None,0)) for element in devices.elements(config)]
 
 
 def allocate(db,config,rows,reserved):
-    assignments=dict(db.execute('SELECT session,slot FROM slots'))
+    device=devices.device_of(config)
+    assignments=dict(db.execute('SELECT session,slot FROM slots WHERE device=?',(device,)))
     active={r[0] for r in rows}; projects=task_projects(db); prefs=owners(db,config)
-    style=settings(db)['style']
+    style=settings(db,device)['style']
     def valid(session,slot):
         return 0<=slot<len(prefs) and (style=='classic' or prefs[slot][0] in (None,projects.get(session)))
     for session,slot in list(assignments.items()):
         if not valid(session,slot) and slot not in reserved:
-            db.execute('DELETE FROM slots WHERE session=?',(session,)); del assignments[session]
+            db.execute('DELETE FROM slots WHERE session=? AND device=?',(session,device)); del assignments[session]
     for session,_,_ in rows:
         if session in assignments: continue
         candidates=[slot for slot in range(len(prefs)) if slot not in reserved and valid(session,slot)]
@@ -166,93 +174,100 @@ def allocate(db,config,rows,reserved):
             if occupant is None or occupant not in active:
                 chosen=slot
                 if occupant is not None:
-                    db.execute('DELETE FROM slots WHERE session=?',(occupant,)); del assignments[occupant]
+                    db.execute('DELETE FROM slots WHERE session=? AND device=?',(occupant,device)); del assignments[occupant]
                 break
         if chosen is not None:
-            db.execute('INSERT INTO slots VALUES (?,?)',(session,chosen)); assignments[session]=chosen
+            db.execute('INSERT INTO slots (session,slot,device) VALUES (?,?,?)',(session,chosen,device)); assignments[session]=chosen
     return assignments
 
 
 def render_config(db,config,snapshot):
+    device=devices.device_of(config)
     prefs=owners(db,config); projects=task_projects(db)
     colors={pid:tuple(int(color[i:i+2],16) for i in (1,3,5)) for pid,color in db.execute('SELECT id,color FROM projects')}
-    active={slot:projects.get(session) for session,slot in db.execute('SELECT session,slot FROM slots')
+    active={slot:projects.get(session) for session,slot in db.execute('SELECT session,slot FROM slots WHERE device=?',(device,))
             if 0<=slot<len(snapshot) and snapshot[slot]}
-    settings_value=settings(db)
+    settings_value=settings(db,device)
     config['_style']=settings_value['style']; config['_coverage']=settings_value['coverage']
     config['_signatures']=[(colors.get(active.get(i) or owner),signature) for i,(owner,signature) in enumerate(prefs)]
 
 
-def pending(db):
-    row=db.execute('SELECT payload FROM map_pending WHERE id=1').fetchone()
+def pending(db,device=devices.DEFAULT):
+    row=db.execute('SELECT payload FROM map_pending WHERE device=?',(device,)).fetchone()
     return json.loads(row[0]) if row else None
 
 
-def apply_patch(db,patch):
+def apply_patch(db,patch,device=devices.DEFAULT):
     if patch.get('settings'):
+        db.execute('INSERT OR IGNORE INTO map_settings (style,coverage,rotation,flip_x,flip_y,device) VALUES (?,?,?,?,?,?)',
+                   (*DEFAULT_SETTINGS,device))
         for key,value in patch['settings'].items():
-            db.execute(f'UPDATE map_settings SET {key}=? WHERE id=1',(value,))
+            db.execute(f'UPDATE map_settings SET {key}=? WHERE device=?',(value,device))
     for line,value in patch.get('lines',{}).items():
-        current=db.execute('SELECT project,signature FROM line_prefs WHERE line_id=?',(line,)).fetchone() or (None,0)
-        db.execute('INSERT OR REPLACE INTO line_prefs VALUES (?,?,?)',
-                   (line,value.get('project',current[0]),value.get('signature',current[1])))
+        current=db.execute('SELECT project,signature FROM line_prefs WHERE line_id=? AND device=?',(line,device)).fetchone() or (None,0)
+        db.execute('INSERT OR REPLACE INTO line_prefs (line_id,project,signature,device) VALUES (?,?,?,?)',
+                   (line,value.get('project',current[0]),value.get('signature',current[1]),device))
     for session,project in patch.get('tasks',{}).items():
         db.execute('UPDATE task_info SET manual_project=? WHERE session=?',(project,session))
 
 
 def request_patch(db,patch,config):
-    previous=pending(db) or {}
+    device=devices.device_of(config)
+    previous=pending(db,device) or {}
     merged={key:{**previous.get(key,{}),**patch.get(key,{})} for key in ('settings','lines','tasks')}
     merged['lines']={key:{**previous.get('lines',{}).get(key,{}),**patch.get('lines',{}).get(key,{})}
                      for key in merged['lines']}
-    comet=db.execute('SELECT session,source FROM comets WHERE started IS NOT NULL').fetchone()
+    comet=db.execute('SELECT session,source FROM comets WHERE started IS NOT NULL AND device=?',(device,)).fetchone()
     defer=False
     if comet:
         session,source=comet
-        source_id=line_id(config['line_groups'][source])
+        source_id=devices.elements(config)[source]['id']
         defer=('style' in merged['settings'] or source_id in merged['lines'] or session in merged['tasks'])
     if defer:
-        db.execute('INSERT OR REPLACE INTO map_pending VALUES (1,?)',(json.dumps(merged),))
+        db.execute('INSERT OR REPLACE INTO map_pending (payload,device) VALUES (?,?)',(json.dumps(merged),device))
     else:
-        apply_patch(db,merged); db.execute('DELETE FROM map_pending')
+        apply_patch(db,merged,device); db.execute('DELETE FROM map_pending WHERE device=?',(device,))
     return defer
 
 
-def apply_pending(db):
-    change=pending(db)
-    if change and not db.execute('SELECT 1 FROM comets WHERE started IS NOT NULL').fetchone():
-        apply_patch(db,change); db.execute('DELETE FROM map_pending'); return True
+def apply_pending(db,device=devices.DEFAULT):
+    change=pending(db,device)
+    if change and not db.execute('SELECT 1 FROM comets WHERE started IS NOT NULL AND device=?',(device,)).fetchone():
+        apply_patch(db,change,device); db.execute('DELETE FROM map_pending WHERE device=?',(device,)); return True
     return False
 
 
 def locate_state(db,config,instant,mode):
+    device=devices.device_of(config)
     if mode=='free':
-        db.execute('DELETE FROM locate'); return None
-    row=db.execute('SELECT line_id,started FROM locate WHERE id=1').fetchone()
+        db.execute('DELETE FROM locate WHERE device=?',(device,)); return None
+    row=db.execute('SELECT line_id,started FROM locate WHERE device=?',(device,)).fetchone()
     if not row: return None
     key,started=row
     if started is not None and instant>=started+1:
-        db.execute('DELETE FROM locate'); return None
-    if db.execute('SELECT 1 FROM comets WHERE started IS NOT NULL').fetchone(): return None
-    ids=[line_id(pair) for pair in config['line_groups']]
+        db.execute('DELETE FROM locate WHERE device=?',(device,)); return None
+    if db.execute('SELECT 1 FROM comets WHERE started IS NOT NULL AND device=?',(device,)).fetchone(): return None
+    ids=[element['id'] for element in devices.elements(config)]
     if key not in ids:
-        db.execute('DELETE FROM locate'); return None
+        db.execute('DELETE FROM locate WHERE device=?',(device,)); return None
     if started is None:
-        started=instant; db.execute('UPDATE locate SET started=? WHERE id=1',(started,))
+        started=instant; db.execute('UPDATE locate SET started=? WHERE device=?',(started,device))
     return {'source':ids.index(key),'started':started}
 
 
 def geometry(config):
+    """Map segments for two-zone Lines; a device without that shape has no Line geometry yet."""
     raw=config.get('zone_geometry')
-    if not raw: return []
+    elements=devices.elements(config)
+    if not raw or any(len(element['zones'])!=2 for element in elements): return []
     zones={p['panelId']:p for p in raw['positionData']}
     segments=[]
     angle=math.radians(raw.get('orientation',0))
     def rotate(x,y): return [x*math.cos(angle)-y*math.sin(angle),-(x*math.sin(angle)+y*math.cos(angle))]
-    for index,pair in enumerate(config['line_groups']):
-        a,b=(zones[i] for i in pair); dx=b['x']-a['x']; dy=b['y']-a['y']
+    for element in elements:
+        a,b=(zones[i] for i in element['zones']); dx=b['x']-a['x']; dy=b['y']-a['y']
         points=[rotate(a['x']-dx/2,a['y']-dy/2),rotate((a['x']+b['x'])/2,(a['y']+b['y'])/2),rotate(b['x']+dx/2,b['y']+dy/2)]
-        segments.append({'id':line_id(pair),'number':index+1,'points':points})
+        segments.append({'id':element['id'],'number':element['number'],'points':points})
     return segments
 
 

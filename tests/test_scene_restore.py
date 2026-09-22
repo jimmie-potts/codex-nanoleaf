@@ -232,7 +232,7 @@ class SceneTest(unittest.TestCase):
         self.clock.value = 1004
         with contextlib.closing(b.connect_state(self.directory)) as db, db:
             snapshot = b.dashboard(db, self.config, 1004)
-            db.execute('INSERT INTO display_v3 VALUES (1, ?, 1, 1004)', (json.dumps(snapshot),))
+            db.execute('INSERT INTO display_v3 (snapshot, looping, rendered) VALUES (?, 1, 1004)', (json.dumps(snapshot),))
         self.run_worker([(1007, lambda: self.event('Interrupt'))])
         self.assertEqual(self.device.selected, '*Static*')
         self.assertFalse(self.saved()['owned'])

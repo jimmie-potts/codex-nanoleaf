@@ -198,6 +198,7 @@ def fetch_snapshot(config, minimum_revision=0):
 
 # All tables are local presentation/configuration, never another agent reducer.
 TABLES = ('sessions','slots','waits','activity','receipts','comets','task_info')
+DEFAULT_DEVICE = 'wall'  # The original Lines device; see devices.DEFAULT.
 
 
 def init(db):
@@ -263,7 +264,7 @@ def _bound_preferences(db, config):
     for binding in config['bindings']:
         key = identity_key(binding['identity'])
         info = db.execute('SELECT project,manual_project FROM task_info WHERE session=?', (key,)).fetchone()
-        slot = db.execute('SELECT slot FROM slots WHERE session=?', (key,)).fetchone()
+        slot = db.execute('SELECT slot FROM slots WHERE session=? AND device=?', (key, DEFAULT_DEVICE)).fetchone()
         result[binding['legacySessionId']] = (info, slot)
     return result
 
@@ -302,8 +303,8 @@ def select_source(directory, bridge, source, fetch=fetch_snapshot, now=time.time
             for session, (info, slot) in prefs.items():
                 if info: db.execute('UPDATE task_info SET project=?,manual_project=? WHERE session=?', (*info, session))
                 if slot:
-                    db.execute('DELETE FROM slots WHERE slot=?', slot)
-                    db.execute('INSERT INTO slots VALUES (?,?)', (session, slot[0]))
+                    db.execute('DELETE FROM slots WHERE slot=? AND device=?', (slot[0], DEFAULT_DEVICE))
+                    db.execute('INSERT INTO slots (session, slot, device) VALUES (?,?,?)', (session, slot[0], DEFAULT_DEVICE))
             db.execute('DELETE FROM comets')
             db.execute('DELETE FROM receipts')
             db.execute('DELETE FROM shared_stale')
@@ -369,7 +370,7 @@ def _project(db, bridge, envelope, config, instant, resync=False):
         elif changed and status == 'unread' and bridge.control_state(db)['mode'] == 'work' and key in prior:
             old_notices = {n['id'] for n in prior[key]['notices']}
             if any(n['id'] not in old_notices and config['consumerId'] not in n['acknowledgedBy'] for n in session['notices']):
-                db.execute('INSERT OR IGNORE INTO comets VALUES (?,?,?,NULL,NULL)', (key,turn,instant))
+                db.execute('INSERT OR IGNORE INTO comets (session,turn,queued,source,started,device) VALUES (?,?,?,NULL,NULL,?)', (key,turn,instant,DEFAULT_DEVICE))
         project = 'shared-project-' + session['projectId'] if session.get('projectId') else None
         if project:
             db.execute('INSERT OR IGNORE INTO projects VALUES (?,?,?,?)', (project,session['projectId'],bridge.wall.default_color(project),'[]'))
@@ -440,8 +441,9 @@ def inspect(directory, now=time.time):
 
 
 def render_config(db, config):
-    config['_steady_slots'] = [slot for (slot,) in db.execute('SELECT slot FROM slots JOIN shared_stale ON slots.session=shared_stale.session')]
-    config['_wave_suppressed_slots'] = [slot for (slot,) in db.execute('SELECT slot FROM slots JOIN shared_suppressed_waves USING (session) JOIN activity USING (session) WHERE epoch=started')]
+    device = config.get('device', DEFAULT_DEVICE)
+    config['_steady_slots'] = [slot for (slot,) in db.execute('SELECT slot FROM slots JOIN shared_stale ON slots.session=shared_stale.session WHERE slots.device=?', (device,))]
+    config['_wave_suppressed_slots'] = [slot for (slot,) in db.execute('SELECT slot FROM slots JOIN shared_suppressed_waves USING (session) JOIN activity USING (session) WHERE epoch=started AND slots.device=?', (device,))]
     row = db.execute("SELECT value FROM meta WHERE key='shared_wave_cutoff'").fetchone()
     if row: config['_wave_cutoff'] = max(config.get('_wave_cutoff',float('-inf')),float(row[0]))
 

@@ -56,6 +56,13 @@ such as WSL's ext4. Mounted Windows, network and unrecognized filesystem types
 are rejected, including resolved symlink destinations. Never place
 runtime databases under `/mnt/c`.
 
+`config.json` also registers each device under `devices`; the original Lines
+device is `wall` and its token stays under `token`. `layout.json` holds one
+entry per device. When newer source opens an existing installation's database,
+the [device state specification](../openspec/specs/device-state/spec.md) upgrade
+adds the device key in place and preserves tasks, preferences, pending edits,
+the active comet and controller history.
+
 The installer replaces only entries with this integration's hook marker and
 preserves unrelated handlers and settings. By default it uses
 `$CODEX_HOME/hooks.json`, or `~/.codex/hooks.json` when `CODEX_HOME` is unset.

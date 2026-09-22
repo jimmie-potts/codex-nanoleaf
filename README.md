@@ -42,7 +42,10 @@ After `npm ci`, run `npm run check:workflow` to validate OpenSpec work and
 pinned locally; use `npm run openspec -- <arguments>` instead of a global CLI.
 Reusable skills come from the [shared catalog](https://github.com/jimmie-potts/agent-skills); see [setup](docs/development.md#shared-skills). This repository keeps no shared skill copies.
 The [wall Line identification specification](openspec/specs/wall-line-identification/spec.md)
-owns numbering, selection, and the Locate boundary. Other behavior remains
+owns numbering, selection, and the Locate boundary. The
+[device state specification](openspec/specs/device-state/spec.md) owns the
+device registry, device-scoped state, the per-device layout shape and the
+Linux migration. Other behavior remains
 documented in [the bridge guide](bridge/README.md) until migrated through review.
 
 ## Installation

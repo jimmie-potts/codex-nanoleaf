@@ -252,6 +252,15 @@ are preserved. A finished, viewed task's slot can be reused when needed. At most
 15 tasks can have individual indicators at once; additional tasks remain tracked
 until a slot becomes available.
 
+The private configuration registers each device by id, kind, address and token
+reference; the original Lines device is `wall`. Placements, reservations,
+pending edits, comets, Locate, mode and the saved scene are stored per device,
+and the layout file holds one entry per device with each element's physical
+ID, number and zones. The
+[device state specification](../openspec/specs/device-state/spec.md) owns that
+contract and the in-place Linux migration; [ADR 0009](../docs/decisions/0009-device-aware-state.md)
+records the decisions. This worker still renders the original device only.
+
 A local worker sends custom Nanoleaf animations. During the initial outward pulse,
 it checks for changed task states and rebuilds the animation without resetting
 other tasks' pulse times. After that, the controller loops the local pulses by
