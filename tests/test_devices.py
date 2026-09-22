@@ -213,7 +213,8 @@ class DeviceTest(unittest.TestCase):
 
     def test_pre_change_linux_database_migrates_and_repeats_without_change(self):
         for name in ('config.json', 'layout.json', 'scene-state.json'):
-            shutil.copyfile(FIXTURE / name, self.directory / name)
+            # The fixture copies carry a suffix so the private-state ignore rules do not hide them.
+            shutil.copyfile(FIXTURE / name.replace('.json', '-fixture.json'), self.directory / name)
         with contextlib.closing(sqlite3.connect(self.directory / 'status.sqlite')) as db:
             db.executescript((FIXTURE / 'status.sql').read_text())
             before = self.rows(db)
