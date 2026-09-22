@@ -1,8 +1,8 @@
 # Local controller API
 
-The optional controller API exposes the bridge's existing Work, Quiet and Free modes to local native clients. The installation's single worker owns light updates on Linux or Windows. Power, brightness, media, zones, scenes and animation preview are explicitly unsupported. Work/Quiet brightness and scene restoration retain their existing policies.
+The optional controller API exposes the bridge's existing Work, Quiet and Free modes, plus power, brightness and saved-scene activation, to local native clients. The installation's single worker owns light updates on Linux or Windows. Media, zones and animation preview are explicitly unsupported. Work/Quiet brightness and scene restoration retain their existing policies; [general controls](#general-controls) describe how a native override interacts with them.
 
-The [protected controller specification](../openspec/specs/protected-controller-api/spec.md) owns the machine behavior. [Issue #28](https://github.com/jimmie-potts/codex-nanoleaf/issues/28) owns delivery scope. Shared monitoring, installation/real-client acceptance and physical previews have separate issues.
+The [protected controller specification](../openspec/specs/protected-controller-api/spec.md) owns the machine behavior. [Issue #28](https://github.com/jimmie-potts/codex-nanoleaf/issues/28) owns the original delivery scope and [issue #64](https://github.com/jimmie-potts/codex-nanoleaf/issues/64) the general controls. Shared monitoring, installation/real-client acceptance and physical previews have separate issues.
 
 ## Linux installation
 
@@ -44,11 +44,25 @@ Every request requires `Authorization: Bearer <machine credential>` and the exac
 | `POST /controller/v1/commands` | Shared receipt, or bounded `{failure:{code}}` before admission |
 | `GET /controller/v1/feed?deviceId=<id>&epoch=<id>&sequence=<integer>` | Bounded array of shared feed events |
 
-Commands use JSON and the exact shared `Request` schema. Obtain `nextRequestId`, `configurationRevision` and `generation` from a current snapshot. Supply those values as `requestId`, `expectedConfigurationRevision` and `expectedGeneration`, alongside explicit `controllerId`, `deviceId` and `command:{kind:"mode.set",mode:"Work"|"Quiet"|"Free"}`. Unknown fields, raw destinations, fractional/unsafe counters, duplicate JSON keys and non-finite numbers fail validation. Authentication and target scope checks happen before replay.
+Commands use JSON and the exact shared `Request` schema. Obtain `nextRequestId`, `configurationRevision` and `generation` from a current snapshot. Supply those values as `requestId`, `expectedConfigurationRevision` and `expectedGeneration`, alongside explicit `controllerId`, `deviceId` and one command: `{kind:"mode.set",mode:"Work"|"Quiet"|"Free"}`, `{kind:"power.set",on:boolean}`, `{kind:"brightness.set",percent:0..100}` or `{kind:"scene.activate",sceneId:<advertised id>}`. Unknown fields, raw destinations, fractional/unsafe counters, duplicate JSON keys and non-finite numbers fail validation. Authentication and target scope checks happen before replay.
 
 Admission returns HTTP 202 for queued work. An identical pending request joins its original work; a completed identical request returns its retained receipt with HTTP 200. Different bodies under one ID conflict. Old uncached/foreign IDs expire; future IDs fail ordering. Semantic failures after reservation retain their receipt. Pre-admission capacity rejection consumes no identity. Use the shared error mapping: 400 invalid, 401 unauthenticated, 403 forbidden, 404 unknown target, 409 conflict/order/stale, 410 expired, 422 unsupported, 429 capacity and 503 temporary service/launch failure.
 
 A fulfilled mode that needs no physical work ends as `cancelled`, without failure, with `priorEffects:none` and empty operation arrays. Shared v1 has no separate no-op completion outcome. This result does not claim a transport send.
+
+## General controls
+
+The capability declaration marks `power` supported, `brightness` supported from 0 to 100 and `scenes` supported with the discovered saved-scene IDs, bounded to 256; `media`, `zones` and `preview` stay unsupported. The three commands travel through the same request identity, revision, generation, replay and capacity rules as mode commands and execute as one journaled write by the installation's single worker. Their receipts use the same outcomes: `sent` is transport evidence only. A failed or uncertain write holds the installation exactly as an uncertain mode write does; the worker's automatic retry never sends it again, and a fresh native request or an explicit mode choice authorizes another attempt. An explicit mode command from any owner cancels queued controls as `stale-generation`.
+
+| Control | Accepted in | Policy |
+| --- | --- | --- |
+| `power.set` | Work, Quiet, Free | One write. While desired power is off the worker sends no indicator, restoration or preview writes; task tracking continues. |
+| `brightness.set` | Work, Quiet, Free | One write, then the override governs every brightness the worker writes in the current mode: Work indicators and comets, Quiet steady colors, the blue fallback and the remembered scene when it is restored while idle. |
+| `scene.activate` | Free only | One selection write through the worker, no polling afterwards. In Work or Quiet it fails typed as `unsupported-capability` before any device write, with a replayable receipt. |
+
+Power and brightness overrides persist until the next explicit mode command, including the same mode, from the tray, CLI, wall map or a native client. That command clears both overrides and reapplies the mode's policy: Work indicators at 30% and the remembered scene at its remembered brightness, Quiet at 10%, Free's existing one-time handoff, and lights on. Overrides never change the remembered scene brightness; the scene state records the level the bridge wrote so a later observation does not adopt it as a preference. In Free the bridge does not own the lights, so a brightness set there is treated like a change made in the Nanoleaf app.
+
+Scene identities are discovered by the worker's existing scene observation in Work and Quiet and stored as opaque, epoch-salted IDs; the shared snapshot never carries scene names. The [integration extension](integration-api.md) lists the same IDs with the user's Nanoleaf app names. A scene that disappears from the device fails typed as `unsupported-capability`. Snapshots report desired power and brightness as known only while an override is active; observation, external control and service evidence are unchanged and remain unknown without worker evidence.
 
 ## State, recovery and limits
 

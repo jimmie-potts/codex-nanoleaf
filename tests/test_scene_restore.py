@@ -15,6 +15,7 @@ class Device:
         self.names = ['Beach Waves', 'Cotton Candy']
         self.selected = 'Beach Waves'
         self.brightness = 43
+        self.on = True
         self.calls = []
         self.fail = None
         self.lose_selection_reply = False
@@ -27,9 +28,12 @@ class Device:
         if method == 'GET' and endpoint == '/effects':
             return {'select': self.selected, 'effectsList': list(self.names)}
         if method == 'GET' and endpoint == '/state':
-            return {'brightness': {'value': self.brightness}, 'on': {'value': True}}
+            return {'brightness': {'value': self.brightness}, 'on': {'value': self.on}}
         if method == 'PUT' and endpoint == '/state':
-            self.brightness = payload['brightness']['value']
+            if 'brightness' in payload:
+                self.brightness = payload['brightness']['value']
+            if 'on' in payload:
+                self.on = payload['on']['value']
         elif method == 'PUT' and endpoint == '/effects':
             if 'select' in payload:
                 assert payload['select'] in self.names
@@ -222,7 +226,7 @@ class SceneTest(unittest.TestCase):
         manager.observe()
         manager.send(self.config, self.active, 1000, True)
         saved = self.saved()
-        self.assertEqual(set(saved), {'version', 'scene', 'owned', 'quiet_scene'})
+        self.assertEqual(set(saved), {'version', 'scene', 'owned', 'quiet_scene', 'quiet_brightness'})
         self.assertEqual(set(saved['scene']), {'name', 'brightness'})
         self.assertNotIn('PRIVATE_TEST_TOKEN', json.dumps(saved))
 

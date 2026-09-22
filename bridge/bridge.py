@@ -343,7 +343,15 @@ def render(config, snapshot, instant, loop):
     request = config.get('_controller_request', light_request)
     request(config, 'PUT', '/effects', effect_payload(config, snapshot, instant, loop))
     request(config, 'PUT', '/state', {'on': {'value': True},
-                                           'brightness': {'value': 10 if config.get('_mode') == 'quiet' else 30, 'duration': 0}})
+                                           'brightness': {'value': indicator_brightness(config), 'duration': 0}})
+
+
+def indicator_brightness(config):
+    """A native brightness override governs every worker write until the next explicit mode command."""
+    override = config.get('_brightness')
+    if override is not None:
+        return override
+    return 10 if config.get('_mode') == 'quiet' else 30
 
 
 class SceneRestorer:
@@ -353,16 +361,23 @@ class SceneRestorer:
         self.config = config
         self.request = request or light_request
         self.draw = draw or render
-        self.state = {'version': 1, 'scene': None, 'owned': False, 'quiet_scene': None}
+        # quiet_scene names the playing scene whose brightness the bridge changed while idle
+        # (Quiet's 10% or a native override); quiet_brightness is the level it wrote.
+        self.state = {'version': 1, 'scene': None, 'owned': False, 'quiet_scene': None, 'quiet_brightness': None}
         if self.path.exists():
             saved = json.loads(self.path.read_text(encoding='utf-8-sig'))
             scene = saved.get('scene')
+            level = saved.get('quiet_brightness')
             if (saved.get('version') != 1 or type(saved.get('owned')) is not bool or
-                    (scene is not None and not self.valid_scene(scene))):
+                    (scene is not None and not self.valid_scene(scene)) or
+                    (level is not None and (type(level) is not int or not 0 <= level <= 100))):
                 raise ValueError('Invalid saved scene state.')
+            if 'quiet_brightness' not in saved and saved.get('quiet_scene') is not None:
+                saved['quiet_brightness'] = 10  # The only level earlier versions wrote.
             self.state.update({key: saved[key] for key in self.state if key in saved})
         self.selected = None
         self.available = set()
+        self.names = []
 
     @staticmethod
     def valid_scene(scene):
@@ -384,6 +399,7 @@ class SceneRestorer:
                 or not isinstance(selected, str)):
             raise ValueError('Invalid scene list from controller.')
         self.available = set(names)
+        self.names = list(names)
         self.selected = selected
         if selected in self.available:
             state = self.request(self.config, 'GET', '/state')
@@ -392,33 +408,46 @@ class SceneRestorer:
                 raise ValueError('Invalid scene brightness from controller.')
             # Save before taking over. Temporary *Dynamic* task effects are
             # absent from the saved scene list and can never replace this target.
-            if not (selected == self.state['quiet_scene'] and scene['brightness'] == 10):
-                self.save(scene=scene, quiet_scene=None)
+            # A level the bridge itself wrote onto this scene is not a new preference.
+            if not (selected == self.state['quiet_scene'] and scene['brightness'] == self.state['quiet_brightness']):
+                self.save(scene=scene, quiet_scene=None, quiet_brightness=None)
             return True
         return False
+
+    def wrote(self, name, level):
+        """Record a one-shot native brightness written onto the playing saved scene."""
+        if name in self.available:
+            self.save(quiet_scene=name, quiet_brightness=level)
 
     def send(self, config, snapshot, instant, loop):
         if any(snapshot) or config.get('_comet') or config.get('_locate'):
             self.save(owned=True)
             self.draw(config, snapshot, instant, loop)
-            self.save(quiet_scene=None)
+            self.save(quiet_scene=None, quiet_brightness=None)
             self.selected = '*Dynamic*'
             return
         quiet = config.get('_mode') == 'quiet'
+        override = config.get('_brightness')
         if self.selected == '*ExtControl*' and config.get('_mode') == 'free':
-            self.save(owned=False, quiet_scene=None)
+            self.save(owned=False, quiet_scene=None, quiet_brightness=None)
             return
         if self.selected in self.available:
             # A manually chosen scene is already playing. Leave its animation
             # running instead of restarting it on every idle hook event.
             if quiet:
-                if self.state['quiet_scene'] != self.selected:
-                    self.save(quiet_scene=self.selected, owned=True)
-                    self.request(config, 'PUT', '/state', {'brightness': {'value': 10, 'duration': 0}})
+                level = 10 if override is None else override
+                if self.state['quiet_scene'] != self.selected or self.state['quiet_brightness'] != level:
+                    self.save(quiet_scene=self.selected, quiet_brightness=level, owned=True)
+                    self.request(config, 'PUT', '/state', {'brightness': {'value': level, 'duration': 0}})
             elif self.state['quiet_scene'] == self.selected:
-                self.request(config, 'PUT', '/state', {'brightness': {
-                    'value': self.state['scene']['brightness'], 'duration': 0}})
-                self.save(quiet_scene=None)
+                if override is None:
+                    # The mode policy applies again: the remembered brightness returns.
+                    self.request(config, 'PUT', '/state', {'brightness': {
+                        'value': self.state['scene']['brightness'], 'duration': 0}})
+                    self.save(quiet_scene=None, quiet_brightness=None)
+                elif self.state['quiet_brightness'] != override:
+                    self.request(config, 'PUT', '/state', {'brightness': {'value': override, 'duration': 0}})
+                    self.save(quiet_brightness=override)
             self.save(owned=quiet)
             return
         if not self.state['owned'] and not quiet:
@@ -427,9 +456,11 @@ class SceneRestorer:
         if scene and scene['name'] in self.available:
             # Restore brightness first. If selection succeeds but its response
             # is lost, the next observation still sees the correct saved values.
-            self.save(quiet_scene=scene['name'] if quiet else None)
+            level = override if override is not None else (10 if quiet else scene['brightness'])
+            changed = quiet or override is not None
+            self.save(quiet_scene=scene['name'] if changed else None, quiet_brightness=level if changed else None)
             self.request(config, 'PUT', '/state', {'on': {'value': True},
-                         'brightness': {'value': 10 if quiet else scene['brightness'], 'duration': 0}})
+                         'brightness': {'value': level, 'duration': 0}})
             self.request(config, 'PUT', '/effects', {'select': scene['name']})
             self.selected = scene['name']
         else:
@@ -500,6 +531,16 @@ def change_mode(db, mode, instant, notify=True, device=devices.DEFAULT):
     state = control_state(db, device)
     # The configured controller identity is the original device; other devices stay local.
     notify = notify and device == devices.DEFAULT
+    # Any explicit mode command, including the same mode, ends native power/brightness overrides.
+    overridden = device == devices.DEFAULT and any(value is not None for value in controller_state.overrides(db).values())
+    if overridden:
+        db.execute("DELETE FROM meta WHERE key IN ('controller_power', 'controller_brightness')")
+    if state['mode'] == mode and overridden:
+        db.execute('INSERT OR REPLACE INTO meta VALUES (?, ?)', (key('mode_revision'), str(state['revision'] + 1)))
+        mark_dirty(db)
+        if notify:
+            controller_state.changed(db, mode=True)
+        return True
     if state['mode'] != mode:
         values = {key('mode'): mode, key('mode_revision'): str(state['revision'] + 1)}
         if mode == 'work':
@@ -761,25 +802,32 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
                 if not shared_input.selected(db) and metadata.sync(db): mark_dirty(db)
                 control = control_state(db)
                 held = controller_state.held(db, control['revision'])
+                overrides = controller_state.overrides(db)
             if held:
                 if not shared: return
                 sleep(1)
                 continue
             mode = control['mode']
             pending_mode = control['revision'] != control['applied']
-            config.update(_mode=mode, _wave_cutoff=control['wave_cutoff'])
+            config.update(_mode=mode, _wave_cutoff=control['wave_cutoff'], _brightness=overrides['brightness'])
+            # Desired power off silences indicator, restoration and preview writes; a
+            # pending mode command still applies its own policy (it cleared any override).
+            dark = overrides['power'] is False and not pending_mode
             # Free mode does not even poll the light controller after handoff.
-            external_scene = scenes.observe() if scenes and (mode != 'free' or pending_mode) else False
+            observing = bool(scenes) and (mode != 'free' or pending_mode)
+            external_scene = scenes.observe() if observing else False
             with contextlib.closing(connect_state(directory)) as db, db:
                 db.execute('BEGIN IMMEDIATE')
                 if controller_state.held(db, control['revision']):
                     return
                 if control_state(db)['revision'] != control['revision']:
                     continue
+                if observing:
+                    controller_state.discovered(db, scenes.names)
                 preview = db.execute("SELECT value FROM meta WHERE key='preview'").fetchone()
                 if preview:
                     db.execute("DELETE FROM meta WHERE key='preview'")
-            if preview and mode != 'free':
+            if preview and mode != 'free' and not dark:
                 def preview_send(cfg, snap, instant, loop):
                     with contextlib.closing(connect_state(directory)) as check, check:
                         check.execute('BEGIN IMMEDIATE')
@@ -834,17 +882,35 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
                         (external_scene or (bool(any(snapshot) or config['_comet'] or config['_locate']) or mode == 'quiet') != scenes.state['owned'])):
                     db.execute('DELETE FROM display_v3')
                 execution = controller_state.Execution(db, control['revision'])
-                active_execution[0] = execution
                 def guarded_sender(*args):
                     return execution.call(sender, *args) if send else sender(*args)
-                try:
+                def apply_mode():
+                    active_execution[0] = execution
                     if mode == 'free':
                         if pending_mode:
                             guarded_sender(config, [None] * len(snapshot), started, True)
                         db.execute('DELETE FROM display_v3')
-                    else:
+                    elif not dark:
                         update_display(db, config, snapshot, started, loop, guarded_sender)
                     execution.complete()
+                def apply_controls():
+                    # Native one-shot writes, each journaled under its own request, oldest first.
+                    for sequence, command in controller_state.controls(db, control['revision']):
+                        target = controller_state.control_payload(controller_state.read(db), command)
+                        if target is None:
+                            controller_state.finish(db, sequence, 'failed', 'unsupported-capability')
+                            continue
+                        active_execution[0] = controller_state.Execution(db, control['revision'], sequence)
+                        controller_request(config, 'PUT', target[0], target[1])
+                        active_execution[0].complete()
+                        if scenes and command['kind'] == 'brightness.set' and mode != 'free':
+                            scenes.wrote(scenes.selected, command['percent'])
+                try:
+                    # A pending mode applies first so a control admitted behind it lands last.
+                    if pending_mode:
+                        apply_mode(); apply_controls()
+                    else:
+                        apply_controls(); apply_mode()
                 except controller_state.Cancelled:
                     db.commit()
                     continue

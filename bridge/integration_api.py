@@ -125,6 +125,9 @@ def snapshot(app, token, device, **checks):
         view['nextRequestId'] = state.ticket(state.read(db), sequence)
         view['pending'] = [json.loads(r[0]) for r in db.execute("SELECT request FROM integration_requests WHERE phase='queued' AND principal=?", (principal,))]
         view['outcomes'] = [json.loads(r[0]) for r in db.execute("SELECT receipt FROM integration_requests WHERE principal=? ORDER BY sequence DESC LIMIT 32", (principal,))]
+        # Scene names are the user's Nanoleaf app names; shared v1 carries only the opaque IDs.
+        view['scenes'] = [dict(id=identity, **({'name': name} if len(name) <= state.MAX_LABEL else {}))
+                          for identity, name in state.scenes(state.read(db))]
         view['capabilities'] = {op: {'supported': True, 'scope': 'control'} for op in OPERATIONS}
         view['capabilities']['mode.set'] = {'supported': True, 'scope': 'control', 'route': '/controller/v1/commands'}
         view['limits'] = dict(maxItems=MAX_ITEMS, maxPending=1, maxReceipts=MAX_RECEIPTS, maxBodyBytes=MAX_BODY)

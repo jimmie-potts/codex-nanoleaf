@@ -32,7 +32,8 @@ class ControllerStateTest(unittest.TestCase):
         self.assertTrue(self.app.contract.validate('snapshot', snap))
         self.assertEqual(snap['state']['observation'], {'status':'unknown'})
         self.assertEqual((self.directory/'status.sqlite').read_bytes(), before)
-        self.assertFalse(snap['capabilities']['brightness']['supported'])
+        self.assertTrue(snap['capabilities']['brightness']['supported'])
+        self.assertFalse(snap['capabilities']['preview']['supported'])
 
     def test_atomic_duplicate_conflict_and_browser_staleness(self):
         request = self.request()

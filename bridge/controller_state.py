@@ -8,10 +8,12 @@ import time
 
 LIMITS = dict(maxPending=32,maxBodyBytes=65536,maxInFlight=32,maxReceipts=256,
               maxEvents=32,maxStreams=16,authenticationTimeoutMs=2000)
-CAPABILITIES = {name:{'supported':False} for name in ('power','brightness','media','zones','scenes','preview')}
-CAPABILITIES['modes'] = {'supported':True,'values':['Work','Quiet','Free']}
+UNSUPPORTED = ('media','zones','preview')
 UNKNOWN = {'status':'unknown'}
 PENDING_SECONDS = 30
+MAX_SCENES = 256
+MAX_LABEL = 80
+CONTROLS = ('power.set','brightness.set','scene.activate')
 
 
 def encoded(value):
@@ -43,6 +45,42 @@ def save(db,data):
     db.execute('INSERT OR REPLACE INTO controller_meta VALUES (1,?)',(encoded(data),))
 
 
+def scene_id(data,name):
+    import hmac
+    return 'scene-'+hmac.new(data['epoch'].encode(),('scene\0'+name).encode(),hashlib.sha256).hexdigest()
+
+
+def scenes(data):
+    """Discovered saved scenes as [(id, name)], bounded and ordered as the device reported them."""
+    return [(scene_id(data,name),name) for name in data.get('scenes',[])]
+
+
+def capabilities(data):
+    result={name:{'supported':False} for name in UNSUPPORTED}
+    result['power']={'supported':True}
+    result['brightness']={'supported':True,'minimum':0,'maximum':100}
+    result['scenes']={'supported':True,'sceneIds':[identity for identity,_ in scenes(data)]}
+    result['modes']={'supported':True,'values':['Work','Quiet','Free']}
+    return result
+
+
+def discovered(db,names):
+    """Called by the worker after its scene observation; only a changed list publishes an event."""
+    if not present(db):return False
+    clean=[]
+    for name in names:
+        if isinstance(name,str) and name and name not in clean and len(clean)<MAX_SCENES:clean.append(name)
+    data=read(db)
+    if data.get('scenes',[])==clean:return False
+    data['scenes']=clean;save(db,data);event(db);return True
+
+
+def overrides(db):
+    meta=dict(db.execute("SELECT key,value FROM meta WHERE key IN ('controller_power','controller_brightness')"))
+    power=meta.get('controller_power');brightness=meta.get('controller_brightness')
+    return dict(power=None if power is None else power=='1',brightness=None if brightness is None else int(brightness))
+
+
 def clock(data):
     return dict(domain='controller-monotonic',epoch=data['clockEpoch'],sampledAtMs=time.monotonic()*1000)
 
@@ -54,6 +92,8 @@ def ticket(data,sequence):
 def snapshot(db):
     data=read(db)
     mode=db.execute("SELECT value FROM meta WHERE key='mode'").fetchone()
+    current=overrides(db)
+    known=lambda value:UNKNOWN if value is None else {'status':'known','value':value}
     pending=[]
     for request,receipt in db.execute("SELECT request,receipt FROM controller_requests WHERE phase IN ('queued','attempting') ORDER BY sequence LIMIT 32"):
         request=json.loads(request);receipt=json.loads(receipt)
@@ -61,8 +101,8 @@ def snapshot(db):
     return dict(apiVersion='1.0',identity=data['identity'],configurationRevision=data['revision'],
                 generation=ticket(data,data['generation']),nextRequestId=ticket(data,data['nextSequence']),
                 cursor=ticket(data,data['cursor']),sampleClock=clock(data),serviceHealth='unknown',
-                capabilities=CAPABILITIES,limits=LIMITS,
-                state=dict(desired=dict(power=UNKNOWN,brightness=UNKNOWN,mode=dict(status='known',value=(mode[0] if mode else 'work').capitalize())),
+                capabilities=capabilities(data),limits=LIMITS,
+                state=dict(desired=dict(power=known(current['power']),brightness=known(current['brightness']),mode=dict(status='known',value=(mode[0] if mode else 'work').capitalize())),
                            pending=pending,lastSuccessfulSend=data['lastSuccessfulSend'],lastOutcome=data['lastOutcome'],
                            externalControl=UNKNOWN,observation=UNKNOWN))
 
@@ -137,11 +177,12 @@ class Cancelled(Exception):
 
 class Execution:
     """Journal each transport operation using the worker's transaction and lock."""
-    def __init__(self,db,revision):
-        self.db=db;self.revision=revision;self.sequence=None;self.count=0
-        if not present(db):return
-        row=db.execute("SELECT sequence FROM controller_requests WHERE phase='queued' AND mode_revision=? ORDER BY sequence DESC LIMIT 1",(revision,)).fetchone()
-        if row:self.sequence=row[0]
+    def __init__(self,db,revision,sequence=None):
+        self.db=db;self.revision=revision;self.sequence=sequence;self.count=0
+        if sequence is not None or not present(db):return
+        for row in db.execute("SELECT sequence,request FROM controller_requests WHERE phase='queued' AND mode_revision=? ORDER BY sequence DESC",(revision,)):
+            if json.loads(row[1])['command']['kind']=='mode.set':
+                self.sequence=row[0];break
 
     def current(self):
         row=self.db.execute('SELECT receipt,principal,phase FROM controller_requests WHERE sequence=?',(self.sequence,)).fetchone()
@@ -182,6 +223,26 @@ class Execution:
     def complete(self):
         if self.sequence is not None and self.current():
             finish(self.db,self.sequence,'sent' if self.count else 'cancelled')
+
+
+def controls(db,revision):
+    """Queued one-shot general controls at this mode revision, oldest first."""
+    if not present(db):return []
+    result=[]
+    for sequence,request in db.execute("SELECT sequence,request FROM controller_requests WHERE phase='queued' AND mode_revision=? ORDER BY sequence",(revision,)):
+        command=json.loads(request)['command']
+        if command['kind'] in CONTROLS:result.append((sequence,command))
+    return result
+
+
+def control_payload(data,command):
+    """The single device write for a general control, or None when its scene is no longer advertised."""
+    kind=command['kind']
+    if kind=='power.set':return '/state',{'on':{'value':command['on']}}
+    if kind=='brightness.set':return '/state',{'brightness':{'value':command['percent'],'duration':0}}
+    for identity,name in scenes(data):
+        if identity==command['sceneId']:return '/effects',{'select':name}
+    return None
 
 
 def readonly(directory):

@@ -17,6 +17,14 @@ controls the lights. An already-playing user scene is left playing. After releas
 even blocked tasks cannot interrupt it. Free does not launch music or Screen Mirror;
 start those in the Nanoleaf apps.
 
+A native client of the [controller API](../docs/controller-api.md#general-controls)
+can also set power, brightness and, in Free only, a saved scene. Brightness and
+power set that way are overrides: they govern the bridge's writes in the current
+mode until the next explicit mode choice, including the same mode, from the tray,
+CLI, wall map or a native client. While power is off the bridge writes nothing and
+keeps tracking tasks. The remembered scene brightness is never replaced by an
+override.
+
 Returning to Work shows current tasks without replaying waves from statuses that
 arose while away. Future status changes get their normal wave or completion comet. Modes do not mark
 tasks read or discard task assignments. Quiet preserves the scene's original
@@ -324,9 +332,10 @@ and tool results are not stored or sent to the lights. The Nanoleaf token stays
 in the installation's private `config.json`.
 
 The installation's `scene-state.json` stores only the scene name, brightness,
-whether the bridge currently controls the display, and the scene temporarily dimmed
-by Quiet mode. It survives worker
-restarts. No saved Nanoleaf scenes are added, edited, or deleted.
+whether the bridge currently controls the display, and the playing scene whose
+brightness the bridge changed (Quiet's 10% or a native override) with the level it
+wrote. It survives worker restarts. No saved Nanoleaf scenes are added, edited, or
+deleted; a native scene choice selects an existing one.
 
 All 100 tests pass in WSL and the bundled Windows Python. They cover
 one outward pulse, spatial propagation, continuing local pulses, concurrent

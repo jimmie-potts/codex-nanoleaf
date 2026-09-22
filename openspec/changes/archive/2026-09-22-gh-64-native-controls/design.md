@@ -1,0 +1,32 @@
+## Context
+
+See proposal.md. Native mode commands are admitted through the vendored contract's pure `admit` decision, stored in `controller_requests` with the legacy `mode_revision` of the moment, and journaled by `controller_state.Execution`, which the worker binds to the newest queued request at its current mode revision. Every transport call is a journaled operation; a failure records uncertainty and a hold keyed by that mode revision so the CLI worker's automatic retry stops. `SceneRestorer` owns the remembered scene, its brightness and the `quiet_scene` marker that says the bridge dimmed the playing scene to 10% and must restore it. Free never observes or writes after its handoff. Snapshots are pure reads of the ledger.
+
+## Goals / Non-Goals
+
+**Goals:** reuse the existing admission, journaling, hold and cancellation machinery for three new one-shot commands; keep a single persisted override state that all worker brightness/power writes consult; keep discovery inside the worker's existing observation so reads stay pure; keep scene names out of shared v1.
+
+**Non-Goals:** device observation evidence, a second device, media or zone capabilities, changing pulse/comet timing, a new extension version, frontend work, installation.
+
+## Decisions
+
+- **One-shot execution in the worker loop.** After the mode application block and before the idle-exit decision, the worker executes queued non-mode requests at its current mode revision in sequence order, each bound to its own `Execution` and sent through the journaled `controller_request` path. Alternative rejected: executing at admission in the listener, which would create a second light writer.
+- **Overrides live in `meta`** (`controller_power`, `controller_brightness`) and are written at admission so `desired` becomes known immediately. `change_mode` clears them for every owner; with the same mode it bumps `mode_revision` so the worker re-renders, and the restorer's recorded written level (below) makes it rewrite the policy brightness on an idle scene. Alternative rejected: deriving overrides from the request ledger, which would make desired state depend on execution order; a separate reapply flag was also considered and dropped because the recorded level already answers "does the scene carry a level the policy no longer wants".
+- **Power off gates rendering.** While `controller_power` is `0` and no mode application is pending, the worker skips its indicator, restoration and preview rendering; `display_v3` is not recorded for skipped renders so the next permitted render resends the current state. Queued one-shots still execute in admission order: before the render when no mode is pending, after it otherwise. The one pending-mode exemption keeps the mode's own handoff honest when a power-off command was admitted behind it. Alternative rejected: writing effects without `on`, whose device behavior is unverified.
+- **Brightness override in the restorer.** `render` and `SceneRestorer` take the level from `config['_brightness']` when set. The restorer records the level it last wrote onto the remembered scene in a new `quiet_brightness` field beside `quiet_scene`; capture skips only when the observed brightness equals that recorded level, so an overridden Work-idle scene is not captured as a new preference and a later same-mode command restores the remembered brightness. Files written before this change default `quiet_brightness` to 10 when `quiet_scene` is set, which is the only level the old code wrote.
+- **Scene IDs are epoch-salted HMACs of names** (`scene-<hex>`), the same construction as task and project IDs, so shared v1 readers cannot learn names. Discovery writes the ordered, bounded name list into the controller ledger inside the worker's existing post-observation transaction only when it changes, and publishes a feed event without bumping `configurationRevision`; a stale scene choice fails typed as `unsupported-capability`. Names longer than 80 characters are advertised without a name.
+- **Free-only gate at admission.** The listener overrides the contract's `queued` decision with a reserved semantic failure `unsupported-capability` when the desired mode is not Free, keeping the receipt, revision arithmetic and replay identical to other semantic failures. Alternative rejected: `forbidden` or `external-control`, which describe authorization and outside control rather than an unsupported operation in the current mode.
+- **Hold clearing.** A fresh native general control clears an existing hold at admission, matching the documented "fresh native request authorizes another attempt". A mode command still cancels queued controls as stale generation and clears the hold as today.
+- **Extension snapshot** gains `scenes: [{id, name?}]` under `nanoleaf.integration/1.0`. The TypeScript consumer validates requests and receipts only, so the field is additive for existing consumers; the version is unchanged.
+
+## Risks / Trade-offs
+
+- [Power off and a pending mode race] → mode application is exempt from the gate and one-shots run afterwards in admission order, so the last command wins visibly and receipts stay truthful.
+- [Override captured as scene preference] → `quiet_brightness` marker plus the observation guard; tests cover Work and Quiet idle with a same-mode reapply.
+- [Discovery churn producing feed events] → the ledger updates only on an actual list change; the order and bound are deterministic.
+- [Legacy scene state files] → unknown keys are ignored by older code; new code defaults the marker; the state test asserts the key set and privacy.
+- [Hub pinned fixtures drift] → the companion PR re-pins the changed source hashes and the compatibility record; the vendored contract archive is untouched.
+
+## Migration Plan
+
+No schema change: overrides use existing `meta` keys, discovery uses the `controller_meta` payload, and `scene-state.json` keeps version 1 with one optional key. Older source ignores the new keys; a queued general control that is still pending during a downgrade expires through the existing 30-second rule. Source delivery does not touch an installation.
