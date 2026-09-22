@@ -57,7 +57,7 @@ class ConnectorGeometryTest(unittest.TestCase):
         self.legacy()
         old = copy.deepcopy(self.config)
         with contextlib.closing(b.connect_state(self.directory)) as db,db:
-            db.execute("INSERT INTO line_prefs VALUES (?, 'project-canary', 1)", (wall.line_id(self.groups[0]),))
+            db.execute("INSERT INTO line_prefs (line_id, project, signature) VALUES (?, 'project-canary', 1)", (wall.line_id(self.groups[0]),))
             before = list(db.iterdump())
         with patch.object(b,'light_request',return_value={'panelLayout': self.raw}) as read:
             wall_server.ensure_geometry(self.directory,b,self.config)

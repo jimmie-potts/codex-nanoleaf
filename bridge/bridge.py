@@ -18,6 +18,7 @@ import urllib.error
 import urllib.request
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import devices
 import project_map as wall
 import shared_input
 
@@ -109,25 +110,40 @@ def pair_lines(panel_layout):
     return [list(pair) for pair in sorted(pairs, key=location)]
 
 
-def load_config(directory):
+def load_config(directory, device=devices.DEFAULT):
+    """Configuration and layout for one registered device; the original Lines device by default."""
     config = json.loads((directory / 'config.json').read_text())
+    registry = devices.registry(config)
+    if device not in registry:
+        raise ValueError('Unknown device.')
+    entry = registry[device]
     layout_file = directory / 'layout.json'
     saved = json.loads(layout_file.read_text()) if layout_file.exists() else {}
-    if not saved.get('line_positions'):
-        layout = light_request(config, 'GET')['panelLayout']
-        groups = saved.get('line_groups') or pair_lines(layout)
-        zones = {p['panelId']: p for p in layout['layout']['positionData']}
+    known = devices.layout_devices(saved)  # A malformed file is rejected and left in place.
+    layout = known.get(device)
+    if layout is None or any(element['position'] is None for element in layout['elements']):
+        if entry['kind'] != 'lines':
+            raise ValueError('No saved layout for this device.')
+        transport = {'ip': entry['ip'], 'token': devices.credential(config, entry)}
+        panel_layout = light_request(transport, 'GET')['panelLayout']
+        groups = [element['zones'] for element in layout['elements']] if layout else pair_lines(panel_layout)
+        zones = {p['panelId']: p for p in panel_layout['layout']['positionData']}
         positions = [[sum(zones[p]['x'] for p in pair) / 2,
                       sum(zones[p]['y'] for p in pair) / 2] for pair in groups]
-        saved = {'line_groups': groups, 'line_positions': positions}
-        write_json(layout_file, saved)
-    config.update(saved)
+        layout = devices.lines_entry(groups, positions, layout)
+        known[device] = layout
+        devices.save_layout(layout_file, known, write_json)
+    config.update(devices.projection(layout))
+    config['device'] = device
+    for key, value in (('ip', entry['ip']), ('token', devices.credential(config, entry))):
+        if value is not None:
+            config[key] = value
     groups = config['line_groups']
     ids = [p for pair in groups for p in pair]
-    if (not groups or any(len(pair) != 2 for pair in groups) or
+    if (not groups or any(len(pair) != devices.KINDS[entry['kind']] for pair in groups) or
             len(ids) != len(set(ids)) or any(not isinstance(p, int) for p in ids)):
         raise ValueError('Invalid physical Line mapping.')
-    if len(config['line_positions']) != len(groups):
+    if len(config.get('line_positions', ())) != len(groups):
         raise ValueError('Each Line needs a position for outward pulses.')
     return config
 
@@ -333,7 +349,7 @@ def render(config, snapshot, instant, loop):
 class SceneRestorer:
     """Remember named scenes before takeover, and restore after the last indicator."""
     def __init__(self, directory, config, request=None, draw=None):
-        self.path = directory / 'scene-state.json'
+        self.path = directory / devices.scene_file(devices.device_of(config))
         self.config = config
         self.request = request or light_request
         self.draw = draw or render
@@ -434,7 +450,7 @@ def connect_state(directory):
             integration_api.init(db)
             db.execute('CREATE TABLE IF NOT EXISTS sessions '
                        '(id TEXT PRIMARY KEY, turn TEXT, status TEXT, updated REAL)')
-            db.execute('CREATE TABLE IF NOT EXISTS slots (session TEXT PRIMARY KEY, slot INTEGER UNIQUE)')
+            devices.create(db, 'slots')
             db.execute('CREATE TABLE IF NOT EXISTS waits '
                        '(session TEXT, turn TEXT, key TEXT, kind TEXT, tool TEXT, '
                        'PRIMARY KEY(session, turn, key))')
@@ -442,11 +458,12 @@ def connect_state(directory):
                        '(session TEXT PRIMARY KEY, turn TEXT, status TEXT, started REAL)')
             db.execute('CREATE TABLE IF NOT EXISTS receipts '
                        '(session TEXT PRIMARY KEY, turn TEXT, completed REAL, observed INTEGER)')
-            db.execute('CREATE TABLE IF NOT EXISTS display_v3 '
-                       '(id INTEGER PRIMARY KEY, snapshot TEXT, looping INTEGER, rendered REAL)')
-            db.execute('CREATE TABLE IF NOT EXISTS comets '
-                       '(session TEXT PRIMARY KEY, turn TEXT, queued REAL, source INTEGER, started REAL)')
+            devices.create(db, 'display_v3')
+            devices.create(db, 'comets')
             db.execute('CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)')
+            # Existing Linux state gains its device key in place; a repeat is a no-op.
+            devices.migrate(db)
+            wall.seed(db)
             if db.execute("SELECT value FROM meta WHERE key='model_version'").fetchone() != ('4',):
                 # This is only the integration's own database. Replace old lighting
                 # notifications and initialize the outward pulse for current work.
@@ -467,26 +484,30 @@ def connect_state(directory):
 MODES = ('work', 'free', 'quiet')
 
 
-def control_state(db):
+def control_state(db, device=devices.DEFAULT):
     meta = dict(db.execute('SELECT key,value FROM meta'))
-    return {'mode': meta.get('mode', 'work'),
-            'revision': int(meta.get('mode_revision', '0')),
-            'applied': int(meta.get('mode_applied', '0')),
-            'wave_cutoff': float(meta.get('wave_cutoff', '-inf')),
-            'error': meta.get('control_error')}
+    key = lambda name: devices.meta_key(name, device)
+    return {'mode': meta.get(key('mode'), 'work'),
+            'revision': int(meta.get(key('mode_revision'), '0')),
+            'applied': int(meta.get(key('mode_applied'), '0')),
+            'wave_cutoff': float(meta.get(key('wave_cutoff'), '-inf')),
+            'error': meta.get(key('control_error'))}
 
 
-def change_mode(db, mode, instant, notify=True):
+def change_mode(db, mode, instant, notify=True, device=devices.DEFAULT):
     import controller_state
-    state = control_state(db)
+    key = lambda name: devices.meta_key(name, device)
+    state = control_state(db, device)
+    # The configured controller identity is the original device; other devices stay local.
+    notify = notify and device == devices.DEFAULT
     if state['mode'] != mode:
-        values = {'mode': mode, 'mode_revision': str(state['revision'] + 1)}
+        values = {key('mode'): mode, key('mode_revision'): str(state['revision'] + 1)}
         if mode == 'work':
-            values['wave_cutoff'] = str(instant)
+            values[key('wave_cutoff')] = str(instant)
         db.executemany('INSERT OR REPLACE INTO meta VALUES (?, ?)', values.items())
-        db.execute("DELETE FROM meta WHERE key='preview'")
-        db.execute('DELETE FROM comets')
-        db.execute('DELETE FROM locate')
+        db.execute('DELETE FROM meta WHERE key=?', (key('preview'),))
+        db.execute('DELETE FROM comets WHERE device=?', (device,))
+        db.execute('DELETE FROM locate WHERE device=?', (device,))
         mark_dirty(db)
         if notify:
             controller_state.changed(db, mode=True)
@@ -496,21 +517,21 @@ def change_mode(db, mode, instant, notify=True):
     return state['revision'] != state['applied'] or bool(state['error'])
 
 
-def set_mode(directory, mode, launch=None, now=time.time):
+def set_mode(directory, mode, launch=None, now=time.time, device=devices.DEFAULT):
     if mode not in MODES:
         raise ValueError('Unknown lighting mode.')
     with contextlib.closing(connect_state(directory)) as db, db:
         db.execute('BEGIN IMMEDIATE')
-        needed = change_mode(db, mode, now())
+        needed = change_mode(db, mode, now(), device=device)
     if needed:
         (launch or launch_worker)(directory)
 
 
-def get_status(directory):
+def get_status(directory, device=devices.DEFAULT):
     # Tray polling never initializes or migrates a database.
     with contextlib.closing(sqlite3.connect(
             (directory / 'status.sqlite').resolve().as_uri() + '?mode=ro', uri=True, timeout=0.2)) as db:
-        state = control_state(db)
+        state = control_state(db, device)
     return {'mode': state['mode'], 'pending': state['revision'] != state['applied'],
             'error': state['error']}
 
@@ -582,7 +603,8 @@ def transition(db, event, now):
     changed = old != (turn, status)
     if changed:
         if status == 'unread' and name == 'Stop' and control_state(db)['mode'] == 'work':
-            db.execute('INSERT OR IGNORE INTO comets VALUES (?, ?, ?, NULL, NULL)', (session, turn, now))
+            db.execute('INSERT OR IGNORE INTO comets (session, turn, queued, source, started, device) '
+                       'VALUES (?, ?, ?, NULL, NULL, ?)', (session, turn, now, devices.DEFAULT))
         if status in COLORS:
             db.execute('INSERT OR REPLACE INTO activity VALUES (?, ?, ?, ?)',
                        (session, turn, status, now))
@@ -597,7 +619,8 @@ def dashboard(db, config, instant):
     active = {row[0] for row in rows}
     db.execute('DELETE FROM slots WHERE session NOT IN (SELECT id FROM sessions)')
     count = len(config['line_groups'])
-    reserved = {row[0] for row in db.execute('SELECT source FROM comets WHERE started IS NOT NULL')}
+    reserved = {row[0] for row in db.execute('SELECT source FROM comets WHERE started IS NOT NULL AND device=?',
+                                             (devices.device_of(config),))}
     assigned = wall.allocate(db, config, rows, reserved)
     epochs = {s: (turn, status, epoch) for s, turn, status, epoch in db.execute('SELECT * FROM activity')}
     snapshot = [None] * count
@@ -612,36 +635,39 @@ def dashboard(db, config, instant):
     return snapshot
 
 
-def prune_comets(db, instant, mode):
+def prune_comets(db, instant, mode, device=devices.DEFAULT):
     if mode != 'work':
-        db.execute('DELETE FROM comets')
+        db.execute('DELETE FROM comets WHERE device=?', (device,))
         return
-    db.execute('DELETE FROM comets WHERE started IS NOT NULL AND started + ? <= ?',
-               (COMET_SECONDS, instant))
-    db.execute("DELETE FROM comets WHERE started IS NULL AND NOT EXISTS "
-               "(SELECT 1 FROM sessions s WHERE s.id=comets.session AND s.turn=comets.turn AND s.status='unread')")
+    db.execute('DELETE FROM comets WHERE device=? AND started IS NOT NULL AND started + ? <= ?',
+               (device, COMET_SECONDS, instant))
+    db.execute("DELETE FROM comets WHERE device=? AND started IS NULL AND NOT EXISTS "
+               "(SELECT 1 FROM sessions s WHERE s.id=comets.session AND s.turn=comets.turn AND s.status='unread')",
+               (device,))
 
 
-def current_comet(db, instant):
-    row = db.execute('SELECT source,started FROM comets WHERE started IS NOT NULL').fetchone()
+def current_comet(db, instant, device=devices.DEFAULT):
+    row = db.execute('SELECT source,started FROM comets WHERE started IS NOT NULL AND device=?', (device,)).fetchone()
     if not row:
-        candidate = db.execute('SELECT c.session,s.slot FROM comets c JOIN slots s ON s.session=c.session '
-                               'WHERE c.started IS NULL ORDER BY c.queued,c.rowid LIMIT 1').fetchone()
+        candidate = db.execute('SELECT c.session,s.slot FROM comets c JOIN slots s ON s.session=c.session AND s.device=c.device '
+                               'WHERE c.device=? AND c.started IS NULL ORDER BY c.queued,c.rowid LIMIT 1', (device,)).fetchone()
         if candidate:
             session, source = candidate
-            db.execute('UPDATE comets SET source=?,started=? WHERE session=?', (source, instant, session))
+            db.execute('UPDATE comets SET source=?,started=? WHERE session=? AND device=?', (source, instant, session, device))
             row = (source, instant)
     return dict(zip(('source', 'started'), row)) if row else None
 
 
 def update_display(db, config, snapshot, instant, loop, send=None):
+    device = devices.device_of(config)
     encoded = json.dumps([snapshot, config.get('_comet'), config.get('_locate'),
                           config.get('_style'), config.get('_coverage'), config.get('_signatures'),
                           config.get('_steady_slots'), config.get('_wave_suppressed_slots'), config.get('_wave_cutoff')])
-    previous = db.execute('SELECT snapshot,looping FROM display_v3 WHERE id=1').fetchone()
+    previous = db.execute('SELECT snapshot,looping FROM display_v3 WHERE device=?', (device,)).fetchone()
     if not loop or previous != (encoded, 1):
         (send or render)(config, snapshot, instant, loop)
-        db.execute('INSERT OR REPLACE INTO display_v3 VALUES (1, ?, ?, ?)', (encoded, int(loop), instant))
+        db.execute('INSERT OR REPLACE INTO display_v3 (snapshot, looping, rendered, device) VALUES (?, ?, ?, ?)',
+                   (encoded, int(loop), instant, device))
 
 
 def launch_worker(directory):
@@ -784,13 +810,14 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
                 if control_state(db)['revision'] != control['revision']:
                     continue
                 if not shared_input.selected(db): reconcile_read_state(db, unread, started)
-                prune_comets(db, started, mode)
+                device = devices.device_of(config)
+                prune_comets(db, started, mode, device)
                 import integration_api
                 integration_api.process(db, projection, config, now=started)
-                if wall.apply_pending(db): mark_dirty(db)
+                if wall.apply_pending(db, device): mark_dirty(db)
                 config['_locate'] = wall.locate_state(db, config, started, mode)
                 snapshot = dashboard(db, config, started)
-                config['_comet'] = current_comet(db, started) if mode == 'work' and not config['_locate'] else None
+                config['_comet'] = current_comet(db, started, device) if mode == 'work' and not config['_locate'] else None
                 wall.render_config(db, config, snapshot)
                 shared_input.render_config(db, config)
                 generation = db.execute("SELECT value FROM meta WHERE key='event_revision'").fetchone()
@@ -983,7 +1010,7 @@ def setup(args):
     installed_script = directory / 'bridge.py'
     if Path(__file__).resolve() != installed_script.resolve():
         shutil.copytree(Path(__file__).parent / 'vendor', directory / 'vendor', dirs_exist_ok=True)
-        for name in ('project_map.py', 'wall_server.py', 'wall.html', 'prism.js', 'prism-adapters.js', 'prism-labels.js', 'tray.ps1', 'remove-modes.ps1', 'install-modes.ps1', 'backup_install.py', 'controller_state.py', 'controller_server.py', 'controller_contract.py', 'requirements-controller.txt', 'README.md'):
+        for name in ('project_map.py', 'devices.py', 'wall_server.py', 'wall.html', 'prism.js', 'prism-adapters.js', 'prism-labels.js', 'tray.ps1', 'remove-modes.ps1', 'install-modes.ps1', 'backup_install.py', 'controller_state.py', 'controller_server.py', 'controller_contract.py', 'requirements-controller.txt', 'README.md'):
             shutil.copyfile(Path(__file__).with_name(name), directory / name)
         shutil.copyfile(__file__, installed_script)
     codex_dir.mkdir(parents=True, exist_ok=True)

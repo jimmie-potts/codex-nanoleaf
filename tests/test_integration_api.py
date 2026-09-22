@@ -79,7 +79,7 @@ class IntegrationTest(unittest.TestCase):
 
     def test_deferred_cancel_revoke_and_expiry(self):
         with contextlib.closing(b.connect_state(self.directory)) as db, db:
-            db.execute("INSERT INTO comets VALUES ('task','turn',1,0,2)")
+            db.execute("INSERT INTO comets (session, turn, queued, source, started) VALUES ('task','turn',1,0,2)")
         req = self.request()
         self.app.integration_admit(self.token, req)
         self.process()
@@ -128,7 +128,7 @@ class IntegrationTest(unittest.TestCase):
 
     def test_wall_pending_desired_values_are_sanitized(self):
         with contextlib.closing(b.connect_state(self.directory)) as db, db:
-            db.execute('INSERT INTO map_pending VALUES (1,?)', (json.dumps({'settings':{'style':'project'}, 'lines':{'101:102':{'project':'/private/project'}}, 'tasks':{'private-session':'/private/project'}}),))
+            db.execute('INSERT INTO map_pending (payload) VALUES (?)', (json.dumps({'settings':{'style':'project'}, 'lines':{'101:102':{'project':'/private/project'}}, 'tasks':{'private-session':'/private/project'}}),))
         before = (self.directory / 'status.sqlite').read_bytes()
         view = self.app.integration_snapshot(self.token, 'device')
         self.assertEqual(view['wallPending']['settings'], {'style':'project'})

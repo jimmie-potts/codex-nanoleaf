@@ -114,7 +114,7 @@ class SelectionTest(unittest.TestCase):
                      'bindings':[{'identity':fixture()['sessions'][0]['identity'],'legacySessionId':'legacy'}]}
         b.handle_event(self.path,{'session_id':'legacy','turn_id':'turn','hook_event_name':'UserPromptSubmit'},launch=lambda _:None,now=lambda:self.instant)
         with contextlib.closing(b.connect_state(self.path)) as db,db:
-            db.execute("INSERT INTO slots VALUES ('legacy',0)")
+            db.execute("INSERT INTO slots (session, slot) VALUES ('legacy',0)")
             db.execute("INSERT INTO projects VALUES ('project','LOCAL TITLE','#112233','[]')")
             db.execute("UPDATE task_info SET project='project',manual_project='project' WHERE session='legacy'")
         self.s.configure(self.path,b,self.config)
@@ -144,7 +144,7 @@ class SelectionTest(unittest.TestCase):
         with self.assertRaises(self.s.FeedError): self.s.select_source(self.path,b,'shared',fetch=lambda *a,**k:(_ for _ in ()).throw(self.s.FeedError('feed-unavailable')))
         self.assertEqual(self.s.inspect(self.path)['source'],'legacy')
         with contextlib.closing(b.connect_state(self.path)) as db,db:
-            db.execute("INSERT INTO comets VALUES ('legacy','turn',1000,0,1000)")
+            db.execute("INSERT INTO comets (session, turn, queued, source, started) VALUES ('legacy','turn',1000,0,1000)")
         with self.assertRaises(self.s.FeedError):self.select()
         self.assertEqual(self.rows('SELECT id FROM sessions'),[('legacy',)])
 
@@ -213,7 +213,7 @@ class RecoveryTest(SelectionTest):
         stale['freshness']='uncertain';stale['restartUncertain']=True
         value['snapshot']['sessions'].append(stale);self.select(value)
         with contextlib.closing(b.connect_state(self.path)) as db,db:
-            db.execute('INSERT INTO slots VALUES (?,1)',(self.s.identity_key(stale['identity']),))
+            db.execute('INSERT INTO slots (session, slot) VALUES (?,1)',(self.s.identity_key(stale['identity']),))
         value=copy.deepcopy(value);value['snapshot']['revision']+=1
         value['snapshot']['sessions'][0]['turn']={'status':'known','id':'next'}
         self.s.accept(self.path,b,value,now=lambda:1001)
@@ -246,7 +246,7 @@ class RecoveryTest(SelectionTest):
         value=envelope();self.select(value)
         key=self.s.identity_key(value['snapshot']['sessions'][0]['identity'])
         with contextlib.closing(b.connect_state(self.path)) as db,db:
-            db.execute('INSERT INTO comets VALUES (?,?,?,0,?)',(key,'turn',1000,1000))
+            db.execute('INSERT INTO comets (session, turn, queued, source, started) VALUES (?,?,?,0,?)',(key,'turn',1000,1000))
         value=copy.deepcopy(value);value['snapshot']['revision']+=1
         value['snapshot']['sessions'][0]['read']='read'
         self.s.accept(self.path,b,value,now=lambda:1000.5)
@@ -257,7 +257,7 @@ class RecoveryTest(SelectionTest):
         value=envelope();self.select(value)
         key=self.s.identity_key(value['snapshot']['sessions'][0]['identity'])
         with contextlib.closing(b.connect_state(self.path)) as db,db:
-            db.execute('INSERT INTO comets VALUES (?,?,?,0,?)',(key,'turn',1000,1000))
+            db.execute('INSERT INTO comets (session, turn, queued, source, started) VALUES (?,?,?,0,?)',(key,'turn',1000,1000))
         value=copy.deepcopy(value);value['snapshot']['revision']+=1
         session=value['snapshot']['sessions'][0]
         session['turn']={'status':'known','id':'next'};session['activity']='active'

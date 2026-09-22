@@ -15,6 +15,7 @@ import time
 from urllib.parse import urlsplit
 import urllib.request
 import webbrowser
+import devices
 import project_map as wall
 
 
@@ -44,18 +45,19 @@ class App:
             with contextlib.closing(self.b.connect_state(self.directory)) as check:
                 shared = self.b.shared_input.selected(check)
             if not shared: self.metadata.refresh()
+            device=devices.device_of(self.config)
             with contextlib.closing(self.b.connect_state(self.directory)) as db,db:
                 changed=False if self.b.shared_input.selected(db) else self.metadata.sync(db)
                 if changed: self.b.mark_dirty(db)
-                prefs=wall.owners(db,self.config); projects=[]
-                memberships=wall.task_projects(db); slots=dict(db.execute('SELECT session,slot FROM slots'))
+                prefs=wall.owners(db,self.config); projects=[]; elements=devices.elements(self.config)
+                memberships=wall.task_projects(db); slots=dict(db.execute('SELECT session,slot FROM slots WHERE device=?',(device,)))
                 details={s:(title,cwd,manual,started) for s,title,cwd,manual,started in db.execute('SELECT session,title,cwd,manual_project,started FROM task_info')}
                 tasks=[]; snap=[None]*len(prefs)
                 epochs={s:epoch for s,epoch in db.execute('SELECT session,started FROM activity')}
                 for sid,turn,status in db.execute("SELECT id,turn,status FROM sessions WHERE status IN ('working','question','blocked','unread')"):
                     title,cwd,manual,started=details.get(sid,('', '',None,None)); slot=slots.get(sid)
                     tasks.append({'id':sid,'title':title or 'Task '+sid[:8],'project':memberships.get(sid),'status':status,'started':started,
-                                  'line':wall.line_id(self.config['line_groups'][slot]) if slot is not None and slot<len(prefs) else None,'manual':manual})
+                                  'line':elements[slot]['id'] if slot is not None and slot<len(prefs) else None,'manual':manual})
                     if slot is not None and slot<len(snap): snap[slot]=(status,epochs.get(sid,time.time()-10))
                 for pid,name,color in db.execute('SELECT id,name,color FROM projects ORDER BY name COLLATE NOCASE'):
                     members=[t for t in tasks if t['project']==pid]
@@ -64,10 +66,10 @@ class App:
                 lines=wall.geometry(self.config)
                 for line,(project,signature) in zip(lines,prefs):
                     line.update(project=project,signature=signature,task=next((t['id'] for t in tasks if t['line']==line['id']),None))
-                control=self.b.control_state(db)
-                result={'settings':wall.settings(db),'mode':control['mode'],'pending':wall.pending(db),
+                control=self.b.control_state(db,device)
+                result={'settings':wall.settings(db,device),'mode':control['mode'],'pending':wall.pending(db,device),
                         'error':control['error'],'mode_pending':control['revision']!=control['applied'],
-                        'projects':projects,'lines':lines,'tasks':tasks,'now':time.time(),
+                        'device':device,'projects':projects,'lines':lines,'tasks':tasks,'now':time.time(),
                         'connector_layout':connectors,
                         'connector_error':None if connectors else 'Connector layout unavailable. Showing standard Lines.',
                         'geometry_error':None if lines else 'Layout unavailable. Check the light connection; the map will retry.'}
@@ -90,7 +92,8 @@ def apply_operation(db,b,config,route,payload):
     """Shared wall/machine operation inside the caller's write transaction."""
     if not isinstance(payload,dict): raise ValueError('Expected an object.')
     projects={row[0] for row in db.execute('SELECT id FROM projects')}
-    ids={wall.line_id(pair) for pair in config['line_groups']}
+    device=devices.device_of(config)
+    ids={element['id'] for element in devices.elements(config)}
     patch={}
     if route=='/api/settings':
         checks={'style':('classic','project'),'coverage':('whole','status'),'rotation':(0,90,180,270),'flip_x':(0,1),'flip_y':(0,1)}
@@ -114,8 +117,8 @@ def apply_operation(db,b,config,route,payload):
         patch={'tasks':{sid:project}}
     elif route=='/api/locate':
         if payload.get('line') not in ids: raise ValueError('Unknown Line.')
-        if b.control_state(db)['mode']=='free': raise ValueError('Choose Work or Quiet to locate a Line.')
-        db.execute('INSERT OR REPLACE INTO locate VALUES (1,?,NULL)',(payload['line'],))
+        if b.control_state(db,device)['mode']=='free': raise ValueError('Choose Work or Quiet to locate a Line.')
+        db.execute('INSERT OR REPLACE INTO locate (line_id,started,device) VALUES (?,NULL,?)',(payload['line'],device))
     else: raise ValueError('Unknown action.')
     if patch: wall.request_patch(db,patch,config)
 
@@ -154,7 +157,7 @@ def handler(app,token,instance=None):
                 payload=json.loads(self.rfile.read(length))
                 if self.path=='/api/mode':
                     if not isinstance(payload,dict) or payload.get('mode') not in self.server.app.b.MODES: raise ValueError('Invalid mode.')
-                    app.b.set_mode(app.directory,payload['mode']); result={'ok':True}
+                    app.b.set_mode(app.directory,payload['mode'],device=devices.device_of(getattr(app,'config',None) or {})); result={'ok':True}
                 else: result=app.update(self.path,payload)
                 self.respond(200,result)
             except (ValueError,TypeError,KeyError): self.respond(400,{'error':'Invalid request. Check the selection and try again.'})
@@ -178,6 +181,7 @@ def ensure_geometry(directory,b,config,refresh=False):
         if generation is None: return False
         saved=json.loads((directory/'layout.json').read_text())
         if not isinstance(saved,dict): return False
+        entry=devices.layout_devices(saved).get(devices.device_of(config),{})
         try:
             record=json.loads(path.read_text())
             if not isinstance(record,dict) or record.get('layoutGeneration')!=generation:
@@ -187,7 +191,7 @@ def ensure_geometry(directory,b,config,refresh=False):
         except (OSError,ValueError,TypeError,KeyError,OverflowError):
             cached=False
             try:
-                cache,_=wall.validated_connector_geometry(saved.get('connector_geometry') or saved.get('zone_geometry'),config['line_groups'])
+                cache,_=wall.validated_connector_geometry(entry.get('connector_geometry') or entry.get('zone_geometry'),config['line_groups'])
             except (ValueError,TypeError,KeyError,OverflowError):
                 layout=b.light_request(config,'GET')['panelLayout']
                 cache,_=wall.validated_connector_geometry({

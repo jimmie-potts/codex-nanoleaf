@@ -316,7 +316,7 @@ class BridgeTest(unittest.TestCase):
             db.execute('CREATE TABLE signals(id INTEGER PRIMARY KEY, session TEXT,turn TEXT,kind TEXT)')
             db.execute("INSERT INTO signals VALUES (1,'old','turn','ended')")
         self.assertEqual(self.statuses()['existing'],'blocked')
-        self.assertEqual(self.query('SELECT * FROM slots'),[('existing',4)])
+        self.assertEqual(self.query('SELECT session,slot FROM slots'),[('existing',4)])
         self.assertEqual(self.query('SELECT * FROM signals'),[])
         self.assertEqual(len(self.query('SELECT * FROM activity')),1)
 

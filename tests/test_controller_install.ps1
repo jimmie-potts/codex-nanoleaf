@@ -58,7 +58,7 @@ try {
         return
     }
     & (Join-Path $source 'install-modes.ps1') -SkipShortcuts -PythonRuntime $runtime
-    foreach ($name in @('integration_api.py', 'controller_state.py','controller_contract.py','controller_server.py','requirements-controller.txt','bridge.py','wall.html','prism.js','prism-adapters.js','prism-labels.js')) {
+    foreach ($name in @('integration_api.py', 'devices.py', 'controller_state.py','controller_contract.py','controller_server.py','requirements-controller.txt','bridge.py','wall.html','prism.js','prism-adapters.js','prism-labels.js')) {
         if (-not (Test-Path (Join-Path $destination $name))) { throw "Missing installed source asset $name" }
     }
     foreach ($name in @('wall.html','prism.js','prism-adapters.js','prism-labels.js')) {

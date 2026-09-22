@@ -7,6 +7,7 @@ import re
 import time
 
 import controller_state as state
+import devices
 import project_map as wall
 import shared_input
 
@@ -35,23 +36,21 @@ def groups(directory):
     raw = (directory / 'layout.json').read_bytes()
     if len(raw) > MAX_BODY:
         raise Failure('capacity')
-    value = json.loads(raw)['line_groups']
-    if (not isinstance(value, list) or not 1 <= len(value) <= 300
-            or any(not isinstance(pair, list) or len(pair) != 2
-                   or any(type(pid) is not int or not 0 <= pid <= 65535 for pid in pair) for pair in value)):
+    try:
+        entry = devices.layout_devices(json.loads(raw)).get(devices.DEFAULT)
+    except (ValueError, TypeError):
+        raise Failure('unsupported-capability') from None
+    if entry is None or entry['kind'] != 'lines':
         raise Failure('unsupported-capability')
-    ids = [pid for pair in value for pid in pair]
-    if len(set(ids)) != len(ids):
-        raise Failure('unsupported-capability')
-    return value
+    return [list(element['zones']) for element in entry['elements']]
 
 
 def opaque(data, kind, value):
     return kind + '-' + hmac.new(data['epoch'].encode(), (kind + '\0' + value).encode(), hashlib.sha256).hexdigest()
 
 
-def rows(db, query):
-    result = db.execute(query + ' LIMIT 1001').fetchall()
+def rows(db, query, params=()):
+    result = db.execute(query + ' LIMIT 1001', params).fetchall()
     if len(result) > MAX_ITEMS:
         raise Failure('capacity')
     return result
@@ -65,7 +64,7 @@ def projection(db, pairs):
     tasks = {opaque(data, 'task', s): s for s, _, _ in task_rows}
     project_id = lambda p: opaque(data, 'project', p) if p is not None else None
     task_id = lambda s: opaque(data, 'task', s) if s is not None else None
-    prefs = dict((line, (p, half)) for line, p, half in rows(db, 'SELECT line_id,project,signature FROM line_prefs ORDER BY line_id'))
+    prefs = dict((line, (p, half)) for line, p, half in rows(db, 'SELECT line_id,project,signature FROM line_prefs WHERE device=? ORDER BY line_id', (devices.DEFAULT,)))
     current = shared_input.state(db)
     shared = {}
     if current['source'] == 'shared' and current['envelope']:
@@ -233,7 +232,7 @@ def process(db, b, config, now=None):
     try:
         view, _, _ = projection(db, config['line_groups'])
         if view['revision'] != revision: raise Failure('revision-conflict')
-        if wall.pending(db) or db.execute('SELECT 1 FROM comets WHERE started IS NOT NULL').fetchone(): return
+        if wall.pending(db) or db.execute('SELECT 1 FROM comets WHERE started IS NOT NULL AND device=?', (devices.DEFAULT,)).fetchone(): return
         import wall_server
         route, payload = operation(db, config['line_groups'], json.loads(raw)['command'])
         wall_server.apply_operation(db, b, config, route, payload)

@@ -18,6 +18,7 @@ import venv
 import warnings
 
 import bridge as b
+import devices
 
 
 @contextlib.contextmanager
@@ -148,19 +149,18 @@ def prepare_state(directory, ip, token, *, wall_port=8765, controller_port=41231
     layout = (request or b.light_request)(config, 'GET')['panelLayout']
     groups = b.pair_lines(layout)
     zones = {p['panelId']: p for p in layout['layout']['positionData']}
-    saved = {
-        'line_groups': groups,
-        'line_positions': [[sum(zones[p]['x'] for p in pair) / 2,
-                            sum(zones[p]['y'] for p in pair) / 2] for pair in groups],
-        'zone_geometry': {'orientation': layout['globalOrientation']['value'],
-                          'positionData': [p for p in zones.values() if p['shapeType'] == 18]},
-    }
+    geometry = {'zone_geometry': {'orientation': layout['globalOrientation']['value'],
+                                  'positionData': [p for p in zones.values() if p['shapeType'] == 18]}}
     try:
-        saved['connector_geometry'], _ = b.wall.validated_connector_geometry({
+        geometry['connector_geometry'], _ = b.wall.validated_connector_geometry({
             'orientation': layout['globalOrientation']['value'],
             'positionData': layout['layout']['positionData']}, groups)
     except (ValueError, TypeError, KeyError, OverflowError):
         pass  # Retain the existing standard-Line fallback for unsupported housings.
+    positions = [[sum(zones[p]['x'] for p in pair) / 2, sum(zones[p]['y'] for p in pair) / 2] for pair in groups]
+    saved = devices.serialized({devices.DEFAULT: devices.lines_entry(groups, positions, geometry)})
+    # The original Lines device keeps the controller identity; its credential stays under `token`.
+    config['devices'] = {devices.DEFAULT: {'kind': 'lines', 'ip': str(address), 'token_ref': 'token'}}
     config.update(wall_port=wall_port, controller_port=controller_port, mcp_port=mcp_port)
     for name, value in [('desktop_state_path', desktop_state_path),
                         ('metadata_path', metadata_path or desktop_state_path),
