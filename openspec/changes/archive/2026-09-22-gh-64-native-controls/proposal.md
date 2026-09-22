@@ -5,7 +5,7 @@
 ## What Changes
 
 - Declare `power`, `brightness` (0 to 100) and `scenes` (discovered IDs, at most 256) as supported v1 capabilities; `media`, `zones` and `preview` stay unsupported. The vendored contract archive, schema and 220 fixture cases are unchanged.
-- Discover saved scene identities from the worker's existing scene observation and advertise them as opaque, epoch-salted IDs. Expose the user-chosen Nanoleaf scene names only through the `nanoleaf.integration/1.0` snapshot, as an additive `scenes` field within the shared label bound.
+- Discover saved scene identities from the worker's existing scene observation and advertise them as opaque IDs keyed by a private ledger secret. Expose the user-chosen Nanoleaf scene names only through the `nanoleaf.integration/1.0` snapshot, as an additive `scenes` field within the shared label bound.
 - Execute `power.set`, `brightness.set` and `scene.activate` as one-shot writes through the existing single worker queue with the #28 replay, revision, generation, uncertain-hold and single-writer rules. Mode commands keep their current path.
 - Define the override policy: power and brightness are accepted in Work, Quiet and Free, become the desired state at acceptance, govern the worker's later writes in the current mode, and are cleared by the next explicit mode command (tray, CLI, wall or native, including the same mode), which reapplies that mode's brightness and power policy.
 - Accept `scene.activate` only when the desired mode is Free; in Work or Quiet it returns the existing typed `unsupported-capability` failure before any device write. Free performs one write and still polls nothing afterwards.

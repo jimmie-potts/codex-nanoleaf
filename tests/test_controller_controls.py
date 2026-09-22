@@ -309,6 +309,25 @@ class ControlsTest(unittest.TestCase):
         self.assertEqual([p for e, p in self.puts() if 'on' in p], [{'on': {'value': False}}])
         self.assertFalse(self.device.on)
 
+    def test_control_committed_between_journaled_sends_is_applied_before_idle_exit(self):
+        # A listener commit can land in the window where a journaled send releases the lock.
+        self.mode('free'); self.run_worker()
+        admitted = []
+        original = state.Execution.complete
+        def complete(execution):
+            if not admitted:
+                execution.db.commit()
+                admitted.append(self.command({'kind': 'power.set', 'on': False})[1][1]['outcome'])
+                execution.db.execute('BEGIN IMMEDIATE')
+            return original(execution)
+        self.device.calls.clear()
+        with patch.object(state.Execution, 'complete', complete):
+            self.run_worker()
+        self.assertEqual(admitted, ['queued'])
+        self.assertEqual(self.puts(), [('/state', {'on': {'value': False}})])
+        self.assertEqual(self.app.snapshot()['state']['pending'], [])
+        self.assertEqual(self.app.snapshot()['state']['lastOutcome']['receipt']['outcome'], 'sent')
+
     def test_ledger_without_scene_key_publishes_new_ids_with_an_event(self):
         self.run_worker()
         before = self.app.snapshot()
