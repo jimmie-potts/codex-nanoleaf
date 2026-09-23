@@ -47,7 +47,8 @@ The Linux installer (`install_linux.py`) is not copied into the runtime. Its tok
   - the address is a private IPv4 address;
   - the credential is ASCII alphanumeric;
   - no other registered device, including `wall`, uses the address;
-  - an existing entry with this id is a Panels entry at the same address, and no other entry shares its credential key.
+  - an existing entry with this id is a Panels entry at the same address, and no other entry uses its credential key (for a new id, `token@<id>`);
+  - the saved layout file is valid, since a rerun could not repair a malformed one.
 - Rejected alternative: register first and let the worker discover the layout. A wrong model or broken layout would then surface as a worker retry loop instead of a refused command.
 
 ### Write order and the Free start
@@ -71,7 +72,7 @@ The Linux installer (`install_linux.py`) is not copied into the runtime. Its tok
   2. Mark the state dirty so a waiting worker instance wakes.
   3. Wait up to ten seconds for the id's worker lock. A non-`wall` worker checks at the start of each pass, and in the retry loop, that its device is still registered, and returns when it is not.
   4. With the lock held, delete the id's rows, meta keys, layout entry and scene file.
-- A failure after the first write (for example a malformed layout file during purge) is reported as a partial change with a rerun instruction, never as "nothing was changed". SQLite busy errors are reported without a traceback.
+- A failure after the first write (for example a state or file error while stopping the worker or purging) is reported as a partial change with a rerun instruction, never as "nothing was changed". SQLite busy errors are reported without a traceback.
 - If the lock is not free in time, the registration is already gone. The command says that state cleanup is pending, and rerunning `device-remove` for the now-unregistered id finishes it. Enrolling the id again also clears it.
 - The shared-input backup may still list a removed device's placements. Restoring it re-creates rows for an unregistered id, which no reader uses and a later enrollment clears.
 

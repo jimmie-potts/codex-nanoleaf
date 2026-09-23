@@ -122,6 +122,17 @@ def read_config(directory):
     return config
 
 
+def check_layout(directory):
+    """Refuse a malformed layout file before anything is written, since a rerun could not repair it."""
+    path = directory / 'layout.json'
+    try:
+        if path.exists():
+            devices.layout_devices(json.loads(path.read_text()))
+    except ValueError as error:
+        raise ValueError(f'The saved layout.json is invalid ({str(error).rstrip(".")}). '
+                         'Repair it before enrolling or removing a device.') from None
+
+
 def purge(directory, b, device):
     """Delete a device's rows, meta keys, layout entry and saved scene; shared tasks stay."""
     with contextlib.closing(b.connect_state(directory)) as db, db:
@@ -141,13 +152,14 @@ def check_target(config, device, ip):
     if existing and (existing['kind'] != KIND or existing['ip'] != ip):
         raise ValueError(f'Device `{device}` is registered at another address or as another kind. '
                          'Remove it first; enrollment never redirects an identity.')
+    key = existing['token_ref'] if existing else 'token@' + device
     for other, entry in registry.items():
         if other == device:
             continue
         if entry['ip'] == ip:
             raise ValueError(f'Device `{other}` already uses that address.')
-        if existing and entry['token_ref'] == existing['token_ref']:
-            raise ValueError(f'Device `{device}` shares a credential with `{other}`. Remove it first.')
+        if entry['token_ref'] == key:
+            raise ValueError(f'Device `{device}` shares a credential key with `{other}`. Remove it first.')
     return existing
 
 
@@ -179,6 +191,7 @@ def enroll(directory, b, *, ip, token, device=KIND, request=None):
             config[existing['token_ref']] = token
             b.write_json(directory / 'config.json', config)
         else:
+            check_layout(directory)
             lock = worker_lock(directory, device)
             if lock is None:
                 raise ValueError(f'A worker for `{device}` is still running. Retry in a moment.')
@@ -205,6 +218,7 @@ def remove(directory, b, device, *, force=False, wait=REMOVE_WAIT_SECONDS, sleep
     device = device_id(device)
     with exclusive(directory / 'registry-lock.sqlite'):
         config = read_config(directory)
+        check_layout(directory)
         entry = (config.get('devices') or {}).get(device)
         if entry is not None:
             with contextlib.closing(b.connect_state(directory)) as db:

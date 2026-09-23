@@ -197,6 +197,23 @@ class EnrollTest(EnrollmentTest):
             self.enroll()
         self.assertEqual(self.snapshot(), before)
 
+    def test_new_enrollment_refuses_a_credential_key_another_device_uses(self):
+        config = self.config()
+        config['devices']['other'] = {'kind': 'panels', 'ip': OTHER_IP, 'token_ref': 'token@panels'}
+        config['token@panels'] = 'otherCredential'
+        b.write_json(self.directory / 'config.json', config)  # A hand-edited registry.
+        before = self.snapshot()
+        with self.assertRaisesRegex(ValueError, 'other'):
+            self.enroll()
+        self.assertEqual(self.snapshot(), before)
+
+    def test_malformed_layout_is_refused_before_any_write(self):
+        b.write_json(self.directory / 'layout.json', {'version': 99, 'devices': {}})
+        before = self.snapshot()
+        with self.assertRaisesRegex(ValueError, 'layout'):
+            self.enroll()
+        self.assertEqual(self.snapshot(), before)
+
     def test_machine_credentials_are_unchanged(self):
         credentials = (self.directory / 'mcp-credentials.json').read_bytes()
         records = self.query('SELECT * FROM controller_credentials')
@@ -448,12 +465,24 @@ class RemoveTest(EnrollmentTest):
         with self.assertRaisesRegex(ValueError, 'Unknown'):
             enrollment.remove(self.directory, b, 'panels')
 
-    def test_failure_after_the_registry_write_asks_for_a_rerun(self):
+    def test_malformed_layout_is_refused_before_removal_writes(self):
         b.write_json(self.directory / 'layout.json', {'version': 99, 'devices': {}})
+        before = self.snapshot()
         code, out, err = self.run_command('device-remove', '--device', 'panels')
         self.assertEqual(code, 1)
+        self.assertIn('layout', err)
+        self.assertEqual(self.snapshot(), before)
+
+    def test_failure_after_the_registry_write_asks_for_a_rerun(self):
+        def fail(*args, **kwargs):
+            raise OSError('disk full')
+        with patch.object(enrollment, 'worker_lock', fail):
+            code, out, err = self.run_command('device-remove', '--device', 'panels')
+        self.assertEqual(code, 1)
+        self.assertNotIn('panels', self.config()['devices'])
         self.assertNotIn('Nothing was changed', err)
         self.assertIn('again', err)
+        self.assertTrue(enrollment.remove(self.directory, b, 'panels')['cleaned'])
 
     def test_busy_state_is_reported_without_a_traceback(self):
         def busy(*args, **kwargs):

@@ -41,7 +41,7 @@ A newly enrolled device SHALL start in Free with no pending mode change. Its wor
 - **THEN** no comet is queued for Panels, its wave cutoff is the activation time, and Lines' comets and mode are unchanged
 
 ### Requirement: Conflicts and repeats keep existing state
-Enrollment SHALL refuse the reserved `wall` id, an invalid id, an address used by another registered device, an existing id registered at a different address or as a different kind, and a repeat for an id whose credential key another device shares. It SHALL run these checks before it asks the operator or the device for a credential. It SHALL NOT silently redirect an existing identity. Repeating enrollment for the same id and address SHALL replace only its credential and SHALL keep its layout, mode, reservations and scene. A failed enrollment SHALL leave every device and all shared tasks intact. Enrollment SHALL NOT issue, revoke or change machine credentials. The protected controller API SHALL stay Lines-only. Saved geometry and preferences SHALL stay usable while the device is unreachable. Covers #45 AC4.
+Enrollment SHALL refuse the reserved `wall` id, an invalid id, an address used by another registered device, an existing id registered at a different address or as a different kind, and an id whose credential key another device already uses. It SHALL run these checks before it asks the operator or the device for a credential. Enrollment and removal SHALL refuse a malformed saved layout before any write, because a rerun cannot repair it. It SHALL NOT silently redirect an existing identity. Repeating enrollment for the same id and address SHALL replace only its credential and SHALL keep its layout, mode, reservations and scene. A failed enrollment SHALL leave every device and all shared tasks intact. Enrollment SHALL NOT issue, revoke or change machine credentials. The protected controller API SHALL stay Lines-only. Saved geometry and preferences SHALL stay usable while the device is unreachable. Covers #45 AC4.
 
 #### Scenario: Address and identity conflicts
 - **WHEN** the operator enrolls with id `wall`, with the Lines address, or with the registered Panels id at a new address
@@ -51,9 +51,13 @@ Enrollment SHALL refuse the reserved `wall` id, an invalid id, an address used b
 - **WHEN** the operator enrolls with the pairing option or the hidden prompt at an address another device uses
 - **THEN** the command fails without pairing or prompting
 
-#### Scenario: Shared credential on repeat
-- **WHEN** a hand-edited Panels entry refers to the Lines credential and the operator repeats its enrollment
-- **THEN** the command fails, and the Lines credential is unchanged
+#### Scenario: Shared credential key
+- **WHEN** a hand-edited entry refers to the Lines credential and the operator repeats its enrollment, or another entry already uses the new id's credential key
+- **THEN** the command fails, and every stored credential is unchanged
+
+#### Scenario: Malformed saved layout
+- **WHEN** the saved layout file is malformed
+- **THEN** enrollment and removal fail before any write and name the file to repair
 
 #### Scenario: Repeat enrollment
 - **WHEN** the operator enrolls the same id at the same address again with a new credential, after choosing Quiet and a reservation for it
@@ -83,7 +87,7 @@ A removal command SHALL remove a registered non-Lines device's registration, cre
 - **THEN** the command refuses without the force option and explains how to hand the device back first, and with the force option it removes the device
 
 #### Scenario: Failure after the registration is removed
-- **WHEN** removal fails after it has removed the registration, for example on a malformed layout file
+- **WHEN** removal fails after it has removed the registration, for example while stopping the worker
 - **THEN** the command does not claim that nothing changed, and it asks the operator to run it again
 
 #### Scenario: Removing Lines
