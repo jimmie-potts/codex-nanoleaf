@@ -81,7 +81,13 @@ class DeviceWorkerTest(unittest.TestCase):
             self.assertLess(self.clock.now(), deadline, 'Worker did not release control')
             while pending and self.clock.now() >= pending[0][0]:
                 pending.pop(0)[1]()
-        result = b.run_worker(self.directory, sleep=advance, now=self.clock.now,
+        reads = [0]
+        def now():
+            # A pass that loops without sleeping would otherwise hang the suite instead of failing.
+            reads[0] += 1
+            self.assertLess(reads[0], 3000, 'Worker looped without sleeping')
+            return self.clock.now()
+        result = b.run_worker(self.directory, sleep=advance, now=now,
                               read_unread=read_unread or (lambda: self.unread), device=device)
         self.assertEqual(pending, [])
         return result
@@ -152,6 +158,25 @@ class LaunchAndTargetTest(DeviceWorkerTest):
         self.assertEqual(self.query('SELECT key, value FROM meta ORDER BY key'), before)
 
 
+class UninstallTest(DeviceWorkerTest):
+    def test_uninstall_frees_every_device_and_rejects_a_target(self):
+        codex = self.directory / 'codex'
+        codex.mkdir()
+        self.event('UserPromptSubmit')
+        with patch.dict('os.environ', {'CODEX_HOME': str(codex)}), \
+                patch.object(b, 'launch_worker', lambda directory: None), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            with patch.object(sys, 'argv', ['bridge.py', 'setup', '--uninstall', '--device', 'panels',
+                                            '--state-dir', str(self.directory)]), self.assertRaises(SystemExit):
+                b.main()
+            self.assertFalse((codex / 'hooks.json').exists())
+            self.assertEqual(b.get_status(self.directory, 'panels')['mode'], 'work')
+            with patch.object(sys, 'argv', ['bridge.py', 'setup', '--uninstall', '--state-dir', str(self.directory)]):
+                b.main()
+        self.assertEqual((b.get_status(self.directory)['mode'], b.get_status(self.directory, 'panels')['mode']),
+                         ('free', 'free'))
+
+
 class UntargetedOrderTest(DeviceWorkerTest):
     def setUp(self):
         super().setUp(order=('panels', 'wall'))
@@ -180,6 +205,15 @@ class MirroredTest(DeviceWorkerTest):
         # Lines runs later on the same shared epoch: its Line stays green, and the obsolete wave is not replayed.
         self.assertEqual(len(green(lines_frames)), 2)
         self.assertEqual(self.query("SELECT COUNT(*) FROM activity")[0][0], 1)
+
+    def test_layout_save_keeps_the_other_devices_entry(self):
+        path = self.directory / 'layout.json'
+        stale = devices.layout_devices(json.loads(path.read_text()))
+        del stale['panels']
+        devices.save_device_layout(path, 'wall', stale['wall'])
+        saved = devices.layout_devices(json.loads(path.read_text()))
+        self.assertEqual(sorted(saved), ['panels', 'wall'])
+        self.assertEqual(len(saved['panels']['elements']), 18)
 
     def test_scene_restoration_is_per_device(self):
         self.event('UserPromptSubmit')
@@ -266,6 +300,51 @@ class ModesTest(DeviceWorkerTest):
         self.assertTrue(self.effects(self.fake.lines))
         self.assertEqual(self.fake.panels.calls, [])
         self.assertEqual(b.get_status(self.directory, 'panels'), {'mode': 'free', 'pending': False, 'error': None})
+
+    def test_panels_free_keeps_the_lines_comet_and_pending_edit(self):
+        self.event('UserPromptSubmit')
+        self.event('Stop')
+        self.unread.add('a')
+        lines = b.load_config(self.directory)
+        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+            db.execute("UPDATE comets SET source=0, started=? WHERE device='wall'", (self.clock.now(),))
+            db.execute("INSERT INTO slots (session, slot, device) VALUES ('a', 0, 'wall')")
+            self.assertTrue(wall.request_patch(db, {'settings': {'style': 'project'}}, lines))
+        self.mode('free', 'panels')
+        self.run_worker('panels', [(self.clock.now() + 1, self.unread.clear)])
+        self.assertEqual(self.query("SELECT device, started IS NOT NULL FROM comets"), [('wall', 1)])
+        self.assertEqual(self.query("SELECT device FROM map_pending"), [('wall',)])
+        self.assertEqual(b.get_status(self.directory)['mode'], 'work')
+
+    def test_unread_completion_shows_blue_on_both_devices(self):
+        self.mode('quiet', 'wall')
+        self.mode('quiet', 'panels')
+        self.event('UserPromptSubmit')
+        self.event('Stop')
+        self.unread.add('a')
+        class Stop(Exception):
+            pass
+        def stop_after_a_pass(seconds):
+            raise Stop()
+        for device in ('wall', 'panels'):
+            with self.assertRaises(Stop):  # The unread task keeps each worker watching; stop after one pass.
+                b.run_worker(self.directory, sleep=stop_after_a_pass, now=self.clock.now,
+                             read_unread=lambda: self.unread, device=device)
+        for fake, device in ((self.fake.lines, 'wall'), (self.fake.panels, 'panels')):
+            slot = self.slots(device)['a']
+            zones = b.load_config(self.directory, device)['elements'][slot]['zones']
+            first = decode(self.effects(fake)[0])
+            self.assertEqual({tuple(first[z][0][:3]) for z in zones}, {b.COLORS['unread']})
+
+    def test_panels_scene_returns_after_a_recoverable_failure(self):
+        self.event('UserPromptSubmit')
+        self.fake.panels.fail = lambda method, endpoint, payload: method == 'PUT'
+        with self.assertRaises(OSError):
+            self.run_worker('panels')
+        self.event('Stop')
+        self.run_worker('panels', [(self.clock.now() + 3, self.unread.clear)])
+        self.assertEqual((self.fake.panels.selected, self.fake.panels.brightness), ('Forest', 64))
+        self.assertEqual(self.fake.lines.calls, [])
 
     def test_quiet_on_one_device_keeps_the_other_in_work(self):
         self.event('UserPromptSubmit')
@@ -407,9 +486,9 @@ class IsolationTest(DeviceWorkerTest):
         self.fake.panels.fail = lambda method, endpoint, payload: True
         attempts = []
         original = b.run_worker
-        def run(directory, device='wall'):
+        def run(directory, device='wall', feed=None):
             attempts.append(device)
-            return original(directory, device=device, sleep=self.clock.sleep, now=self.clock.now,
+            return original(directory, device=device, feed=feed, sleep=self.clock.sleep, now=self.clock.now,
                             read_unread=lambda: self.unread)
         with patch.object(sys, 'argv', ['bridge.py', 'worker', '--device', 'panels', '--state-dir', str(self.directory)]), \
                 patch.object(b, 'run_worker', side_effect=run), \
@@ -484,10 +563,70 @@ class ProtectedApiTest(DeviceWorkerTest):
         with self.assertRaises(OSError):
             self.run_worker('wall')
         self.assertEqual(self.app.snapshot()['state']['lastOutcome']['receipt']['outcome'], 'uncertain')
+        held = self.query("SELECT value FROM meta WHERE key='controller_hold_revision'")[0][0]
+        # Give Panels the same revision number, so a hold that ignored the device would match it.
+        while b.control_state(sqlite3.connect(self.directory / 'status.sqlite'), 'panels')['revision'] < int(held):
+            self.mode('quiet' if b.get_status(self.directory, 'panels')['mode'] == 'work' else 'work', 'panels')
+        self.assertEqual(str(b.control_state(sqlite3.connect(self.directory / 'status.sqlite'), 'panels')['revision']), held)
         self.event('UserPromptSubmit')
         self.run_worker('panels', self.free_after(3, 'panels'))
         self.assertTrue(self.effects(self.fake.panels))
         self.assertEqual(self.app.snapshot()['state']['lastOutcome']['receipt']['outcome'], 'uncertain')
+
+    def test_panels_never_runs_controller_integration_or_scene_discovery(self):
+        import integration_api
+        calls = []
+        self.event('UserPromptSubmit')
+        with patch.object(integration_api, 'process', lambda *a, **k: calls.append('integration')), \
+                patch.object(controller_state, 'discovered', lambda *a, **k: calls.append('discovered')), \
+                patch.object(controller_state, 'recover', lambda *a, **k: calls.append('recover')), \
+                patch.object(controller_state, 'Execution', side_effect=AssertionError('Panels created a controller execution')):
+            self.run_worker('panels', self.free_after(3, 'panels'))
+        self.assertEqual(calls, [])
+        self.assertTrue(self.effects(self.fake.panels))
+        with patch.object(integration_api, 'process', lambda *a, **k: calls.append('integration')), \
+                patch.object(controller_state, 'discovered', lambda *a, **k: calls.append('discovered')):
+            self.run_worker('wall', self.free_after(3, 'wall'))
+        self.assertIn('integration', calls)
+        self.assertIn('discovered', calls)
+        names = controller_state.read(sqlite3.connect(self.directory / 'status.sqlite')).get('scenes', [])
+        self.assertNotIn('Forest', names)
+
+    def test_panels_pass_keeps_the_lines_error(self):
+        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+            db.execute("INSERT INTO meta VALUES ('control_error', 'Light update failed; retrying.')")
+        self.event('UserPromptSubmit')
+        self.run_worker('panels', self.free_after(3, 'panels'))
+        self.assertEqual(b.get_status(self.directory)['error'], 'Light update failed; retrying.')
+        self.assertIsNone(b.get_status(self.directory, 'panels')['error'])
+
+    def test_lines_outage_keeps_panels_comets_in_shared_input(self):
+        import test_shared_input as shared
+        config = {'version': 1, 'ownerId': 'owner', 'consumerId': 'nanoleaf',
+                  'endpoint': 'http://127.0.0.1:12345/api/monitor/v1', 'tokenFile': str(self.directory / 'token'),
+                  'clearOnNewTurn': True,
+                  'qualifiedSources': [{'provider': 'codex', 'client': 'desktop', 'hostId': 'host', 'sourceId': 'source'}],
+                  'bindings': []}
+        shared_input.configure(self.directory, b, config)
+        active = shared.envelope(); first = active['snapshot']['sessions'][0]; notice = first['notices'].pop()
+        first['activity'] = 'active'; active['snapshot']['revision'] = 1
+        done = copy.deepcopy(active); done['snapshot']['revision'] = 2
+        done['snapshot']['sessions'][0].update(activity='idle', notices=[notice])
+        feed = [active]
+        fetch = lambda config, minimum_revision=0: feed[0]
+        with patch.object(shared_input, 'fetch_snapshot', fetch):
+            shared_input.select_source(self.directory, b, 'shared', fetch=fetch, now=self.clock.now)
+            self.fake.lines.fail = lambda method, endpoint, payload: True
+            state = {}
+            for attempt in range(3):
+                self.fake.lines.fail = lambda method, endpoint, payload: True
+                if attempt == 1:
+                    feed[0] = done
+                self.clock.sleep(2)
+                with self.assertRaises(OSError):
+                    b.run_worker(self.directory, sleep=self.clock.sleep, now=self.clock.now,
+                                 read_unread=lambda: self.unread, device='wall', feed=state)
+        self.assertEqual(sorted(self.query('SELECT device FROM comets')), [('panels',), ('wall',)])
 
     def test_panels_instance_never_polls_the_shared_feed(self):
         ticks = []

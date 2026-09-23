@@ -18,21 +18,22 @@ The existing worker program runs once per registered device.
 
 - **Locks and launch.** `bridge.py worker --device <id>` takes that device's exclusive lock. The `wall` instance keeps `notification-lock.sqlite`, and other devices use `notification-lock.<id>.sqlite`. Waking the worker launches every registered device, and an instance whose lock is busy exits.
 - **Writers.** Each instance sends only to its own address and credential, so each physical device has one writer.
-- **Single-owner work.** Only the `wall` instance polls the shared feed and recovers, journals and executes protected-controller and integration-settings work. That includes overrides, the hold and scene discovery. Other instances never create a controller execution.
-- **Shared evidence.** Every instance reconciles the shared Codex read evidence and project metadata. Those operations are idempotent, so reading a task clears it on every device even when one device is unreachable.
+- **Single-owner work.** Only the `wall` instance polls the shared feed and recovers, journals and executes protected-controller and integration-settings work. That includes overrides, the hold and scene discovery. Other instances never create a controller execution. The feed reader survives a failed Lines pass, so a Lines outage does not turn every later feed read into a resync that would drop the other devices' comets and waves.
+- **Shared evidence.** Every instance reconciles the shared Codex read evidence and project metadata. Those operations are idempotent, so reading a task clears it on every device even when one device is unreachable. A read that lands while one instance waits for the lock can be briefly reverted by that instance's older snapshot; the next pass corrects it.
 - **Wake-up and bookkeeping.** An instance wakes on any change to the shared event revision, not on the global `dirty` flag that the other instance may clear first. The applied mode revision, retry error, preview and rendering flag use the `key@device` names from ADR 0009, so `wall` keeps its existing keys.
 - **Comets.** A completion queues one comet on each registered device whose mode is Work. Hooks and the shared-input projection read the registry, and an unreadable registry means `wall` only.
-- **Clears.** Display-cache clears, refreshes and previews target one device. `setup --reset` and shared-source switching reset the shared task input, so they state that they reset every device. Switching restores bound placements on every device.
+- **Clears.** Display-cache clears, refreshes and previews target one device. `setup --reset` and shared-source switching reset the shared task input, so they state that they reset every device. Switching restores bound placements on every device. `setup --uninstall` hands every registered device back to Free and does not accept `--device`.
 - **Retries.** A failed pass records the error for its own device and retries after the existing two seconds.
 - **Lock contention.** Worker database connections wait up to five seconds, because another device's pass can hold the write lock for its two 1.2-second requests.
 
 NL22 layouts are read from the device's reported `panelLayout`:
 
 - **Triangles.** `shapeType` 0 is a triangle and becomes one one-zone element. Its id is the panel ID and its position is the reported centroid.
-- **Other shapes.** Rhythm and controller modules are excluded. Any other shape is rejected.
+- **Other shapes.** The Rhythm module (1) and the Shapes controller (12) are excluded. Any other shape is rejected, including Canvas control squares (3 and 4), which emit light.
 - **Validation.** Neighbors are triangles whose centroids lie 150/√3 apart, within 10 percent. Overlap, more than three neighbors, disconnection or invalid values are rejected before anything is saved.
 - **Numbering.** Elements are numbered by position after the global orientation, as Lines are.
 - **Cache.** Coordinates, per-panel orientation and the neighbor list are kept in `panel_geometry` beside the elements. The reported `sideLength` is not used, because recent firmware reports 0.
+- **Saving.** A discovered entry is merged into the current `layout.json` under an exclusive lock, so two devices discovering at once cannot drop each other's entry.
 
 NL22 payloads use the same textual `animData` with one zone per triangle and version `2.0`, as in the Light Panels documentation's example. They omit `logicalPanelsEnabled`, which that document does not define and which Lines need for their split zones. Triangles have no project/status halves. Project identity shows through reservations and the map.
 

@@ -61,8 +61,8 @@ class ControllerWorkerTest(unittest.TestCase):
         self.command('Quiet')
         self.device.fail=lambda method,endpoint,payload:method=='PUT'
         original=b.run_worker
-        def run(directory,device='wall'):
-            return original(directory,sleep=self.clock.sleep,now=self.clock.now,read_unread=lambda:self.unread,device=device)
+        def run(directory,device='wall',feed=None):
+            return original(directory,sleep=self.clock.sleep,now=self.clock.now,read_unread=lambda:self.unread,device=device,feed=feed)
         with patch.object(sys,'argv',['bridge.py','worker','--state-dir',str(self.directory)]), patch.object(b,'run_worker',side_effect=run) as worker, patch.object(b.time,'sleep',return_value=None):
             b.main()
         self.assertEqual(worker.call_count,2)

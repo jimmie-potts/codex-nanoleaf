@@ -1,4 +1,5 @@
 """Device registry, per-device layout shape and device-scoped state migration."""
+import contextlib
 import json
 import math
 import os
@@ -208,6 +209,21 @@ def write_json(path, value):
 def save_layout(path, devices, write=write_json):
     """Write the per-device layout atomically; an invalid layout leaves the last valid file."""
     write(path, serialized(devices))
+
+
+def save_device_layout(path, device, entry, write=write_json):
+    """Merge one device's discovered entry into the current file under an exclusive lock.
+
+    Each device's worker may discover its layout at the same time; re-reading under the
+    lock keeps the other device's entry instead of overwriting it with a stale copy.
+    """
+    import sqlite3
+    with contextlib.closing(sqlite3.connect(path.with_name('layout-lock.sqlite'), timeout=5)) as lock:
+        lock.execute('BEGIN EXCLUSIVE')
+        current = layout_devices(json.loads(path.read_text())) if path.exists() else {}
+        current[device] = entry
+        save_layout(path, current, write)
+        lock.rollback()
 
 
 def create(db, table):

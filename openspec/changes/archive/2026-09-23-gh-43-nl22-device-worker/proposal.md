@@ -10,7 +10,7 @@
 - Apply mode, scene restoration, previews, the display cache, the applied-mode revision and the retry error per device. The protected controller ledger, general controls, the integration settings queue, overrides, hold and scene discovery stay with `wall`.
 - Isolate failures. A failed pass on one device records that device's error and retries after the existing two-second delay. The other device's instance and outcome are unaffected.
 - Add an explicit `--device` target to the CLI `mode`, `status`, `worker` and device-specific `setup` operations. Unknown targets are rejected. `setup --reset` and shared-source switching state that they reset every device, and shared-source switching preserves bound placements on every device.
-- Interpret reported NL22 layouts. Triangles (`shapeType` 0) become stable one-zone elements. The Rhythm module and controllers are excluded, and malformed, disconnected or unsupported geometry is rejected. Panel coordinates, orientation and edge neighbors are cached with the layout.
+- Interpret reported NL22 layouts. Triangles (`shapeType` 0) become stable one-zone elements. The Rhythm module and the Shapes controller are excluded, and malformed, disconnected or unsupported geometry is rejected. Panel coordinates, orientation and edge neighbors are cached with the layout.
 - Render NL22 elements with one zone per triangle and without the Lines-only logical-panel flag. Project signature halves stay a Lines feature.
 - Record the per-device worker and NL22 protocol decisions in ADR 0010, and point ADR 0009's gap paragraph at this issue.
 

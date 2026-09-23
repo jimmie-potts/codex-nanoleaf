@@ -4,8 +4,8 @@ import math
 import devices
 
 TRIANGLE = 0
-# Rhythm module and controllers report positions but emit no light.
-NON_LIGHT = {1, 3, 4, 12}
+# The Rhythm module and the Shapes controller report positions but emit no light.
+NON_LIGHT = {1, 12}
 SIDE = 150
 # Edge-adjacent triangle centroids are two inradii apart.
 NEIGHBOR = SIDE / math.sqrt(3)

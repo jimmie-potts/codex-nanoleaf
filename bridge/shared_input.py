@@ -550,7 +550,8 @@ def command(argv, bridge):
             if args.source is None:raise FeedError('source-required')
             select_source(directory,bridge,args.source)
             bridge.launch_worker(directory)
-            result=inspect(directory)
+            # Switching the task source resets comets and display caches on every device.
+            result=dict(inspect(directory),resetDevices='all')
         else:
             if not args.session or not args.notice:raise FeedError('notice-required')
             result=acknowledge(directory,bridge,args.session,args.notice,retry=args.retry)

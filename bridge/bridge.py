@@ -130,16 +130,14 @@ def load_config(directory, device=devices.DEFAULT):
         # Reported triangles only; unsupported geometry fails before anything is saved.
         import panels
         layout = panels.read_layout(panel_layout)
-        known[device] = layout
-        devices.save_layout(layout_file, known, write_json)
+        devices.save_device_layout(layout_file, device, layout, write_json)
     elif layout is None or any(element['position'] is None for element in layout['elements']):
         groups = [element['zones'] for element in layout['elements']] if layout else pair_lines(panel_layout)
         zones = {p['panelId']: p for p in panel_layout['layout']['positionData']}
         positions = [[sum(zones[p]['x'] for p in pair) / 2,
                       sum(zones[p]['y'] for p in pair) / 2] for pair in groups]
         layout = devices.lines_entry(groups, positions, layout)
-        known[device] = layout
-        devices.save_layout(layout_file, known, write_json)
+        devices.save_device_layout(layout_file, device, layout, write_json)
     config.update(devices.projection(layout))
     config['device'] = device
     for key, value in (('ip', entry['ip']), ('token', devices.credential(config, entry))):
@@ -801,7 +799,7 @@ def play_preview(config, choice, send, sleep, now):
 
 
 def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unread=None,
-               scene_factory=SceneRestorer, device=devices.DEFAULT):
+               scene_factory=SceneRestorer, device=devices.DEFAULT, feed=None):
     # One locked instance per device. Only the original Lines instance polls the shared
     # feed and owns the protected controller's journal, controls, overrides and hold.
     primary = device == devices.DEFAULT
@@ -842,7 +840,10 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
         projection = SimpleNamespace(connect_state=connect_state, mark_dirty=mark_dirty,
                                      control_state=control_state, COLORS=COLORS, wall=wall,
                                      registered_devices=registered_devices)
-        poller = shared_input.Poller(directory, projection) if primary else None
+        # The caller's feed state survives a failed Lines pass, so a Lines outage does not turn
+        # every later feed read into a resync that drops the other devices' comets and waves.
+        feed = {} if feed is None else feed
+        poller = feed.setdefault('poller', shared_input.Poller(directory, projection)) if primary else None
         while True:
             if poller:
                 shared = poller.tick(now())
@@ -1125,7 +1126,9 @@ def setup(args):
     original = json.loads(hooks_file.read_text(encoding='utf-8-sig')) if hooks_file.exists() else {}
     if args.uninstall:
         if (directory / 'status.sqlite').exists():
-            set_mode(directory, 'free')
+            # Removing the hooks hands every registered device back to the Nanoleaf app.
+            for device in registered_devices(directory):
+                set_mode(directory, 'free', device=device)
         remover = directory / 'remove-modes.ps1'
         if os.name == 'nt' and remover.exists():
             subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-File', str(remover)], check=True)
@@ -1211,7 +1214,9 @@ def main():
     device = devices.DEFAULT
     if args.device is not None:
         # An unknown target never falls back to the original device.
-        if args.mode not in ('mode', 'status', 'worker', 'setup') or args.device not in registered_devices(directory):
+        targeted = args.mode in ('mode', 'status', 'worker') or (args.mode == 'setup' and any(
+            getattr(args, flag) for flag in ('check', 'demo', 'notify', 'refresh', 'comet')))
+        if not targeted or args.device not in registered_devices(directory):
             parser.error('Unknown or unsupported device target.')
         device = args.device
     if args.mode == 'map-status':
@@ -1248,9 +1253,10 @@ def main():
                          creationflags=subprocess.CREATE_NO_WINDOW)
         return
     if args.mode == 'worker':
+        feed = {}
         while True:
             try:
-                if run_worker(directory, device=device) is False: return
+                if run_worker(directory, device=device, feed=feed) is False: return
                 with contextlib.closing(connect_state(directory)) as db:
                     resume_shared = shared_input.selected(db)
                 if not resume_shared: return

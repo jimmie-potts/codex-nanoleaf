@@ -73,6 +73,7 @@ class GeometryTest(unittest.TestCase):
         cases = {
             'lines zone': lambda p: first(p).update(shapeType=18),
             'shapes triangle': lambda p: first(p).update(shapeType=8),
+            'canvas control square': lambda p: first(p).update(shapeType=3),
             'duplicate id': lambda p: first(p).update(panelId=p[1]['panelId']),
             'text id': lambda p: first(p).update(panelId='55'),
             'boolean id': lambda p: first(p).update(panelId=True),

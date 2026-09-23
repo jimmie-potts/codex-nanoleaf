@@ -63,7 +63,7 @@ Hooks and the map wake it through `launch_worker(directory)`.
 
 - **Geometry.** `panels.read_layout(panel_layout)` validates the documented Light Panels layout:
   - Accepted fields are `positionData` entries with `panelId`, `x`, `y`, `o` and `shapeType`, plus `globalOrientation`.
-  - `shapeType` 0 is a triangle. Types 1 (Rhythm), 3, 4 and 12 (controllers) are excluded non-light modules. Every other type is rejected.
+  - `shapeType` 0 is a triangle. Types 1 (Rhythm module) and 12 (Shapes controller) are excluded non-light modules. Every other type is rejected.
   - Panel ids must be integers from 0 to 65535 and unique. Coordinates and orientation must be finite.
   - Neighbors are triangles whose centroids lie one inradius pair apart (side 150 / √3 ≈ 86.6, ±10%). Closer centroids are rejected as overlapping, more than three neighbors are rejected, and the triangles must form one connected arrangement.
   - Elements are numbered by position after applying the global orientation, as Lines are. A triangle's id is its panel id, and its position is its reported centroid.
