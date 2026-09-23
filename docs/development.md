@@ -29,10 +29,10 @@ Depot CI runs the workflow in `.depot/workflows/ci.yml` on pull requests and pus
 ## Workflow tooling
 
 Run `npm ci` to install the locked development dependencies. Use npm's default
-cache (`~/.npm`), not a cache under `/tmp`; `/tmp` can be a small RAM-backed
-filesystem shared by every session. If a sandbox makes the default cache
-read-only, report that instead of redirecting it. The bridge uses the standard
-library; controller tests also require the pinned
+cache (`~/.npm` on Linux and WSL), not a cache under `/tmp`; `/tmp` can be a
+small RAM-backed filesystem shared by every session. If a sandbox makes the
+default cache read-only, report that instead of redirecting it. The bridge uses
+the standard library; controller tests also require the pinned
 `requirements-controller.txt` dependencies.
 
 `npm run openspec -- <arguments>` uses the pinned OpenSpec 1.12.0 CLI. The wrapper
