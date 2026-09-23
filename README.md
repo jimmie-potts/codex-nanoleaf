@@ -96,5 +96,6 @@ The optional [local MCP host](docs/local-mcp.md) supports Windows and WSL throug
 ## Cross-project work guide
 
 The [hub work guide](https://github.com/jimmie-potts/agent-device-hub/blob/main/docs/work-guide/README.md) contains the shared remaining-work
-map, delivery history and architecture diagrams. This project maintains its
-portion through a linked hub PR under the SDLC completion gate.
+map, delivery history and architecture diagrams as a dated snapshot. A change
+here needs a linked hub PR only when its task intentionally updates the guide;
+see [the SDLC](docs/sdlc.md#cross-project-work-guide).
