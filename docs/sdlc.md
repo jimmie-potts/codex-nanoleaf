@@ -185,36 +185,47 @@ or a substitute for current GitHub and Git evidence.
 ### Cleanup after delivery
 
 Only the owner cleans up, and only what its delivery created. Start once
-review-and-merge step 7 has verified main CI and read back the issue state, and
-any handoff has ended. Cleanup does not wait for installation or physical checks
-unless they still use the worktree.
+review-and-merge step 7 has confirmed that main CI succeeded and read back the
+issue state, and any handoff has ended. Cleanup does not wait for installation
+or physical checks unless they still use the worktree.
 
-1. Confirm the PR is merged and the worktree's `HEAD` is the PR's merged head
-   commit. Squash merges leave a branch's commits off `main`, so judge delivery
-   by the PR's merged state, not by unmerged commits. Commits after the merged
-   head are unfinished work.
-2. Check running sessions, tool-managed retention, and
-   `git status --short --ignored` in the worktree. `git worktree remove` deletes
-   ignored files, including the worktree's own `.local/`. Move anything the
-   issue still needs into the PR, the issue, or the canonical checkout's
-   `.local/evidence/gh-<issue-number>-<slug>/`.
-3. From the canonical checkout, run ordinary `git worktree remove <owned-path>`
-   and confirm with `git worktree list` that the path is gone. Delete the
-   canonical checkout's `.local/scratch/gh-<issue-number>-<slug>/`. Do not
-   delete the branch yourself.
-4. Remove a tool-managed worktree, such as a Claude Code worktree under
-   `.claude/worktrees/` or a Codex-managed worktree, through that tool's own
-   cleanup instead of `git worktree remove`, and still delete the scratch
-   folder. Once steps 1 and 2 pass on a clean worktree, accepting the tool's
-   option to discard the squash-merged commits is allowed.
+1. Confirm the PR is merged and the worktree's `HEAD` is the PR's reviewed head
+   (`headRefOid`, the `--match-head-commit` value), not the squash commit on
+   `main`. Squash merges leave a branch's commits off `main`, so judge delivery
+   by the PR's merged state, never by commit ancestry. Commits after the
+   reviewed head are unfinished work.
+2. Check running sessions and processes, tool-managed retention, and
+   `git status --short --ignored` in the worktree, and look inside the scratch
+   folder. `git worktree remove` deletes ignored files, including the worktree's
+   own `.local/`, local configuration, databases, and `node_modules/`. Move
+   anything the issue still needs into the PR, the issue, or the canonical
+   checkout's `.local/evidence/gh-<issue-number>-<slug>/`. The PR and issue are
+   public, so private material goes only to `.local/evidence/`. Confirm the
+   other ignored files are disposable.
+3. For a worktree created with `git worktree add`, run ordinary
+   `git worktree remove <owned-path>` from the canonical checkout and confirm
+   with `git worktree list` that the path is gone. Remove any worktree
+   registered inside the scratch folder the same way, then delete the canonical
+   checkout's `.local/scratch/gh-<issue-number>-<slug>/`. Do not delete the
+   delivery branch yourself.
+4. Leave a tool-managed worktree, such as a Claude Code worktree under
+   `.claude/worktrees/` or a Codex-managed worktree, to that tool's own exit
+   flow instead of `git worktree remove`; that flow may also delete its branch.
+   Once steps 1 and 2 pass on a clean worktree, accepting the tool's option to
+   discard the squash-merged commits is allowed. If this session cannot run that
+   flow, delete the scratch folder, keep the worktree, and report it as ready to
+   remove.
 
-Keep the worktree and scratch, and report the path and reason, when a check
-fails or `git worktree remove` refuses. Preserve changes: never force removal,
-never reset or discard files to make a worktree removable, and never prune
-another owner's registration. For failed or abandoned work, ask the user whether
-to keep or remove it and keep it until they decide. The
-[Claude setup guide](claude-code.md) and [Codex setup notes](../.codex/README.md)
-cover their different lifecycles.
+Keep the worktree and scratch, and report the path and reason, when the worktree
+is dirty or locked, another process or session uses it, its `HEAD` differs from
+the reviewed head, evidence is not yet preserved, an ignored file is not
+confirmed disposable, or `git worktree remove` refuses. Without the user's
+explicit approval, never force removal or reset, clean, or discard files to make
+a worktree removable. Never prune another owner's registration. If main CI
+fails, or the work failed or was abandoned, ask the user whether to keep or
+remove it and keep it until they decide. The
+[Claude setup guide](claude-code.md) and
+[Codex setup notes](../.codex/README.md) cover their different lifecycles.
 
 ## Review and merge
 
