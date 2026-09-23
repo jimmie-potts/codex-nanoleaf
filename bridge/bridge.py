@@ -122,10 +122,15 @@ def load_config(directory, device=devices.DEFAULT):
     known = devices.layout_devices(saved)  # A malformed file is rejected and left in place.
     layout = known.get(device)
     if layout is None or any(element['position'] is None for element in layout['elements']):
-        if entry['kind'] != 'lines':
-            raise ValueError('No saved layout for this device.')
         transport = {'ip': entry['ip'], 'token': devices.credential(config, entry)}
         panel_layout = light_request(transport, 'GET')['panelLayout']
+    if entry['kind'] == 'panels' and (layout is None or any(element['position'] is None for element in layout['elements'])):
+        # Reported triangles only; unsupported geometry fails before anything is saved.
+        import panels
+        layout = panels.read_layout(panel_layout)
+        known[device] = layout
+        devices.save_layout(layout_file, known, write_json)
+    elif layout is None or any(element['position'] is None for element in layout['elements']):
         groups = [element['zones'] for element in layout['elements']] if layout else pair_lines(panel_layout)
         zones = {p['panelId']: p for p in panel_layout['layout']['positionData']}
         positions = [[sum(zones[p]['x'] for p in pair) / 2,
@@ -282,7 +287,8 @@ def zone_color(config, snapshot, index, half, instant, delays):
     base = (COLORS[activity[0]] if activity else BASELINE) if quiet or steady else pixel_color(
         snapshot, index, instant, delays, config.get('_wave_cutoff', float('-inf')))
     signature = None
-    if config.get('_style') == 'project':
+    # Project/status halves need a two-zone Line; one-zone triangles always show status.
+    if config.get('_style') == 'project' and len(config['line_groups'][index]) == 2:
         signatures = config.get('_signatures', [])
         if index < len(signatures):
             color, side = signatures[index]
@@ -319,7 +325,7 @@ def effect_payload(config, snapshot, instant, loop):
     locate = config.get('_locate')
     animated = bool(any(snapshot) or comet or locate) and not quiet
     delays = [travel_delays(config, source) for source in range(len(groups))]
-    data = [len(groups) * 2]
+    data = [sum(len(zones) for zones in groups)]
     for index, pair in enumerate(groups):
         ticks = [1] + list(range(2, PULSE_TICKS, 2)) + [PULSE_TICKS] if animated else [1]
         if comet: ticks = list(range(1, PULSE_TICKS + 1))
@@ -332,11 +338,14 @@ def effect_payload(config, snapshot, instant, loop):
                 previous = tick
             data.extend([panel, len(frames)])
             for step in frames: data.extend(step)
-    return {'write': {'command': 'display', 'version': '2.0',
-                      'animType': 'custom' if animated else 'static',
-                      'animData': ' '.join(map(str, data)), 'loop': bool(loop and animated and not comet and not locate),
-                      'colorType': 'HSB', 'logicalPanelsEnabled': True,
-                      'palette': [{'hue': 0, 'saturation': 0, 'brightness': 100}]}}
+    write = {'command': 'display', 'version': '2.0',
+             'animType': 'custom' if animated else 'static',
+             'animData': ' '.join(map(str, data)), 'loop': bool(loop and animated and not comet and not locate),
+             'colorType': 'HSB', 'palette': [{'hue': 0, 'saturation': 0, 'brightness': 100}]}
+    if config.get('kind', 'lines') == 'lines':
+        # Lines address their two logical zones; the Light Panels API defines no such flag.
+        write['logicalPanelsEnabled'] = True
+    return {'write': write}
 
 
 def render(config, snapshot, instant, loop):

@@ -8,7 +8,7 @@ DEFAULT = 'wall'
 KINDS = {'lines': 2, 'panels': 1}
 ID = re.compile(r'[A-Za-z0-9_.-]{1,128}\Z')
 LAYOUT_VERSION = 2
-GEOMETRY_KEYS = ('zone_geometry', 'connector_geometry')
+GEOMETRY_KEYS = ('zone_geometry', 'connector_geometry', 'panel_geometry')
 _QUOTED = "'" + DEFAULT + "'"
 # Column order keeps the legacy columns first so positional readers of the
 # shared-input backup keep working; the device key is last.
