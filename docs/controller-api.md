@@ -6,7 +6,7 @@ The [protected controller specification](../openspec/specs/protected-controller-
 
 ## Linux installation
 
-[Fresh Linux setup](linux-install.md) provisions the controller dependencies and credentials. Run the generated controller user service, or `~/.local/share/codex-nanoleaf/nanoleaf controller-serve --port 41231` in the foreground. Use the selected custom port when setup overrides the default. Its state and worker stay in Linux. MCP calls this listener directly; no Windows helper is involved. [ADR 0007](decisions/0007-linux-runtime-ownership.md) records this ownership. Linux installed acceptance belongs to [#55](https://github.com/jimmie-potts/codex-nanoleaf/issues/55).
+[Fresh Linux setup](linux-install.md) provisions the controller dependencies and credentials. Run the generated controller user service, or `~/.local/share/codex-nanoleaf/nanoleaf controller-serve --port 41231` in the foreground. Use the selected custom port when setup overrides the default. Its state and worker stay in Linux. MCP calls this listener directly; no Windows helper is involved. Enrolling [NL22 Light Panels](linux-install.md#add-nl22-light-panels) neither issues nor changes machine credentials, and the controller and MCP keep addressing `wall` only. [ADR 0007](decisions/0007-linux-runtime-ownership.md) records this ownership. Linux installed acceptance belongs to [#55](https://github.com/jimmie-potts/codex-nanoleaf/issues/55).
 
 ## Legacy Windows dependency and activation
 

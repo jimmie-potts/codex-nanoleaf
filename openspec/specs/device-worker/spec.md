@@ -61,7 +61,7 @@ Two-second status epochs, the one outward pulse, red and yellow priority and one
 - **THEN** the Panels comet source stays assigned until the comet ends, and only then is the task re-placed
 
 ### Requirement: Per-device failure isolation
-A failed pass SHALL be caught for its device, recorded under that device's error and retried after the existing bounded two-second delay. A failing device SHALL NOT abort the other device's due updates or overwrite its last successful outcome, error or the controller's receipts. Covers AC5.
+A failed pass SHALL be caught for its device, recorded under that device's error and retried after the existing bounded two-second delay, unless the device is no longer registered (see "Unregistered device instance stops"). A failing device SHALL NOT abort the other device's due updates or overwrite its last successful outcome, error or the controller's receipts. Covers AC5.
 
 #### Scenario: Panels outage
 - **WHEN** the Panels transport fails while both devices have tasks
@@ -88,3 +88,14 @@ The protected controller, integration settings API and local MCP SHALL keep addr
 #### Scenario: Hold is Lines-only
 - **WHEN** an uncertain machine request holds the Lines instance
 - **THEN** the Panels instance keeps rendering its tasks
+
+### Requirement: Unregistered device instance stops
+A worker instance for a device other than the original Lines device SHALL stop when that device is no longer registered. It SHALL NOT retry, record errors or send requests for an unregistered device. The original Lines instance SHALL be unaffected. Covers [#45](https://github.com/jimmie-potts/codex-nanoleaf/issues/45) AC4 removal.
+
+#### Scenario: Device removed while its worker waits
+- **WHEN** a Panels instance is waiting between passes and the Panels registration is removed
+- **THEN** the instance exits at its next pass without sending, and the Lines instance keeps running
+
+#### Scenario: Retry after removal
+- **WHEN** a Panels instance's pass failed and the device is then unregistered
+- **THEN** the instance stops instead of recording another error and retrying
