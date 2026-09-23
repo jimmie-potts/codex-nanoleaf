@@ -373,11 +373,6 @@ def presented(snapshot):
     return tasks
 
 
-def _claims(member, status):
-    return bool(ALERTS.get(status, set()) & {a['kind'] for a in member['attention']}) or (
-        status == 'working' and member['activity'] == 'active')
-
-
 def _supporters(session, children, status):
     """Task members whose evidence supplies a status."""
     if status in ALERTS:
@@ -418,9 +413,11 @@ def _project(db, bridge, envelope, config, instant, resync=False, targets=(DEFAU
         owner_cleared_block = (prior_blocked and old and old[1] == 'blocked' and status != 'blocked'
                                and prior_session['turn'] == session['turn']
                                and snapshot['revision'] > previous['snapshot']['revision'])
-        # A lower status is not accepted while an uncertain subagent still claims the retained one.
-        withdrawn = bool(old) and RANK[status] < RANK.get(old[1], 0) and any(
-            child['freshness'] != 'current' and _claims(child, old[1]) for child in children)
+        # A retained working status stays steady while an uncertain subagent still reports activity,
+        # until the members that supplied it clear it with current evidence. Uncertain child
+        # attention is already part of the status, so only working can be withdrawn this way.
+        withdrawn = bool(old) and old[1] == 'working' and RANK[status] < RANK['working'] and any(
+            child['freshness'] != 'current' and child['activity'] == 'active' for child in children)
         stale = stale or withdrawn
         # Current members that supplied the retained status and no longer do clear it, and a
         # higher subagent alert is shown steadily rather than hidden behind an older color.
@@ -428,7 +425,7 @@ def _project(db, bridge, envelope, config, instant, resync=False, targets=(DEFAU
         prior_support = ({identity_key(item['identity']) for item in _supporters(*prior_tasks[key][:2], old[1])}
                          if old and key in prior_tasks and old[1] != status else set())
         still = {identity_key(item['identity']) for item in _supporters(session, children, old[1])} if old else set()
-        evidence_cleared = not withdrawn and bool(prior_support) and all(
+        evidence_cleared = bool(prior_support) and all(
             member in members and members[member]['freshness'] == 'current' and member not in still for member in prior_support)
         child_alert = (bool(old) and status in ALERTS and RANK[status] > RANK.get(old[1], 0)
                        and any(item is not session for item in supporters))

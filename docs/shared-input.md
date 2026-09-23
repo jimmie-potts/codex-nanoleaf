@@ -167,7 +167,8 @@ current subagent alert therefore shows normally under an uncertain parent, and
 its resolution takes effect steadily. An alert held only by uncertain subagents
 shows steadily with uncertain evidence, even over a lower retained or current
 status. A silent subagent that still reports activity keeps its parent working
-steadily. When the topmost ancestor present in the snapshot has a missing
+steadily. That hold ends when fresh subagent evidence resolves it or when the
+parent's own turn ends, and the parent's new turns still show normally. When the topmost ancestor present in the snapshot has a missing
 parent, that group appears only while it has blocked or question attention.
 Parentage that the owner marks ambiguous leaves a session top-level, with its
 own notices. Legacy hooks attributed subagent events to the parent session in

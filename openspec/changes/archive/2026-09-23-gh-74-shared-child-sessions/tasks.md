@@ -7,6 +7,8 @@
 
 - [x] 1.5 Rank retained and newly supplied statuses. A higher subagent alert escalates steadily over a retained or current lower status, and a silent subagent that still claims working keeps its parent working steadily. Evidence: `test_uncertain_child_alert_is_not_hidden_behind_a_retained_color`, `test_uncertain_child_red_escalates_past_a_current_question` and `test_silent_subagent_keeps_its_parent_working_steadily` failed on the round-two candidate and pass afterward.
 
+- [x] 1.6 Keep a silent subagent's hold from pinning the parent: the parent's own turns update the task, and its completion releases the hold. Evidence: `test_parent_turns_release_a_dead_subagent_hold` failed on the round-three candidate and passes afterward.
+
 ## 2. Documentation and validation
 
 - [x] 2.1 Document subagent presentation, retained top-level notices and the per-notice recovery path in the shared-input guide. Evidence: `docs/shared-input.md` names the new-turn, dashboard and CLI acknowledgment paths and their credential requirement.
