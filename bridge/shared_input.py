@@ -330,14 +330,58 @@ def select_source(directory, bridge, source, fetch=fetch_snapshot, now=time.time
         bridge.mark_dirty(db)
 
 
-def semantic_status(session, consumer):
-    kinds = {attention['kind'] for attention in session['attention']}
-    if kinds & {'approval','input'}: return 'blocked'
-    if 'question' in kinds: return 'question'
-    if session['activity'] == 'active': return 'working'
+ALERTS = {'blocked': {'approval','input'}, 'question': {'question'}}
+RANK = {'idle': 0, 'unread': 1, 'working': 2, 'question': 3, 'blocked': 4}
+
+
+def semantic_status(session, consumer, children=()):
+    # Subagent attention and owner-counted fresh activity belong to the parent task;
+    # a subagent's own turn-ended notices are not task completions.
+    kinds = {attention['kind'] for item in (session, *children) for attention in item['attention']}
+    if kinds & ALERTS['blocked']: return 'blocked'
+    if kinds & ALERTS['question']: return 'question'
+    if session['activity'] == 'active' or any(item['children']['active'] for item in (session, *children)): return 'working'
     if session['read'] != 'read' and any(consumer not in notice['acknowledgedBy'] for notice in session['notices']):
         return 'unread'
     return 'idle'
+
+
+def _parent_key(session):
+    if session['parent']['status'] != 'known' or any(
+            item['dimension'] == 'parent' and item['reason'] == 'ambiguous' for item in session['unavailable']):
+        return None
+    return identity_key(session['parent']['identity'])
+
+
+def presented(snapshot):
+    """Task key -> (session, included subagent sessions, orphan). A child joins its topmost
+    ancestor in the snapshot, as legacy hooks attributed subagent events to the parent
+    session. A group whose top has a missing parent, or a parent cycle keyed by its
+    smallest member, is an orphan presented only for its attention."""
+    sessions = {identity_key(session['identity']):session for session in snapshot['sessions']}
+    def top(key):
+        path = [key]
+        while (parent := _parent_key(sessions[path[-1]])) in sessions:
+            if parent in path: return min(path[path.index(parent):])
+            path.append(parent)
+        return path[-1]
+    tasks = {}
+    for key in sessions:
+        root = top(key)
+        entry = tasks.setdefault(root, (sessions[root], [], _parent_key(sessions[root]) is not None))
+        if key != root: entry[1].append(sessions[key])
+    return tasks
+
+
+def _supporters(session, children, status, retained=False):
+    """Task members whose evidence supplies a status. For a retained status, a silent child
+    that still reports activity counts too, so its later current evidence can clear it."""
+    if status in ALERTS:
+        return [item for item in (session, *children) if ALERTS[status] & {a['kind'] for a in item['attention']}]
+    if status == 'working':
+        return [session] * (session['activity'] == 'active') + [child for child in children if child['activity'] == 'active'
+                                                                and (retained or child['freshness'] == 'current')]
+    return [session]
 
 
 def _project(db, bridge, envelope, config, instant, resync=False, targets=(DEFAULT_DEVICE,)):
@@ -352,20 +396,35 @@ def _project(db, bridge, envelope, config, instant, resync=False, targets=(DEFAU
     if resync:
         db.execute("INSERT OR REPLACE INTO meta VALUES ('shared_wave_cutoff',?)", (str(instant),))
     live = set()
-    for session in snapshot['sessions']:
-        key = identity_key(session['identity']); live.add(key)
+    prior_tasks = presented(previous['snapshot']) if previous else {}
+    for key, (session, children, orphan) in presented(snapshot).items():
+        status = semantic_status(session, config['consumerId'], children)
+        if orphan and status not in ALERTS: continue
+        live.add(key)
         old = db.execute('SELECT turn,status FROM sessions WHERE id=?', (key,)).fetchone()
         old_activity = db.execute('SELECT turn,status,started FROM activity WHERE session=?', (key,)).fetchone()
         turn = session['turn'].get('id', '')
-        status = semantic_status(session, config['consumerId'])
-        stale = session['freshness'] != 'current' or snapshot['collector'] != 'running'
+        # A task is current when current evidence supplies its displayed status.
+        supporters = _supporters(session, children, status)
+        stale = snapshot['collector'] != 'running' or not any(item['freshness'] == 'current' for item in supporters)
         prior_session = prior.get(key)
         prior_blocked = prior_session and any(item['kind'] == 'approval' and item['id']['status'] == 'unknown'
-                                             for item in prior_session['attention'])
+                                             for member in (prior_session, *prior_tasks.get(key, (None, []))[1])
+                                             for item in member['attention'])
         owner_cleared_block = (prior_blocked and old and old[1] == 'blocked' and status != 'blocked'
                                and prior_session['turn'] == session['turn']
                                and snapshot['revision'] > previous['snapshot']['revision'])
-        if stale and old and not owner_cleared_block:
+        # Current members that supplied the retained status and no longer do clear it, and a
+        # higher subagent alert is shown steadily rather than hidden behind an older color.
+        members = {identity_key(item['identity']):item for item in (session, *children)}
+        prior_support = ({identity_key(item['identity']) for item in _supporters(*prior_tasks[key][:2], old[1], retained=True)}
+                         if old and key in prior_tasks and old[1] != status else set())
+        still = {identity_key(item['identity']) for item in _supporters(session, children, old[1])} if old else set()
+        evidence_cleared = bool(prior_support) and all(
+            member in members and members[member]['freshness'] == 'current' and member not in still for member in prior_support)
+        child_alert = (bool(old) and status in ALERTS and RANK[status] > RANK.get(old[1], 0)
+                       and any(item is not session for item in supporters))
+        if stale and old and not (owner_cleared_block or evidence_cleared or child_alert):
             turn, status = old
         was_stale = bool(db.execute('SELECT 1 FROM shared_stale WHERE session=?', (key,)).fetchone())
         if stale: db.execute('INSERT OR IGNORE INTO shared_stale VALUES (?)', (key,))

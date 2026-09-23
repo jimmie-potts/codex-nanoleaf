@@ -441,3 +441,308 @@ class DeviceSwitchTest(unittest.TestCase):
         self.s.accept(self.path,b,active,now=lambda:1002)
         self.s.accept(self.path,b,done,now=lambda:1003)
         self.assertEqual(sorted(self.rows('SELECT device FROM comets')),[('panels',),('wall',)])
+
+
+def child_of(parent, name, activity='idle', attention=(), fresh=True):
+    """A subagent session as the owner records it: its own identity, the evidenced
+    parent and an unknown turn, so its turn-ended notice never clears on a new turn."""
+    import hashlib
+    child = copy.deepcopy(parent)
+    for field in ('label', 'projectId'): child.pop(field, None)
+    child['identity'] = dict(parent['identity'], sessionId=name)
+    child['parent'] = {'status': 'known', 'identity': copy.deepcopy(parent['identity'])}
+    child['turn'] = {'status': 'unknown'}; child['activity'] = activity
+    child['attention'] = [{'id': {'status': 'unknown'}, 'kind': kind, 'turn': {'status': 'unknown'}} for kind in attention]
+    child['notices'] = [{'id': hashlib.sha256(name.encode()).hexdigest(), 'kind': 'turn-ended',
+                         'turn': {'status': 'unknown'}, 'acknowledgedBy': []}]
+    child['unavailable'] = [{'kind': 'evidence.unavailable', 'dimension': 'turn', 'reason': 'missing'}]
+    child['restartUncertain'] = not fresh; child['freshness'] = 'current' if fresh else 'uncertain'
+    return child
+
+
+def recount(value):
+    """Owner-derived child counts, which the released validator requires to match."""
+    sessions = value['snapshot']['sessions']
+    for session in sessions:
+        counts = {'active': 0, 'uncertain': 0}
+        for child in sessions:
+            if (child['parent']['status'] != 'known' or child['parent']['identity'] != session['identity']
+                    or any(item['dimension'] == 'parent' and item['reason'] == 'ambiguous' for item in child['unavailable'])): continue
+            if child['activity'] == 'unknown' or any(item['dimension'] == 'activity' or item['dimension'] in ('turn', 'ordering')
+                                                     and item['reason'] == 'ambiguous' for item in child['unavailable']):
+                counts['uncertain'] += 1
+            elif child['activity'] == 'active':
+                counts['active' if child['freshness'] == 'current' else 'uncertain'] += 1
+        session['children'] = counts
+    return value
+
+
+class ChildSessionTest(SelectionTest):
+    # #74: subagent sessions belong to their parent's task instead of adding retained unread tasks.
+    LAYOUT = {'line_groups': [[100, 101], [102, 103]], 'line_positions': [[0, 0], [1, 0]], '_mode': 'work'}
+
+    def setUp(self):
+        super().setUp()
+        self.value = envelope(); self.root = self.value['snapshot']['sessions'][0]
+        self.key = self.s.identity_key(self.root['identity'])
+
+    def advance(self, instant, resync=False):
+        self.value = recount(copy.deepcopy(self.value)); self.value['snapshot']['revision'] += 1
+        self.s.accept(self.path, b, self.value, now=lambda: instant, resync=resync)
+        self.root = self.value['snapshot']['sessions'][0]
+
+    def tasks(self, instant):
+        import wall_server
+        with contextlib.closing(b.connect_state(self.path)) as db, db:
+            b.dashboard(db, self.LAYOUT, instant)
+        app = wall_server.App(self.path, b, config={k: v for k, v in self.LAYOUT.items() if k != '_mode'}, launch=lambda _: None)
+        with patch.object(wall_server.time, 'time', return_value=instant):
+            tasks = app.state()['tasks']
+        lines = {'100:101': 100, '102:103': 102, None: None}
+        return {task['id']: (task['status'], lines[task['line']], task['statusEvidence']) for task in tasks}
+
+    def test_subagent_children_are_part_of_their_parent_task(self):
+        sessions = self.value['snapshot']['sessions']
+        sessions += [child_of(self.root, 'child-1'), child_of(self.root, 'child-2')]
+        self.select(recount(self.value))
+        self.assertEqual(self.rows('SELECT id,status FROM sessions'), [(self.key, 'unread')])
+        self.assertEqual(self.tasks(1000), {self.key: ('unread', 100, 'current')})
+        self.assertEqual(self.rows('SELECT session FROM slots'), [(self.key,)])
+        self.assertEqual(self.rows('SELECT session FROM comets'), [])
+
+    def test_child_attention_and_activity_raise_their_parent(self):
+        self.root['notices'][0]['acknowledgedBy'].append('nanoleaf')
+        self.value['snapshot']['sessions'].append(child_of(self.root, 'child', attention=('approval',)))
+        self.select(recount(self.value))
+        self.assertEqual(self.tasks(1000), {self.key: ('blocked', 100, 'current')})
+        for attention, activity, expected in (((), 'active', 'working'), (('question',), 'idle', 'question'), ((), 'idle', None)):
+            with self.subTest(expected=expected):
+                self.value['snapshot']['sessions'][1] = child_of(self.root, 'child', activity=activity, attention=attention)
+                self.advance(1001)
+                self.assertEqual(self.rows('SELECT id FROM sessions'), [(self.key,)])
+                self.assertEqual({k: v[0] for k, v in self.tasks(1001).items()}, {self.key: expected} if expected else {})
+
+    def test_current_child_evidence_is_not_frozen_by_an_uncertain_parent(self):
+        self.root['activity'] = 'active'; self.select(recount(self.value))
+        self.root = self.value['snapshot']['sessions'][0]
+        self.root['freshness'] = 'uncertain'; self.root['restartUncertain'] = True
+        self.value['snapshot']['sessions'].append(child_of(self.root, 'child', attention=('input',)))
+        self.advance(1001)
+        self.assertEqual(self.tasks(1001), {self.key: ('blocked', 100, 'current')})
+        # Without current contributing evidence the uncertain task keeps its last color steadily.
+        self.value['snapshot']['sessions'][1] = child_of(self.root, 'child', attention=('input',), fresh=False)
+        self.value['snapshot']['sessions'][0]['activity'] = 'idle'
+        self.advance(1002)
+        self.assertEqual(self.tasks(1002), {self.key: ('blocked', 100, 'uncertain')})
+
+    def test_retained_child_tasks_leave_without_disturbing_other_tasks(self):
+        peer = copy.deepcopy(self.root); peer['identity']['sessionId'] = 'peer'; peer.pop('label', None)
+        self.value['snapshot']['sessions'].append(peer)
+        child = child_of(self.root, 'child'); child_key = self.s.identity_key(child['identity'])
+        peer_key = self.s.identity_key(peer['identity'])
+        self.select(recount(self.value))
+        # State that the earlier projection left behind: the child held the second Line.
+        with contextlib.closing(b.connect_state(self.path)) as db, db:
+            db.execute("INSERT INTO sessions VALUES (?,'','unread',1000)", (child_key,))
+            db.execute("INSERT INTO activity VALUES (?,'','unread',1000)", (child_key,))
+            db.execute("INSERT INTO task_info VALUES (?,'','',NULL,NULL,'',NULL)", (child_key,))
+            db.execute('DELETE FROM slots WHERE session=?', (peer_key,))
+            db.execute("INSERT INTO slots (session,slot) VALUES (?,1)", (child_key,))
+            db.execute("INSERT OR REPLACE INTO meta VALUES ('mode','quiet')")
+            db.execute("INSERT INTO line_prefs (line_id,project,signature) VALUES ('100','project',1)")
+        scene = self.path / b.devices.scene_file('wall')
+        scene.write_text('{"version":1,"scene":{"name":"Chosen"},"owned":true}')
+        before = self.rows('SELECT session,turn,status,started FROM activity WHERE session=?'.replace('?', repr(self.key)))
+        self.assertEqual(self.tasks(1000)[peer_key][1], None)
+        self.value['snapshot']['sessions'].append(child)
+        self.advance(1001)
+        self.assertEqual(self.tasks(1001), {self.key: ('unread', 100, 'current'), peer_key: ('unread', 102, 'current')})
+        self.assertEqual(self.rows('SELECT session,turn,status,started FROM activity WHERE session=?'.replace('?', repr(self.key))), before)
+        self.assertEqual(self.rows('SELECT manual_project FROM task_info WHERE session=?'.replace('?', repr(self.key))), [('project',)])
+        self.assertEqual(self.rows("SELECT value FROM meta WHERE key='mode'"), [('quiet',)])
+        self.assertEqual(self.rows('SELECT line_id,project,signature,device FROM line_prefs'), [('100', 'project', 1, 'wall')])
+        self.assertEqual(self.rows('SELECT * FROM sessions WHERE id=?'.replace('?', repr(child_key))), [])
+        self.assertEqual(scene.read_text(), '{"version":1,"scene":{"name":"Chosen"},"owned":true}')
+
+    def test_child_without_its_parent_shows_only_attention(self):
+        missing = copy.deepcopy(self.root); missing['identity']['sessionId'] = 'gone'
+        orphan = child_of(missing, 'orphan', attention=('approval',)); orphan_key = self.s.identity_key(orphan['identity'])
+        self.root['notices'][0]['acknowledgedBy'].append('nanoleaf')
+        self.value['snapshot']['sessions'].append(orphan)
+        self.select(recount(self.value))
+        self.assertEqual(self.tasks(1000), {orphan_key: ('blocked', 100, 'current')})
+        self.value['snapshot']['sessions'][1] = child_of(missing, 'orphan', activity='active')
+        self.advance(1001)
+        self.assertEqual(self.tasks(1001), {})
+        self.assertEqual(self.rows('SELECT id FROM sessions'), [(self.key,)])
+
+    def test_notice_lifecycle_follows_documented_count_and_allocation(self):
+        self.value['snapshot']['sessions'].append(child_of(self.root, 'child'))
+        self.select(recount(self.value))
+        # A genuine completion notice stays unread; the child's unknown-turn notice never counts.
+        self.assertEqual(self.tasks(1000), {self.key: ('unread', 100, 'current')})
+        self.root['read'] = 'read'; self.advance(1001)
+        self.assertEqual(self.tasks(1001), {})
+        self.root['read'] = 'unknown'; self.advance(1002)
+        self.assertEqual(self.tasks(1002), {self.key: ('unread', 100, 'current')})
+        # A new turn: under clearOnNewTurn the owner acknowledges the still-unread notice for this consumer.
+        self.root['turn'] = {'status': 'known', 'id': 'next'}; self.root['activity'] = 'active'
+        self.root['notices'][0]['acknowledgedBy'].append('nanoleaf'); self.advance(1003)
+        self.assertEqual(self.tasks(1003), {self.key: ('working', 100, 'current')})
+        self.root['activity'] = 'idle'
+        self.root['notices'].append({'id': 'b' * 64, 'kind': 'turn-ended', 'turn': {'status': 'known', 'id': 'next'}, 'acknowledgedBy': []})
+        self.value['snapshot']['sessions'][1] = child_of(self.root, 'child-next')
+        self.advance(1004)
+        self.assertEqual(self.tasks(1004), {self.key: ('unread', 100, 'current')})
+        self.assertEqual(self.rows('SELECT session FROM comets'), [(self.key,)])
+        with contextlib.closing(b.connect_state(self.path)) as db, db: db.execute('DELETE FROM comets')
+        epoch = self.rows('SELECT started FROM activity')
+        # Uncertain evidence keeps the retained notice and its Line steady.
+        self.root['freshness'] = 'uncertain'; self.root['restartUncertain'] = True
+        self.root['read'] = 'read'; self.advance(1005)
+        self.assertEqual(self.tasks(1005), {self.key: ('unread', 100, 'uncertain')})
+        # Restart or reconnect replaces the projection from the current snapshot without replaying effects.
+        self.root['freshness'] = 'current'; self.root['restartUncertain'] = False
+        self.root['read'] = 'unknown'; self.advance(1006, resync=True)
+        self.assertEqual(self.tasks(1006), {self.key: ('unread', 100, 'current')})
+        self.assertEqual(self.rows('SELECT started FROM activity'), epoch)
+        self.assertEqual(self.rows('SELECT session FROM comets'), [])
+        # Explicit acknowledgment of the exact notice for this consumer releases the task and its Line.
+        self.root['notices'][1]['acknowledgedBy'].append('nanoleaf'); self.advance(1007)
+        self.assertEqual(self.tasks(1007), {})
+
+    def test_resolved_child_alert_clears_under_an_uncertain_parent(self):
+        self.root['activity'] = 'active'; self.select(recount(self.value))
+        self.root['freshness'] = 'uncertain'; self.root['restartUncertain'] = True
+        self.value['snapshot']['sessions'].append(child_of(self.root, 'child', attention=('input',)))
+        self.advance(1001)
+        self.assertEqual(self.tasks(1001), {self.key: ('blocked', 100, 'current')})
+        self.value['snapshot']['sessions'][1] = child_of(self.root, 'child')
+        self.advance(1002)
+        self.assertEqual(self.tasks(1002), {self.key: ('working', 100, 'uncertain')})
+        self.assertEqual(self.rows('SELECT started FROM activity'), [(992.0,)])
+
+    def test_uncertain_child_alert_stays_steady_under_a_current_parent(self):
+        self.root['notices'][0]['acknowledgedBy'].append('nanoleaf')
+        # A newly seen alert is shown, but steadily, when only uncertain evidence supplies it.
+        self.value['snapshot']['sessions'].append(child_of(self.root, 'child', attention=('approval',), fresh=False))
+        self.select(recount(self.value))
+        self.assertEqual(self.tasks(1000), {self.key: ('blocked', 100, 'uncertain')})
+        self.assertEqual(self.rows('SELECT started FROM activity'), [(990.0,)])
+        self.value['snapshot']['sessions'][1] = child_of(self.root, 'other', attention=('question',))
+        self.advance(1002)
+        self.assertEqual(self.tasks(1002), {self.key: ('question', 100, 'current')})
+        self.value['snapshot']['sessions'][1] = child_of(self.root, 'other', attention=('question',), fresh=False)
+        self.advance(1003)
+        self.assertEqual(self.tasks(1003), {self.key: ('question', 100, 'uncertain')})
+        self.assertEqual(self.rows('SELECT started FROM activity'), [(992.0,)])
+        # Before this, a first projection with no retained row also stays steady.
+        self.value['snapshot']['sessions'][1] = child_of(self.root, 'late', attention=('approval',), fresh=False)
+        with contextlib.closing(b.connect_state(self.path)) as db, db: db.execute('DELETE FROM sessions')
+        self.advance(1004)
+        self.assertEqual(self.tasks(1004), {self.key: ('blocked', 100, 'uncertain')})
+        self.assertEqual(self.rows('SELECT started FROM activity'), [(994.0,)])
+
+    def test_uncertain_child_alert_is_not_hidden_behind_a_retained_color(self):
+        # An uncertain parent's working color is retained; a higher subagent alert still shows steadily.
+        self.root['activity'] = 'active'; self.select(recount(self.value))
+        self.root['freshness'] = 'uncertain'; self.root['restartUncertain'] = True; self.advance(1001)
+        self.assertEqual(self.tasks(1001), {self.key: ('working', 100, 'uncertain')})
+        self.value['snapshot']['sessions'].append(child_of(self.root, 'child', attention=('question',), fresh=False))
+        self.advance(1002)
+        self.assertEqual(self.tasks(1002), {self.key: ('question', 100, 'uncertain')})
+        self.value['snapshot']['sessions'][1] = child_of(self.root, 'child', attention=('question', 'approval'), fresh=False)
+        self.advance(1003)
+        self.assertEqual(self.tasks(1003), {self.key: ('blocked', 100, 'uncertain')})
+        self.assertEqual(self.rows('SELECT session FROM comets'), [])
+
+    def test_uncertain_child_red_escalates_past_a_current_question(self):
+        self.root['attention'] = [{'id': {'status': 'known', 'id': 'ask'}, 'kind': 'question', 'turn': self.root['turn']}]
+        self.select(recount(self.value))
+        self.assertEqual(self.tasks(1000), {self.key: ('question', 100, 'current')})
+        self.value['snapshot']['sessions'].append(child_of(self.root, 'child', attention=('approval',), fresh=False))
+        self.advance(1001)
+        self.assertEqual(self.tasks(1001), {self.key: ('blocked', 100, 'uncertain')})
+
+    def test_silent_subagent_follows_the_owners_active_count(self):
+        self.root['notices'][0]['acknowledgedBy'].append('nanoleaf')
+        self.value['snapshot']['sessions'].append(child_of(self.root, 'child', activity='active'))
+        self.select(recount(self.value))
+        self.assertEqual(self.tasks(1000), {self.key: ('working', 100, 'current')})
+        # Five minutes without subagent evidence: the owner no longer counts it active, and the
+        # task follows the parent's current evidence, as the owner's counts and Tidbyt do.
+        self.value['snapshot']['sessions'][1] = child_of(self.root, 'child', activity='active', fresh=False)
+        self.advance(1001)
+        self.assertEqual(self.tasks(1001), {})
+        # The parent's own turns show normally under the silent subagent.
+        self.root['turn'] = {'status': 'known', 'id': 'turn-2'}; self.root['activity'] = 'active'; self.advance(1002)
+        self.assertEqual(self.tasks(1002), {self.key: ('working', 100, 'current')})
+        self.root['activity'] = 'idle'
+        self.root['notices'].append({'id': 'c' * 64, 'kind': 'turn-ended', 'turn': {'status': 'known', 'id': 'turn-2'}, 'acknowledgedBy': []})
+        self.advance(1003)
+        self.assertEqual(self.tasks(1003), {self.key: ('unread', 100, 'current')})
+        # When the parent is uncertain too, the task keeps its last color steadily.
+        self.root['freshness'] = 'uncertain'; self.root['restartUncertain'] = True
+        self.root['notices'][1]['acknowledgedBy'].append('nanoleaf'); self.advance(1004)
+        self.assertEqual(self.tasks(1004), {self.key: ('unread', 100, 'uncertain')})
+
+    def test_silent_subagent_clears_when_it_returns_idle_under_an_uncertain_parent(self):
+        self.root['notices'][0]['acknowledgedBy'].append('nanoleaf')
+        self.root['freshness'] = 'uncertain'; self.root['restartUncertain'] = True
+        self.value['snapshot']['sessions'].append(child_of(self.root, 'child', activity='active'))
+        self.select(recount(self.value))
+        self.assertEqual(self.tasks(1000), {self.key: ('working', 100, 'current')})
+        # Parent and silent subagent both uncertain: the task keeps working steadily.
+        self.value['snapshot']['sessions'][1] = child_of(self.root, 'child', activity='active', fresh=False)
+        self.advance(1001)
+        self.assertEqual(self.tasks(1001), {self.key: ('working', 100, 'uncertain')})
+        self.advance(1002)
+        self.assertEqual(self.tasks(1002), {self.key: ('working', 100, 'uncertain')})
+        # The subagent's current evidence that it finished releases the task and its Line.
+        self.value['snapshot']['sessions'][1] = child_of(self.root, 'child')
+        self.advance(1003)
+        self.assertEqual(self.tasks(1003), {})
+
+    def test_owner_recovery_clears_an_uncertain_child_approval(self):
+        self.root['freshness'] = 'uncertain'; self.root['restartUncertain'] = True
+        self.value['snapshot']['sessions'].append(child_of(self.root, 'child', attention=('approval',), fresh=False))
+        self.select(recount(self.value))
+        self.assertEqual(self.tasks(1000), {self.key: ('blocked', 100, 'uncertain')})
+        self.value['snapshot']['sessions'][1]['attention'] = []
+        self.advance(1001)
+        self.assertEqual(self.tasks(1001), {self.key: ('unread', 100, 'uncertain')})
+
+    def test_grandchildren_and_ambiguous_parentage(self):
+        self.root['notices'][0]['acknowledgedBy'].append('nanoleaf')
+        child = child_of(self.root, 'child'); child['notices'] = []
+        self.value['snapshot']['sessions'] += [child, child_of(child, 'grandchild', attention=('approval',))]
+        self.select(recount(self.value))
+        self.assertEqual(self.tasks(1000), {self.key: ('blocked', 100, 'current')})
+        self.value['snapshot']['sessions'][2] = child_of(child, 'grandchild', activity='active')
+        self.advance(1001)
+        self.assertEqual(self.tasks(1001), {self.key: ('working', 100, 'current')})
+        # Parentage the owner marks ambiguous leaves that session top-level, as in the owner's counts.
+        unsure = child_of(self.root, 'unsure')
+        unsure['unavailable'].append({'kind': 'evidence.unavailable', 'dimension': 'parent', 'reason': 'ambiguous'})
+        self.value['snapshot']['sessions'][2] = unsure
+        self.advance(1002)
+        self.assertEqual(self.tasks(1002), {self.s.identity_key(unsure['identity']): ('unread', 100, 'current')})
+
+    def test_grouping_does_not_depend_on_snapshot_order(self):
+        missing = copy.deepcopy(self.root); missing['identity']['sessionId'] = 'gone'
+        parent = child_of(missing, 'parent'); parent['notices'] = []
+        chain = [parent, child_of(parent, 'child', attention=('approval',))]
+        first = child_of(self.root, 'first'); second = child_of(self.root, 'second')
+        first['parent']['identity'] = copy.deepcopy(second['identity']); second['parent']['identity'] = copy.deepcopy(first['identity'])
+        cycle = [dict(first, attention=[{'id': {'status': 'unknown'}, 'kind': 'question', 'turn': {'status': 'unknown'}}]), second]
+        for members in (chain, cycle):
+            groups = []
+            for order in (members, members[::-1]):
+                snapshot = {'sessions': copy.deepcopy(order)}
+                groups.append({key: (entry[2], sorted(self.s.identity_key(c['identity']) for c in entry[1]))
+                               for key, entry in self.s.presented(snapshot).items()})
+            with self.subTest(members=len(groups[0])):
+                self.assertEqual(groups[0], groups[1])
+                self.assertEqual(len(groups[0]), 1)
+                self.assertEqual([orphan for orphan, _ in groups[0].values()], [True])
+
