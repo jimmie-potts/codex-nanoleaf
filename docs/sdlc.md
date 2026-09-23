@@ -31,7 +31,8 @@ Planning-only and review-only requests are read-only, including GitHub. A reques
 to write specified planning documents permits those edits, but does not start
 implementation. An implementation or delivery request normally includes issue
 tracking, worktree creation, code and documentation changes, tests, PR publication,
-review fixes, an eligible merge, and final readback. Existing authority carries
+review fixes, an eligible merge, final readback, and
+[cleanup after delivery](#cleanup-after-delivery). Existing authority carries
 across skill handoffs. A skill does not grant new authority or bypass host
 permissions. Ask only for unresolved decisions or actions outside that scope.
 
@@ -181,18 +182,39 @@ ownership before editing. Retain uncommitted work in place; do not silently
 stash, reset, or overwrite it. Shared personal memory is context, never a claim
 or a substitute for current GitHub and Git evidence.
 
-Only the owner removes its worktree. After the PR merges, main CI passes, and
-any handoff has ended, the owner removes its worktree and deletes its own
-`.local/scratch/<task>` folder. First check dirty/untracked files, running
-sessions, and tool-managed retention, and confirm that evidence the issue needs
-is in the PR, the issue, or the main checkout's `.local/evidence/`. Squash
-merges leave a branch's commits off `main`, so judge delivery by the PR's merged
-state, not by unmerged commits. Use ordinary `git worktree remove <owned-path>`
-only when clean and no longer in use; never force removal or prune another
-owner's registration. Preserve changes when a check fails. For failed or
-abandoned work, ask the user whether to keep or remove it and keep it until they
-decide. The [Claude setup guide](claude-code.md) and [Codex setup
-notes](../.codex/README.md) cover their different lifecycles.
+### Cleanup after delivery
+
+Only the owner cleans up, and only what its delivery created. Start once
+review-and-merge step 7 has verified main CI and read back the issue state, and
+any handoff has ended. Cleanup does not wait for installation or physical checks
+unless they still use the worktree.
+
+1. Confirm the PR is merged and the worktree's `HEAD` is the PR's merged head
+   commit. Squash merges leave a branch's commits off `main`, so judge delivery
+   by the PR's merged state, not by unmerged commits. Commits after the merged
+   head are unfinished work.
+2. Check running sessions, tool-managed retention, and
+   `git status --short --ignored` in the worktree. `git worktree remove` deletes
+   ignored files, including the worktree's own `.local/`. Move anything the
+   issue still needs into the PR, the issue, or the canonical checkout's
+   `.local/evidence/gh-<issue-number>-<slug>/`.
+3. From the canonical checkout, run ordinary `git worktree remove <owned-path>`
+   and confirm with `git worktree list` that the path is gone. Delete the
+   canonical checkout's `.local/scratch/gh-<issue-number>-<slug>/`. Do not
+   delete the branch yourself.
+4. Remove a tool-managed worktree, such as a Claude Code worktree under
+   `.claude/worktrees/` or a Codex-managed worktree, through that tool's own
+   cleanup instead of `git worktree remove`, and still delete the scratch
+   folder. Once steps 1 and 2 pass on a clean worktree, accepting the tool's
+   option to discard the squash-merged commits is allowed.
+
+Keep the worktree and scratch, and report the path and reason, when a check
+fails or `git worktree remove` refuses. Preserve changes: never force removal,
+never reset or discard files to make a worktree removable, and never prune
+another owner's registration. For failed or abandoned work, ask the user whether
+to keep or remove it and keep it until they decide. The
+[Claude setup guide](claude-code.md) and [Codex setup notes](../.codex/README.md)
+cover their different lifecycles.
 
 ## Review and merge
 
@@ -242,6 +264,8 @@ notes](../.codex/README.md) cover their different lifecycles.
    issue only after success, then read back closure and label cleanup. Keep the
    issue open and blocked if post-merge checks fail or required installation work
    remains. Report the failing evidence and next action.
+8. Clean up this delivery's own worktree and scratch as described in
+   [Cleanup after delivery](#cleanup-after-delivery).
 
 GitHub currently limits native branch protection for this private repository's
 account plan. These agent checks are procedural safeguards, not server-enforced
