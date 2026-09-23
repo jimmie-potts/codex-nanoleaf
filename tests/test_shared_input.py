@@ -643,6 +643,43 @@ class ChildSessionTest(SelectionTest):
         self.assertEqual(self.tasks(1004), {self.key: ('blocked', 100, 'uncertain')})
         self.assertEqual(self.rows('SELECT started FROM activity'), [(994.0,)])
 
+    def test_uncertain_child_alert_is_not_hidden_behind_a_retained_color(self):
+        # An uncertain parent's working color is retained; a higher subagent alert still shows steadily.
+        self.root['activity'] = 'active'; self.select(recount(self.value))
+        self.root['freshness'] = 'uncertain'; self.root['restartUncertain'] = True; self.advance(1001)
+        self.assertEqual(self.tasks(1001), {self.key: ('working', 100, 'uncertain')})
+        self.value['snapshot']['sessions'].append(child_of(self.root, 'child', attention=('question',), fresh=False))
+        self.advance(1002)
+        self.assertEqual(self.tasks(1002), {self.key: ('question', 100, 'uncertain')})
+        self.value['snapshot']['sessions'][1] = child_of(self.root, 'child', attention=('question', 'approval'), fresh=False)
+        self.advance(1003)
+        self.assertEqual(self.tasks(1003), {self.key: ('blocked', 100, 'uncertain')})
+        self.assertEqual(self.rows('SELECT session FROM comets'), [])
+
+    def test_uncertain_child_red_escalates_past_a_current_question(self):
+        self.root['attention'] = [{'id': {'status': 'known', 'id': 'ask'}, 'kind': 'question', 'turn': self.root['turn']}]
+        self.select(recount(self.value))
+        self.assertEqual(self.tasks(1000), {self.key: ('question', 100, 'current')})
+        self.value['snapshot']['sessions'].append(child_of(self.root, 'child', attention=('approval',), fresh=False))
+        self.advance(1001)
+        self.assertEqual(self.tasks(1001), {self.key: ('blocked', 100, 'uncertain')})
+
+    def test_silent_subagent_keeps_its_parent_working_steadily(self):
+        self.root['notices'][0]['acknowledgedBy'].append('nanoleaf')
+        self.value['snapshot']['sessions'].append(child_of(self.root, 'child', activity='active'))
+        self.select(recount(self.value))
+        self.assertEqual(self.tasks(1000), {self.key: ('working', 100, 'current')})
+        # Five minutes without subagent evidence: the owner no longer counts it active.
+        self.value['snapshot']['sessions'][1] = child_of(self.root, 'child', activity='active', fresh=False)
+        self.advance(1001)
+        self.assertEqual(self.tasks(1001), {self.key: ('working', 100, 'uncertain')})
+        self.advance(1002)
+        self.assertEqual(self.tasks(1002), {self.key: ('working', 100, 'uncertain')})
+        # Fresh evidence that the subagent finished releases the task and its Line.
+        self.value['snapshot']['sessions'][1] = child_of(self.root, 'child')
+        self.advance(1003)
+        self.assertEqual(self.tasks(1003), {})
+
     def test_owner_recovery_clears_an_uncertain_child_approval(self):
         self.root['freshness'] = 'uncertain'; self.root['restartUncertain'] = True
         self.value['snapshot']['sessions'].append(child_of(self.root, 'child', attention=('approval',), fresh=False))

@@ -331,6 +331,7 @@ def select_source(directory, bridge, source, fetch=fetch_snapshot, now=time.time
 
 
 ALERTS = {'blocked': {'approval','input'}, 'question': {'question'}}
+RANK = {'idle': 0, 'unread': 1, 'working': 2, 'question': 3, 'blocked': 4}
 
 
 def semantic_status(session, consumer, children=()):
@@ -370,6 +371,11 @@ def presented(snapshot):
         entry = tasks.setdefault(root, (sessions[root], [], _parent_key(sessions[root]) is not None))
         if key != root: entry[1].append(sessions[key])
     return tasks
+
+
+def _claims(member, status):
+    return bool(ALERTS.get(status, set()) & {a['kind'] for a in member['attention']}) or (
+        status == 'working' and member['activity'] == 'active')
 
 
 def _supporters(session, children, status):
@@ -412,15 +418,20 @@ def _project(db, bridge, envelope, config, instant, resync=False, targets=(DEFAU
         owner_cleared_block = (prior_blocked and old and old[1] == 'blocked' and status != 'blocked'
                                and prior_session['turn'] == session['turn']
                                and snapshot['revision'] > previous['snapshot']['revision'])
+        # A lower status is not accepted while an uncertain subagent still claims the retained one.
+        withdrawn = bool(old) and RANK[status] < RANK.get(old[1], 0) and any(
+            child['freshness'] != 'current' and _claims(child, old[1]) for child in children)
+        stale = stale or withdrawn
         # Current members that supplied the retained status and no longer do clear it, and a
-        # subagent alert is shown steadily rather than hidden behind an older color.
+        # higher subagent alert is shown steadily rather than hidden behind an older color.
         members = {identity_key(item['identity']):item for item in (session, *children)}
         prior_support = ({identity_key(item['identity']) for item in _supporters(*prior_tasks[key][:2], old[1])}
                          if old and key in prior_tasks and old[1] != status else set())
         still = {identity_key(item['identity']) for item in _supporters(session, children, old[1])} if old else set()
-        evidence_cleared = bool(prior_support) and all(
+        evidence_cleared = not withdrawn and bool(prior_support) and all(
             member in members and members[member]['freshness'] == 'current' and member not in still for member in prior_support)
-        child_alert = bool(old) and status in ALERTS and old[1] not in ALERTS and any(item is not session for item in supporters)
+        child_alert = (bool(old) and status in ALERTS and RANK[status] > RANK.get(old[1], 0)
+                       and any(item is not session for item in supporters))
         if stale and old and not (owner_cleared_block or evidence_cleared or child_alert):
             turn, status = old
         was_stale = bool(db.execute('SELECT 1 FROM shared_stale WHERE session=?', (key,)).fetchone())

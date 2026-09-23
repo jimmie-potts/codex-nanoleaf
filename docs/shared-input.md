@@ -165,8 +165,10 @@ subagent's turn as unknown, so those notices cannot clear on a new turn. A
 task is current only when a current member supplies its displayed status. A
 current subagent alert therefore shows normally under an uncertain parent, and
 its resolution takes effect steadily. An alert held only by uncertain subagents
-shows steadily with uncertain evidence. A child whose parent is missing from the
-snapshot appears alone, and only while it has blocked or question attention.
+shows steadily with uncertain evidence, even over a lower retained or current
+status. A silent subagent that still reports activity keeps its parent working
+steadily. When the topmost ancestor present in the snapshot has a missing
+parent, that group appears only while it has blocked or question attention.
 Parentage that the owner marks ambiguous leaves a session top-level, with its
 own notices. Legacy hooks attributed subagent events to the parent session in
 the same way.
