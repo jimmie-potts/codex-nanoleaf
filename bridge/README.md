@@ -534,6 +534,8 @@ the legacy task, mode, allocation and scene rules above remain unchanged.
 An explicit shared-owner recovery can retire an uncertain unknown-ID approval;
 the next owner revision clears its frozen red status while the map still reports
 uncertain evidence. This does not act on Codex permissions or installed lights.
+Subagent sessions count as part of their parent task rather than as separate
+unread tasks. The guide lists how a retained notice clears.
 
 ## Machine integration settings
 

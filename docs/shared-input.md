@@ -155,6 +155,37 @@ response leaves that intent pending; no new identity or automatic retry is used.
 An expired request requires operator reconciliation with the shared owner.
 Acknowledgment never marks a chat read or dismisses another consumer's notice.
 
+### Subagents and retained notices
+
+A session with an evidenced parent, such as a Codex subagent, is part of its
+nearest top-level ancestor's task. It is not a task of its own. Its blocked or
+question attention and the owner's count of its fresh activity raise the parent
+task. Its turn-ended notices never make the parent unread: the owner records a
+subagent's turn as unknown, so those notices cannot clear on a new turn. A
+current subagent alert keeps an otherwise uncertain parent current. A child
+whose parent is missing from the snapshot appears alone, and only while it has
+blocked or question attention. Legacy hooks attributed subagent events to the
+parent session in the same way.
+
+A top-level completion notice legitimately stays unread until one of these
+happens:
+
+- a new turn starts in the same session, which clears it under `clearOnNewTurn`;
+- qualified read evidence reports the session read;
+- someone explicitly acknowledges the exact notice for consumer `nanoleaf`.
+
+The shared owner has no Codex Desktop read evidence yet. [Hub #191](https://github.com/jimmie-potts/agent-device-hub/issues/191)
+tracks it. Until it lands, a conversation that ended after its final turn keeps
+its indicator. A turn the owner could not order also keeps its earlier notice
+until a new eligible start or an acknowledgment. Nanoleaf does not clear
+notices by age, bulk-acknowledge them or read Codex state in shared mode.
+
+To clear one retained notice, acknowledge it for consumer `nanoleaf`, either
+through the Hub dashboard's monitor acknowledgment or with the
+`shared-acknowledge` command above. Both need a separately provisioned control
+credential; with a read-only credential, neither path is available. Continuing
+the conversation in Codex also clears the notice.
+
 On disconnect or uncertain session evidence, retain the last task colors steadily
 and stop affected pulses/comets. Keep assignments and notices. Healthy sessions
 continue normally; Free remains free of task-light writes. Recovery preserves

@@ -330,14 +330,49 @@ def select_source(directory, bridge, source, fetch=fetch_snapshot, now=time.time
         bridge.mark_dirty(db)
 
 
-def semantic_status(session, consumer):
-    kinds = {attention['kind'] for attention in session['attention']}
-    if kinds & {'approval','input'}: return 'blocked'
-    if 'question' in kinds: return 'question'
-    if session['activity'] == 'active': return 'working'
+ALERTS = {'blocked': {'approval','input'}, 'question': {'question'}}
+
+
+def semantic_status(session, consumer, children=()):
+    # Subagent attention and owner-counted fresh activity belong to the parent task;
+    # a subagent's own turn-ended notices are not task completions.
+    kinds = {attention['kind'] for item in (session, *children) for attention in item['attention']}
+    if kinds & ALERTS['blocked']: return 'blocked'
+    if kinds & ALERTS['question']: return 'question'
+    if session['activity'] == 'active' or any(item['children']['active'] for item in (session, *children)): return 'working'
     if session['read'] != 'read' and any(consumer not in notice['acknowledgedBy'] for notice in session['notices']):
         return 'unread'
     return 'idle'
+
+
+def _parent_key(session):
+    if session['parent']['status'] != 'known' or any(
+            item['dimension'] == 'parent' and item['reason'] == 'ambiguous' for item in session['unavailable']):
+        return None
+    return identity_key(session['parent']['identity'])
+
+
+def presented(snapshot):
+    """Task key -> (session, included subagent sessions, orphan). A child joins its nearest
+    top-level ancestor, as legacy hooks attributed subagent events to the parent session.
+    A child without one in the snapshot is presented alone, for its attention only."""
+    sessions = {identity_key(session['identity']):session for session in snapshot['sessions']}
+    tasks = {key:(session,[],False) for key, session in sessions.items() if _parent_key(session) is None}
+    for key, session in sessions.items():
+        if key in tasks: continue
+        ancestor, seen = _parent_key(session), {key}
+        while ancestor in sessions and ancestor not in tasks and ancestor not in seen:
+            seen.add(ancestor); ancestor = _parent_key(sessions[ancestor])
+        if ancestor in tasks: tasks[ancestor][1].append(session)
+        else: tasks[key] = (session,[],True)
+    return tasks
+
+
+def _current(session, children, status):
+    """Whether current evidence supports the displayed status of an uncertain parent."""
+    if status == 'working': return any(item['children']['active'] for item in (session, *children))
+    return any(child['freshness'] == 'current' and ALERTS.get(status, set()) & {a['kind'] for a in child['attention']}
+               for child in children)
 
 
 def _project(db, bridge, envelope, config, instant, resync=False, targets=(DEFAULT_DEVICE,)):
@@ -352,16 +387,19 @@ def _project(db, bridge, envelope, config, instant, resync=False, targets=(DEFAU
     if resync:
         db.execute("INSERT OR REPLACE INTO meta VALUES ('shared_wave_cutoff',?)", (str(instant),))
     live = set()
-    for session in snapshot['sessions']:
-        key = identity_key(session['identity']); live.add(key)
+    prior_tasks = presented(previous['snapshot']) if previous else {}
+    for key, (session, children, orphan) in presented(snapshot).items():
+        status = semantic_status(session, config['consumerId'], children)
+        if orphan and status not in ALERTS: continue
+        live.add(key)
         old = db.execute('SELECT turn,status FROM sessions WHERE id=?', (key,)).fetchone()
         old_activity = db.execute('SELECT turn,status,started FROM activity WHERE session=?', (key,)).fetchone()
         turn = session['turn'].get('id', '')
-        status = semantic_status(session, config['consumerId'])
-        stale = session['freshness'] != 'current' or snapshot['collector'] != 'running'
+        stale = snapshot['collector'] != 'running' or (session['freshness'] != 'current' and not _current(session, children, status))
         prior_session = prior.get(key)
         prior_blocked = prior_session and any(item['kind'] == 'approval' and item['id']['status'] == 'unknown'
-                                             for item in prior_session['attention'])
+                                             for member in (prior_session, *prior_tasks.get(key, (None, []))[1])
+                                             for item in member['attention'])
         owner_cleared_block = (prior_blocked and old and old[1] == 'blocked' and status != 'blocked'
                                and prior_session['turn'] == session['turn']
                                and snapshot['revision'] > previous['snapshot']['revision'])

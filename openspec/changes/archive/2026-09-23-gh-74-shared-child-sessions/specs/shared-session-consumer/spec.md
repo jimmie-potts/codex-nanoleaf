@@ -1,33 +1,4 @@
-# Shared session consumer
-
-## Purpose
-
-Allow Nanoleaf to consume one shared interpretation of agent sessions while preserving private device ownership, task presentation and reversible source selection.
-
-## Requirements
-
-### Requirement: Explicit source authority
-The installation SHALL default to legacy input and persist an explicit legacy/shared selection independently of Work/Quiet/Free. Only the selected input SHALL update each session. Shared mode SHALL use the shared owner as the authority for agent state, with local presentation projections only. This covers #29 source selection and ownership criteria.
-
-#### Scenario: Configure without cutover
-- **WHEN** shared input is configured or source software is upgraded
-- **THEN** the selected source and device mode remain unchanged
-
-#### Scenario: Cutover and rollback
-- **WHEN** the operator selects shared after successful preflight or explicitly returns to legacy
-- **THEN** selection commits atomically, prevents duplicate ingestion, preserves preferences and bound assignments/epochs, and survives restart without changing unrelated hooks or installation owner
-- **AND** an active comet reservation prevents cutover until it finishes
-
-### Requirement: Validated bounded shared input
-The consumer SHALL validate the released versioned snapshot contract and expected owner over authenticated configured numeric-loopback HTTP with bounded time, size and concurrency, no redirects and no proxy use. Source readiness declarations SHALL distinguish operator assertions from verified feed evidence. No provider reducer SHALL be copied to Python. This covers #29 shared-contract, privacy and transport criteria.
-
-#### Scenario: Invalid or unavailable host
-- **WHEN** authentication fails, input exceeds bounds, a version/owner/schema is invalid, or a revision regresses
-- **THEN** the last valid projection remains with stale/unavailable health and fixed diagnostics, no raw response/credential disclosure and no automatic fallback
-
-#### Scenario: Multiple identities
-- **WHEN** concurrent sessions share a project or raw session ID but differ in full source identity
-- **THEN** they remain distinct and only explicit bindings connect them to retained local presentation identities
+## MODIFIED Requirements
 
 ### Requirement: Shared presentation and notices
 The consumer SHALL map semantic activity and attention into the existing allocation, split halves, reservations, two-second pulses, single outward waves, comets and mode/scene rules. Nanoleaf SHALL use the shared consumer clear-on-new-turn policy. Acknowledgment, qualified read evidence and work success SHALL remain distinct. A session with an evidenced parent SHALL be presented as part of its nearest top-level ancestor's task, contributing its attention and owner-counted fresh activity but not its notices. A child whose ancestor is absent from the snapshot SHALL be presented alone and only while it has blocked or question attention. This covers #29 notice, rendering and retained-behavior criteria and #74 subagent presentation.
@@ -71,17 +42,3 @@ Disconnected or uncertain shared sessions SHALL keep their last colors steady wi
 #### Scenario: Current subagent alert under an uncertain parent
 - **WHEN** a top-level session is uncertain and a current child reports blocked or question attention
 - **THEN** the task shows that alert with current status evidence, and once no current child evidence supports its status the task again keeps its last color steadily with uncertain evidence
-
-### Requirement: Pure sanitized inspection and private ownership
-Inspection SHALL report source selection, owner, consumer health and sanitized identity/project mapping without starting a worker, changing state, contacting a device or returning credentials/private metadata. One installation-local Python worker SHALL remain the sole device writer; SQLite SHALL remain private to its operating system. This covers #29 additional health and runtime criteria.
-
-#### Scenario: Inspect integration state
-- **WHEN** a caller reads shared status
-- **THEN** it receives selected source, neutral identities, connection, last revision/update, evidence age, uncertainty and fixed errors without mutations or credential/path disclosure
-
-### Requirement: Source qualification evidence
-The delivery SHALL exercise released fixtures and isolated Linux fake-feed/worker paths, measure bounded consumer overhead, preserve legacy Windows routing where affected, and distinguish source evidence from installed, integrated performance and optical acceptance. This covers #29 verification and performance criteria.
-
-#### Scenario: Consumer qualification
-- **WHEN** source acceptance is evaluated
-- **THEN** repeatable synthetic profiles and failure/recovery tests demonstrate bounded resources and preserved behavior without personal hooks, agents or devices
