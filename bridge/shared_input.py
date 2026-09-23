@@ -359,7 +359,13 @@ def _project(db, bridge, envelope, config, instant, resync=False, targets=(DEFAU
         turn = session['turn'].get('id', '')
         status = semantic_status(session, config['consumerId'])
         stale = session['freshness'] != 'current' or snapshot['collector'] != 'running'
-        if stale and old:
+        prior_session = prior.get(key)
+        prior_blocked = prior_session and any(item['kind'] == 'approval' and item['id']['status'] == 'unknown'
+                                             for item in prior_session['attention'])
+        owner_cleared_block = (prior_blocked and old and old[1] == 'blocked' and status != 'blocked'
+                               and prior_session['turn'] == session['turn']
+                               and snapshot['revision'] > previous['snapshot']['revision'])
+        if stale and old and not owner_cleared_block:
             turn, status = old
         was_stale = bool(db.execute('SELECT 1 FROM shared_stale WHERE session=?', (key,)).fetchone())
         if stale: db.execute('INSERT OR IGNORE INTO shared_stale VALUES (?)', (key,))

@@ -54,10 +54,18 @@ class App:
                 details={s:(title,cwd,manual,started) for s,title,cwd,manual,started in db.execute('SELECT session,title,cwd,manual_project,started FROM task_info')}
                 tasks=[]; snap=[None]*len(prefs)
                 epochs={s:epoch for s,epoch in db.execute('SELECT session,started FROM activity')}
+                uncertain=set()
+                if shared:
+                    received,connection=db.execute('SELECT received,connection FROM shared_input WHERE id=1').fetchone()
+                    if connection!='current' or received is None or time.time()-received>4:
+                        uncertain={sid for (sid,) in db.execute('SELECT id FROM sessions')}
+                    else:
+                        uncertain={sid for (sid,) in db.execute('SELECT session FROM shared_stale')}
                 for sid,turn,status in db.execute("SELECT id,turn,status FROM sessions WHERE status IN ('working','question','blocked','unread')"):
                     title,cwd,manual,started=details.get(sid,('', '',None,None)); slot=slots.get(sid)
                     tasks.append({'id':sid,'title':title or 'Task '+sid[:8],'project':memberships.get(sid),'status':status,'started':started,
-                                  'line':elements[slot]['id'] if slot is not None and slot<len(prefs) else None,'manual':manual})
+                                  'line':elements[slot]['id'] if slot is not None and slot<len(prefs) else None,'manual':manual,
+                                  **({'statusEvidence':'uncertain' if sid in uncertain else 'current'} if shared else {})})
                     if slot is not None and slot<len(snap): snap[slot]=(status,epochs.get(sid,time.time()-10))
                 for pid,name,color in db.execute('SELECT id,name,color FROM projects ORDER BY name COLLATE NOCASE'):
                     members=[t for t in tasks if t['project']==pid]

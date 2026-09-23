@@ -182,6 +182,30 @@ class SelectionTest(unittest.TestCase):
         self.assertEqual(list(fresh.iterdir()),[])
 
 class RecoveryTest(SelectionTest):
+    def test_owner_recovery_clears_stale_red_without_clearing_other_state(self):
+        value=envelope();session=value['snapshot']['sessions'][0]
+        session['attention']=[{'id':{'status':'unknown'},'kind':'approval','turn':session['turn']}]
+        session['unavailable']=[{'kind':'evidence.unavailable','dimension':'attention','reason':'ambiguous'}]
+        self.select(value)
+        self.assertEqual(self.rows('SELECT status FROM sessions'),[('blocked',)])
+        value=copy.deepcopy(value);value['snapshot']['revision']=3
+        session=value['snapshot']['sessions'][0];session['freshness']='uncertain';session['restartUncertain']=True
+        self.s.accept(self.path,b,value,now=lambda:1001)
+        self.assertEqual(self.rows('SELECT status FROM sessions'),[('blocked',)])
+        import wall_server
+        app=wall_server.App(self.path,b,config={'line_groups':[[100,101]],'line_positions':[[0,0]]},launch=lambda _:None)
+        self.assertEqual(app.state()['tasks'][0]['statusEvidence'],'uncertain')
+        value=copy.deepcopy(value);value['snapshot']['revision']=4
+        value['snapshot']['sessions'][0]['attention']=[]
+        self.s.accept(self.path,b,value,now=lambda:1002)
+        self.assertEqual(self.rows('SELECT status FROM sessions'),[('unread',)])
+        self.assertEqual(len(self.rows('SELECT * FROM shared_stale')),1)
+        self.assertEqual(self.rows('SELECT * FROM comets'),[])
+        layout={'line_groups':[[100,101]],'line_positions':[[0,0]],'_mode':'work'}
+        with contextlib.closing(b.connect_state(self.path)) as db:
+            snapshot=b.dashboard(db,layout,1002)
+        self.assertEqual(snapshot[0][0],'unread')
+
     def test_loss_freezes_colors_and_reconnect_preserves_epoch(self):
         value=envelope();value['snapshot']['sessions'][0]['activity']='active';self.select(value)
         epoch=self.rows('SELECT started FROM activity')

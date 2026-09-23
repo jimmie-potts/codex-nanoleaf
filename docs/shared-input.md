@@ -160,6 +160,15 @@ and stop affected pulses/comets. Keep assignments and notices. Healthy sessions
 continue normally; Free remains free of task-light writes. Recovery preserves
 existing phases and suppresses old outward waves and celebrations.
 
+An uncertain Codex approval with no request ID remains red. The shared owner can
+retire one such marker through an explicit, revision-guarded recovery command for
+the exact session and turn. When a later owner revision removes that approval,
+shared mode clears the frozen red status even if the session is still uncertain.
+The map reports `statusEvidence: "uncertain"` on that task; the transition does
+not resume pulses or comets. Recovery changes only monitoring state. It does not
+approve or deny a Codex permission. A newly observed approval can make the task
+red again. Source delivery alone does not change an installed bridge or lights.
+
 `shared-status` and the Python `shared_input.inspect` function are pure local
 reads. They report selection, neutral owner/consumer IDs, connection, last
 revision/receipt time, evidence age, read capability and fixed error codes.

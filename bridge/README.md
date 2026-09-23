@@ -516,6 +516,9 @@ The [shared input guide](../docs/shared-input.md) describes explicit legacy/shar
 steady stale indicators, clear-on-new-turn notices and rollback. Its
 [specification](../openspec/specs/shared-session-consumer/spec.md) owns shared-mode additions;
 the legacy task, mode, allocation and scene rules above remain unchanged.
+An explicit shared-owner recovery can retire an uncertain unknown-ID approval;
+the next owner revision clears its frozen red status while the map still reports
+uncertain evidence. This does not act on Codex permissions or installed lights.
 
 ## Machine integration settings
 
