@@ -49,16 +49,15 @@ Use the centrally installed `$unslop` skill for the final editorial pass on comm
 
 ## Work guide maintenance
 
-For every authorized delivery or planning change, read the
-[shared guide maintenance procedure](https://github.com/jimmie-potts/agent-device-hub/blob/main/docs/work-guide/README.md).
-The hub owns the cross-project HTML and its inputs. Coordinate a linked hub PR
-that updates affected facts and records this delivery in
-`docs/work-guide/updates.md`, or records a specific no-impact reason. Include
-that PR and synchronization status in this repository's PR and completion report.
-Pending guide synchronization remains unfinished delivery work. Read-only tasks
-do not authorize writes, and guide maintenance does not authorize devices or hosting.
-The shared skills consume that procedure at planning publication, candidate
-review, verified completion and authorized public publication. Report guide-source
-synchronization, public artifact publication and live verification separately,
-with evidence or a pending owner/next action. Tracker-only requests change only
-the tracker; a source merge does not update the public site.
+The hub owns the cross-project guide HTML and its inputs. Read
+[the hub guide maintenance procedure](https://github.com/jimmie-potts/agent-device-hub/blob/main/docs/work-guide/README.md)
+when a task intentionally changes or publishes that guide. That procedure
+covers the linked hub PR, input refresh, HTML regeneration and required checks
+for the guide revision. Ordinary planning and delivery do not refresh
+the guide or open a hub PR only to record status, and they need no no-impact
+entry. The hub retired `docs/work-guide/updates.md`.
+
+Read-only tasks do not authorize writes, tracker-only requests change only the
+tracker, and guide maintenance does not authorize devices or hosting. Keep source completion, guide revision, public publication
+and live verification as separate claims. Public publication requires the
+user's applicable finish line; a source merge does not update the public site.

@@ -42,14 +42,13 @@ Describe any migration, deployment, or scene/brightness effect. State when the c
 Use Not run or Not in scope when evidence is unavailable. A source merge is not
 proof of installation or a physical-device update.
 
-## Cross-project work guide
+## Cross-project work guide, when intentionally updated or published
 
-- [ ] Linked the coordinated hub guide PR and recorded its synchronization status.
-- [ ] Updated affected facts or recorded a specific no-impact reason in the hub maintenance history.
-- [ ] Recorded guide validation and any pending post-merge reconciliation.
+For a guide revision, link the hub PR and record its snapshot date, source
+revisions, changed sections, generated-output hash and checks. For public
+publication, record the public PR, deployment, all served URLs and hash
+verification. Keep source delivery, guide revision and public publication as
+separate claims.
 
-- Source/tracker completion and revision:
-- Guide-source synchronization, Hub companion and revision:
-- Public publication PR and revision, or pending/not applicable reason:
-- Live deployment, required URLs and served-hash verification:
-- Pending stage owner and next action:
+An unrelated change has no guide refresh, companion PR, no-impact entry or
+public-currency check. Delete this section when it does not apply.
