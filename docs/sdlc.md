@@ -214,11 +214,13 @@ check fails. The [Claude setup guide](claude-code.md) and
    Read all GitHub review pages, including unresolved threads and current review
    decisions. Resolve threads after fixing or agreed disposition. Do not dismiss
    an outstanding change request merely to enable merge; obtain its resolution.
-5. Require success for every configured CI job. The current `Checks` workflow
-   includes four Python/OS combinations, Wall map browser checks, and Workflow
-   checks on Ubuntu and Windows. Inspect the workflow at the candidate revision
-   for any changed job set. Use the latest PR workflow run attributable to that candidate, confirm
-   its PR association/head SHA, inspect every job, and read all result pages.
+5. Require success for every configured Depot CI job. The current `Checks`
+   workflow in `.depot/workflows/ci.yml` runs five Linux jobs: Workflow checks,
+   Python 3.12, Python 3.14, Wall map browser checks, and MCP source checks.
+   Inspect the workflow at the candidate revision for any changed job set. Use
+   the latest Depot run attributable to that candidate, confirm its PR
+   association/head SHA, inspect every job, and read all result pages. The
+   disabled GitHub Actions workflow and its historical runs are not evidence.
    Missing, failed, cancelled, skipped, or pending required jobs are not success.
    Do not use an empty `--required` check list as proof on an unprotected branch.
 6. Immediately before merging, reread issue scope, dependencies, head revision,
@@ -231,7 +233,7 @@ check fails. The [Claude setup guide](claude-code.md) and
    `gh pr merge <number> --repo jimmie-potts/codex-nanoleaf --squash --match-head-commit <reviewed-head>`.
    Never use `--admin`. Do not delete another worktree or its branch.
 7. Read back the PR's merged commit and verify it is on `main`. Check the push
-   CI run for that merged revision and every configured job. Close a source-only
+   Depot CI run for that merged revision and every configured job. Close a source-only
    issue only after success, then read back closure and label cleanup. Keep the
    issue open and blocked if post-merge checks fail or required installation work
    remains. Report the failing evidence and next action.
@@ -244,9 +246,9 @@ native auto-merge dependency is introduced. Honor any protections added later.
 
 ## Completion and installation handoff
 
-Record source revision, local checks, Windows CI, and installation/physical status
-separately. An installed-feature issue remains open until its requested checks
-are satisfied. Source-only work does not invoke the installer. For an authorized
+Record source revision, local checks, local Windows PowerShell checks, and
+installation/physical status separately. Hosted CI has no Windows jobs. An
+installed-feature issue remains open until its requested checks are satisfied. Source-only work does not invoke the installer. For an authorized
 upgrade, follow [the existing deployment procedure](development.md#upgrade-the-installed-integration)
 and coordinate with the installation owner. Preserve live tasks, scene choices,
 and the single Windows light writer.

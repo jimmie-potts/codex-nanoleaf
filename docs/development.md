@@ -11,7 +11,20 @@ Run `python3 scripts/check.py` from the root. Install the optional controller de
 
 Run `npm run test:browser` after map or API changes. It starts the synthetic demo on an available loopback port and shuts it down afterward. Screenshots are written to ignored `test-results/`. To inspect the map manually, run `python3 scripts/demo.py` and open its printed URL.
 
-Exercise Linux installation with isolated state and fake device transport. Use Windows PowerShell for the legacy tray and Windows installer. `bridge/tray.ps1 -Check` verifies Windows Forms support and icon loading without starting a tray or worker. Run `tests/test_tray_icon.ps1` to check all six icon sizes with Windows, transparency, the blue/green palette, tray sizing, and missing or corrupt asset fallback. Hosted CI runs both checks; menu interaction still needs a Windows smoke check.
+Exercise Linux installation with isolated state and fake device transport. Use Windows PowerShell for the legacy tray and Windows installer. `bridge/tray.ps1 -Check` verifies Windows Forms support and icon loading without starting a tray or worker. Run `tests/test_tray_icon.ps1` to check all six icon sizes with Windows, transparency, the blue/green palette, tray sizing, and missing or corrupt asset fallback. Run `tests/test_controller_install.ps1` for the Windows controller installer. Hosted CI runs none of these PowerShell checks, so run them locally on Windows when a change touches the tray, the Windows installer, or other Windows-only behavior. Menu interaction still needs a Windows smoke check.
+
+## Hosted CI
+
+Depot CI runs the workflow in `.depot/workflows/ci.yml` on pull requests and pushes to `main`. It reports each job as a GitHub check. A newer PR revision cancels the superseded PR run, and each `main` revision runs independently. Each job has a ten-minute timeout. Depot CI provides only Linux sandboxes, so normal CI has five Linux jobs:
+
+| Check | Coverage |
+| --- | --- |
+| Workflow checks | `npm run check:workflow` and `npm run test:workflow` with Node 24 |
+| Python 3.12 and Python 3.14 | Controller dependencies and `python scripts/check.py` with Node 24 available |
+| Wall map browser checks | Prism tests, a clean Prism export, and `npm run test:browser` in Chromium; screenshots retained for 14 days |
+| MCP source checks | `npm run test:mcp` |
+
+`.github/workflows/ci.yml` stays in the repository as the migration source. It is disabled in GitHub Actions. Its runs, including earlier billing-blocked failures, are not evidence for a candidate.
 
 ## Workflow tooling
 
@@ -39,7 +52,7 @@ These CLI checks validate syntax and archive task markers; they do not replace
 acceptance tests, artifact-completeness checks, or independent review.
 
 Run `npm run test:workflow` to exercise empty, valid, invalid, and incomplete
-archive fixtures and regeneration without user-configuration changes. CI runs
+archive fixtures and regeneration without user-configuration changes. Depot CI runs
 both commands in the always-running Workflow checks job, alongside the existing
 product checks.
 
