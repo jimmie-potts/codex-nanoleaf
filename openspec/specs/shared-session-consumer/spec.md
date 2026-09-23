@@ -54,7 +54,7 @@ The consumer SHALL map semantic activity and attention into the existing allocat
 - **THEN** the child is presented alone while it has blocked or question attention and is otherwise not a task
 
 ### Requirement: Honest freshness and effect recovery
-Disconnected or uncertain shared sessions SHALL keep their last colors steady with no pulses/comets while current peers retain normal behavior. A task whose top-level session is uncertain SHALL be treated as current when current child evidence supplies its displayed status. A later authoritative owner revision that removes an unknown-ID approval on the same turn MAY clear that frozen blocked color while preserving uncertain evidence, assignments and effect suppression. Health and map task status evidence SHALL distinguish transport and session freshness from the displayed status. Recovery SHALL preserve epochs and assignments and SHALL NOT replay expired effects. Agents SHALL never wait on this consumer. This covers #29 disconnect and reconnect criteria, #72 approval recovery and #74 subagent freshness.
+Disconnected or uncertain shared sessions SHALL keep their last colors steady with no pulses/comets while current peers retain normal behavior. A task SHALL be current only when current evidence from one of its members supplies its displayed status. When current members that supplied a retained status no longer supply it, the task SHALL take its new status while remaining uncertain and steady, and a subagent alert SHALL be shown steadily rather than hidden behind a retained non-alert color. A later authoritative owner revision that removes an unknown-ID approval on the same turn MAY clear that frozen blocked color while preserving uncertain evidence, assignments and effect suppression. Health and map task status evidence SHALL distinguish transport and session freshness from the displayed status. Recovery SHALL preserve epochs and assignments and SHALL NOT replay expired effects. Agents SHALL never wait on this consumer. This covers #29 disconnect and reconnect criteria, #72 approval recovery and #74 subagent freshness.
 
 #### Scenario: Feed loss in Work or Free
 - **WHEN** a selected shared feed is lost
@@ -70,7 +70,11 @@ Disconnected or uncertain shared sessions SHALL keep their last colors steady wi
 
 #### Scenario: Current subagent alert under an uncertain parent
 - **WHEN** a top-level session is uncertain and a current child reports blocked or question attention
-- **THEN** the task shows that alert with current status evidence, and once no current child evidence supports its status the task again keeps its last color steadily with uncertain evidence
+- **THEN** the task shows that alert with current status evidence, and when that current child resolves it the task takes its new status with uncertain evidence and no pulse
+
+#### Scenario: Uncertain subagent alert
+- **WHEN** only uncertain children supply a task's blocked or question attention, including under a current parent
+- **THEN** the task shows the alert steadily with uncertain status evidence and no new outward wave
 
 ### Requirement: Pure sanitized inspection and private ownership
 Inspection SHALL report source selection, owner, consumer health and sanitized identity/project mapping without starting a worker, changing state, contacting a device or returning credentials/private metadata. One installation-local Python worker SHALL remain the sole device writer; SQLite SHALL remain private to its operating system. This covers #29 additional health and runtime criteria.

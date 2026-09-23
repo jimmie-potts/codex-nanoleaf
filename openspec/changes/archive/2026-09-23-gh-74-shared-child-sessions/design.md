@@ -6,9 +6,9 @@ The shared snapshot gives each session a full identity, an evidenced `parent` an
 
 Group sessions into presented tasks before projection. A task key is a top-level session: one whose parent is unknown, top-level or ambiguous. Each child joins its nearest top-level ancestor present in the snapshot. The walk up the parents is guarded against cycles. The task status is computed from the top-level session's own activity, notices, read evidence and turn, together with the union of attention across the task. Working also counts the owner's `children.active`, which already excludes uncertain and stale children. The consumer does not interpret provider events or recompute the owner's child counts.
 
-When the top-level session is uncertain, the task is still current if a current child supplies the displayed status: a current child alert, or an owner-counted active child. Otherwise the existing steady-color rule applies. The #72 owner-recovery exception considers approvals from the whole prior task.
+A task is current only when a current member supplies its displayed status: the member holding the displayed alert, or the active top-level session or a current active child for working. For unread and idle, only the top-level session counts. Otherwise the existing steady-color rule keeps the last status. Two exceptions let current evidence through. First, when the current members that supplied a retained status no longer supply it, the task takes its new status, still steady and uncertain. Second, a newly present subagent alert is shown steadily rather than hidden behind an older non-alert color. The #72 owner-recovery exception considers approvals from the whole prior task.
 
-A child with no ancestor in the snapshot is presented under its own key, and only while it has blocked or question attention. This keeps an unattributable subagent alert visible without restoring permanent unread children.
+Each child joins the topmost ancestor present in the snapshot, whatever the snapshot order. If that top has a missing parent, or the parents form a cycle, the group is an orphan keyed by its top or by the cycle's smallest key. An orphan is presented only while it has blocked or question attention. This keeps an unattributable subagent alert visible without restoring permanent unread children.
 
 ## Failure and recovery
 

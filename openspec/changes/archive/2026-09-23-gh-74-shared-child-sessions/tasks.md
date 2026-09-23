@@ -2,7 +2,8 @@
 
 - [x] 1.1 Reproduce children presented as separate retained unread tasks, and a fresh child alert frozen behind an uncertain parent. Then group children into their parent task. Evidence: the focused `ChildSessionTest` presentation, roll-up, freshness and retained-row tests failed before the implementation and pass afterward.
 - [x] 1.2 Cover the notice lifecycle with a child present: genuine unread, qualified read evidence, explicit acknowledgment, a new turn under clear-on-new-turn, uncertain evidence and resync. Assert the map count and Line allocation at each step. Evidence: `ChildSessionTest.test_notice_lifecycle_follows_documented_count_and_allocation`.
-- [x] 1.3 Keep an orphan child's alert visible without restoring its unread notice. Evidence: `ChildSessionTest.test_child_without_its_parent_shows_only_attention`.
+- [x] 1.3 Keep an orphan child's alert visible without restoring its unread notice, and group children the same way whatever the snapshot order, including with a missing top or a parent cycle. Evidence: `ChildSessionTest.test_child_without_its_parent_shows_only_attention` and `test_grouping_does_not_depend_on_snapshot_order`.
+- [x] 1.4 Derive task freshness from the members that supply the displayed status. A resolved current child alert clears under an uncertain parent, and an alert held only by uncertain children stays steady under a current parent. Evidence: `test_resolved_child_alert_clears_under_an_uncertain_parent` and `test_uncertain_child_alert_stays_steady_under_a_current_parent` failed on the first candidate and pass afterward. The child-origin #72 recovery, grandchild and ambiguous-parentage tests cover the remaining paths.
 
 ## 2. Documentation and validation
 

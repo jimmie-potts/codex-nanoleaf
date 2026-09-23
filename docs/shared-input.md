@@ -162,10 +162,14 @@ nearest top-level ancestor's task. It is not a task of its own. Its blocked or
 question attention and the owner's count of its fresh activity raise the parent
 task. Its turn-ended notices never make the parent unread: the owner records a
 subagent's turn as unknown, so those notices cannot clear on a new turn. A
-current subagent alert keeps an otherwise uncertain parent current. A child
-whose parent is missing from the snapshot appears alone, and only while it has
-blocked or question attention. Legacy hooks attributed subagent events to the
-parent session in the same way.
+task is current only when a current member supplies its displayed status. A
+current subagent alert therefore shows normally under an uncertain parent, and
+its resolution takes effect steadily. An alert held only by uncertain subagents
+shows steadily with uncertain evidence. A child whose parent is missing from the
+snapshot appears alone, and only while it has blocked or question attention.
+Parentage that the owner marks ambiguous leaves a session top-level, with its
+own notices. Legacy hooks attributed subagent events to the parent session in
+the same way.
 
 A top-level completion notice legitimately stays unread until one of these
 happens:
@@ -182,9 +186,10 @@ notices by age, bulk-acknowledge them or read Codex state in shared mode.
 
 To clear one retained notice, acknowledge it for consumer `nanoleaf`, either
 through the Hub dashboard's monitor acknowledgment or with the
-`shared-acknowledge` command above. Both need a separately provisioned control
-credential; with a read-only credential, neither path is available. Continuing
-the conversation in Codex also clears the notice.
+`shared-acknowledge` command above. The dashboard needs a Hub control
+credential; the command needs this configuration's `controlTokenFile`. A
+read-only credential allows neither. Continuing the conversation in Codex also
+clears the notice.
 
 On disconnect or uncertain session evidence, retain the last task colors steadily
 and stop affected pulses/comets. Keep assignments and notices. Healthy sessions
