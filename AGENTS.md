@@ -61,6 +61,7 @@ The hub retired `docs/work-guide/updates.md`.
 Read-only tasks do not authorize writes, tracker-only requests change only the
 tracker, and guide maintenance does not authorize devices or hosting. Keep
 source completion, guide revision, public publication and live verification as
-separate claims, each with evidence or a pending owner and next action. Public
+separate claims. For an intentional guide update or publication, report each
+applicable claim with evidence or a pending owner and next action. Public
 publication requires the user's applicable finish line; a source merge does not
 update the public site.
