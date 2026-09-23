@@ -83,9 +83,13 @@ performs preflight again, then atomically changes source and presentation. The
 owned legacy hook handler stops updating sessions; it neither alters unrelated
 hooks nor sends provider payloads to the feed. Hub #8 owns actual producer/hook
 provisioning. An active completion comet prevents source switching until its
-reservation finishes.
+reservation finishes. Switching resets completion comets and display caches on
+every registered device and keeps each device's bound placements; the
+`shared-select` output reports this as `"resetDevices": "all"`.
 
-The existing worker polls at most once per second with one request in flight.
+The Lines worker instance polls at most once per second with one request in flight;
+other device instances render the projected tasks and a failed Lines pass does not
+restart the feed as a resync.
 Transport has a 2.5-second total deadline, a 16 MiB response ceiling, no proxies
 and no redirects. Current-snapshot recovery avoids replaying intermediate events.
 Wall-service startup resumes a previously selected shared worker. The existing

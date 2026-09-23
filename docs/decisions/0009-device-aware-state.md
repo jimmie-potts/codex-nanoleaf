@@ -62,10 +62,12 @@ installation upgraded with `install-modes.ps1` after its backup, but only the
 Linux path is exercised and qualified. A shared-input backup taken before the
 upgrade restores its rows to the original device.
 
-Known gaps that #42 owns: the existing worker still renders and applies mode
-changes for the original device only, so a second device's mode metadata is
-stored but stays pending; the worker's display-cache clears, `setup --reset`
-and shared-source switching still clear every device; the Windows upgrade
-backup copies only the original scene file. #42 owns multi-device scheduling,
-targeted commands and the protected API's second device, and #43 owns NL22
-geometry and payloads. Installation and physical acceptance remain with #46.
+Known gaps originally assigned to #42 now belong to
+[#43](https://github.com/jimmie-potts/codex-nanoleaf/issues/43), which absorbed
+it. When this ADR was accepted, the worker rendered and applied mode changes
+for the original device only. Display-cache clears, `setup --reset` and
+shared-source switching also cleared every device. #43 closes both gaps and
+adds NL22 geometry and payloads; [ADR 0010](0010-per-device-worker-and-nl22.md)
+records its decisions. The protected API stays on the original device. The
+Windows upgrade backup still copies only the original scene file. Installation
+and physical acceptance remain with #46.

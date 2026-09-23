@@ -11,7 +11,7 @@ context: |
   OpenSpec root. Run CLI commands through npm run openspec -- <arguments>.
   Existing behavior stays in bridge/README.md until a reviewed capability spec
   replaces its normative text. An empty bootstrap inventory is intentional.
-  Keep one light writer and OS-local SQLite per installation, private state outside Git, and installation
+  Keep one light writer per device, OS-local SQLite per installation, private state outside Git, and installation
   separate from source delivery. Preserve other worktrees and their owners.
   Reuse shared agent-skills procedures. Do not generate skill copies in this repo.
 rules:

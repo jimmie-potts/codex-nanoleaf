@@ -38,6 +38,8 @@ COMET_SECONDS = 2.0
 COMET_TRAVEL = 1.4
 COMET_TAIL = 0.6
 READ_SETTLE_SECONDS = 5.0
+# Another device's pass may hold the write lock for two 1.2-second requests.
+WORKER_BUSY_SECONDS = 5.0
 MARKER = 'nanoleaf-codex-status-v1'
 INPUT_TOOLS = {'request_user_input', 'request_user_input_async', 'request_permissions'}
 
@@ -122,17 +124,20 @@ def load_config(directory, device=devices.DEFAULT):
     known = devices.layout_devices(saved)  # A malformed file is rejected and left in place.
     layout = known.get(device)
     if layout is None or any(element['position'] is None for element in layout['elements']):
-        if entry['kind'] != 'lines':
-            raise ValueError('No saved layout for this device.')
         transport = {'ip': entry['ip'], 'token': devices.credential(config, entry)}
         panel_layout = light_request(transport, 'GET')['panelLayout']
+    if entry['kind'] == 'panels' and (layout is None or any(element['position'] is None for element in layout['elements'])):
+        # Reported triangles only; unsupported geometry fails before anything is saved.
+        import panels
+        layout = panels.read_layout(panel_layout)
+        devices.save_device_layout(layout_file, device, layout, write_json)
+    elif layout is None or any(element['position'] is None for element in layout['elements']):
         groups = [element['zones'] for element in layout['elements']] if layout else pair_lines(panel_layout)
         zones = {p['panelId']: p for p in panel_layout['layout']['positionData']}
         positions = [[sum(zones[p]['x'] for p in pair) / 2,
                       sum(zones[p]['y'] for p in pair) / 2] for pair in groups]
         layout = devices.lines_entry(groups, positions, layout)
-        known[device] = layout
-        devices.save_layout(layout_file, known, write_json)
+        devices.save_device_layout(layout_file, device, layout, write_json)
     config.update(devices.projection(layout))
     config['device'] = device
     for key, value in (('ip', entry['ip']), ('token', devices.credential(config, entry))):
@@ -282,7 +287,8 @@ def zone_color(config, snapshot, index, half, instant, delays):
     base = (COLORS[activity[0]] if activity else BASELINE) if quiet or steady else pixel_color(
         snapshot, index, instant, delays, config.get('_wave_cutoff', float('-inf')))
     signature = None
-    if config.get('_style') == 'project':
+    # Project/status halves need a two-zone Line; one-zone triangles always show status.
+    if config.get('_style') == 'project' and len(config['line_groups'][index]) == 2:
         signatures = config.get('_signatures', [])
         if index < len(signatures):
             color, side = signatures[index]
@@ -319,7 +325,7 @@ def effect_payload(config, snapshot, instant, loop):
     locate = config.get('_locate')
     animated = bool(any(snapshot) or comet or locate) and not quiet
     delays = [travel_delays(config, source) for source in range(len(groups))]
-    data = [len(groups) * 2]
+    data = [sum(len(zones) for zones in groups)]
     for index, pair in enumerate(groups):
         ticks = [1] + list(range(2, PULSE_TICKS, 2)) + [PULSE_TICKS] if animated else [1]
         if comet: ticks = list(range(1, PULSE_TICKS + 1))
@@ -332,11 +338,14 @@ def effect_payload(config, snapshot, instant, loop):
                 previous = tick
             data.extend([panel, len(frames)])
             for step in frames: data.extend(step)
-    return {'write': {'command': 'display', 'version': '2.0',
-                      'animType': 'custom' if animated else 'static',
-                      'animData': ' '.join(map(str, data)), 'loop': bool(loop and animated and not comet and not locate),
-                      'colorType': 'HSB', 'logicalPanelsEnabled': True,
-                      'palette': [{'hue': 0, 'saturation': 0, 'brightness': 100}]}}
+    write = {'command': 'display', 'version': '2.0',
+             'animType': 'custom' if animated else 'static',
+             'animData': ' '.join(map(str, data)), 'loop': bool(loop and animated and not comet and not locate),
+             'colorType': 'HSB', 'palette': [{'hue': 0, 'saturation': 0, 'brightness': 100}]}
+    if config.get('kind', 'lines') == 'lines':
+        # Lines address their two logical zones; the Light Panels API defines no such flag.
+        write['logicalPanelsEnabled'] = True
+    return {'write': write}
 
 
 def render(config, snapshot, instant, loop):
@@ -470,8 +479,8 @@ class SceneRestorer:
         self.save(owned=quiet)
 
 
-def connect_state(directory):
-    db = sqlite3.connect(directory / 'status.sqlite', timeout=2.5)
+def connect_state(directory, timeout=2.5):
+    db = sqlite3.connect(directory / 'status.sqlite', timeout=timeout)
     try:
         with db:
             db.execute('BEGIN IMMEDIATE')
@@ -582,7 +591,7 @@ def mark_dirty(db):
     db.execute("INSERT OR REPLACE INTO meta VALUES ('dirty', '1')")
 
 
-def transition(db, event, now):
+def transition(db, event, now, targets=(devices.DEFAULT,)):
     """Separate a question during work from a request that blocks progress."""
     name, session = event.get('hook_event_name'), event.get('session_id')
     if name not in EVENTS or not isinstance(session, str) or not session:
@@ -643,9 +652,12 @@ def transition(db, event, now):
                (session, turn, status, now))
     changed = old != (turn, status)
     if changed:
-        if status == 'unread' and name == 'Stop' and control_state(db)['mode'] == 'work':
-            db.execute('INSERT OR IGNORE INTO comets (session, turn, queued, source, started, device) '
-                       'VALUES (?, ?, ?, NULL, NULL, ?)', (session, turn, now, devices.DEFAULT))
+        if status == 'unread' and name == 'Stop':
+            # Completion evidence is shared; each device in Work queues its own comet.
+            for device in targets:
+                if control_state(db, device)['mode'] == 'work':
+                    db.execute('INSERT OR IGNORE INTO comets (session, turn, queued, source, started, device) '
+                               'VALUES (?, ?, ?, NULL, NULL, ?)', (session, turn, now, device))
         if status in COLORS:
             db.execute('INSERT OR REPLACE INTO activity VALUES (?, ?, ?, ?)',
                        (session, turn, status, now))
@@ -711,31 +723,56 @@ def update_display(db, config, snapshot, instant, loop, send=None):
                    (encoded, int(loop), instant, device))
 
 
-def launch_worker(directory):
+def registered_devices(directory):
+    """Registered device ids, the original Lines device first; an unreadable configuration means Lines only."""
+    try:
+        registry = devices.registry(json.loads((directory / 'config.json').read_text(encoding='utf-8-sig')))
+    except (OSError, ValueError):
+        return [devices.DEFAULT]
+    return [devices.DEFAULT] + [device for device in registry if device != devices.DEFAULT]
+
+
+def launch_worker(directory, device=None):
+    """Wake one worker instance per registered device, or only the named device."""
     options = {'stdin': subprocess.DEVNULL, 'stdout': subprocess.DEVNULL,
                'stderr': subprocess.DEVNULL, 'close_fds': True}
     if os.name == 'nt':
         options['creationflags'] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
     else:
         options['start_new_session'] = True
-    subprocess.Popen([sys.executable, str(Path(__file__).resolve()), 'worker',
-                      '--state-dir', str(directory.resolve())], **options)
+    for target in [device] if device else registered_devices(directory):
+        subprocess.Popen([sys.executable, str(Path(__file__).resolve()), 'worker',
+                          '--state-dir', str(directory.resolve()), '--device', target], **options)
 
 
 def handle_event(directory, event, launch=None, now=time.time):
+    targets = registered_devices(directory)
     with contextlib.closing(connect_state(directory)) as db, db:
         db.execute('BEGIN IMMEDIATE')
         instant = now()
         if shared_input.selected(db):
             return
         db.execute('DELETE FROM shared_stale WHERE session=?', (event.get('session_id'),))
-        changed = transition(db, event, instant)
+        changed = transition(db, event, instant, targets)
         metadata_changed = wall.record_event(db, event, instant)
         if changed or metadata_changed:
             mark_dirty(db)
-        needed = db.execute("SELECT 1 FROM meta WHERE key IN ('dirty','rendering','preview') LIMIT 1").fetchone()
+        needed = db.execute("SELECT 1 FROM meta WHERE key IN ('dirty','rendering','preview') "
+                            "OR key LIKE 'rendering@%' OR key LIKE 'preview@%' LIMIT 1").fetchone()
     if needed:
         (launch or launch_worker)(directory)
+
+
+def record_failure(directory, device=devices.DEFAULT):
+    """Record a failed pass for this device only; False when even that cannot be written."""
+    try:
+        with contextlib.closing(connect_state(directory)) as db, db:
+            db.execute('INSERT OR REPLACE INTO meta VALUES (?, ?)',
+                       (devices.meta_key('control_error', device), 'Light update failed; retrying.'))
+            mark_dirty(db)
+        return True
+    except Exception:
+        return False
 
 
 def play_preview(config, choice, send, sleep, now):
@@ -762,8 +799,13 @@ def play_preview(config, choice, send, sleep, now):
 
 
 def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unread=None,
-               scene_factory=SceneRestorer):
-    with contextlib.closing(sqlite3.connect(directory / 'notification-lock.sqlite', timeout=0)) as guard:
+               scene_factory=SceneRestorer, device=devices.DEFAULT, feed=None):
+    # One locked instance per device. Only the original Lines instance polls the shared
+    # feed and owns the protected controller's journal, controls, overrides and hold.
+    primary = device == devices.DEFAULT
+    key = lambda name: devices.meta_key(name, device)
+    connect = lambda: connect_state(directory, WORKER_BUSY_SECONDS)
+    with contextlib.closing(sqlite3.connect(directory / devices.lock_file(device), timeout=0)) as guard:
         try:
             guard.execute('BEGIN EXCLUSIVE')
         except sqlite3.OperationalError as error:
@@ -771,12 +813,15 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
                 return False
             raise
         import controller_state
-        with contextlib.closing(connect_state(directory)) as db, db:
-            db.execute('BEGIN IMMEDIATE')
-            controller_state.recover(db, attempts=True)
-            if controller_state.held(db, control_state(db)['revision']) and not shared_input.selected(db):
-                return
-        config = load_config(directory)
+        held_at = lambda db, revision: primary and controller_state.held(db, revision)
+        current_overrides = lambda db: controller_state.overrides(db) if primary else {'power': None, 'brightness': None}
+        if primary:
+            with contextlib.closing(connect()) as db, db:
+                db.execute('BEGIN IMMEDIATE')
+                controller_state.recover(db, attempts=True)
+                if controller_state.held(db, control_state(db)['revision']) and not shared_input.selected(db):
+                    return
+        config = load_config(directory, device)
         read_unread = read_unread or unread_reader(config)
         scenes = scene_factory(directory, config) if scene_factory else None
         metadata = wall.Metadata(directory, config)
@@ -793,16 +838,24 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
             scenes.request = controller_request
         from types import SimpleNamespace
         projection = SimpleNamespace(connect_state=connect_state, mark_dirty=mark_dirty,
-                                     control_state=control_state, COLORS=COLORS, wall=wall)
-        poller = shared_input.Poller(directory, projection)
+                                     control_state=control_state, COLORS=COLORS, wall=wall,
+                                     registered_devices=registered_devices)
+        # The caller's feed state survives a failed Lines pass, so a Lines outage does not turn
+        # every later feed read into a resync that drops the other devices' comets and waves.
+        feed = {} if feed is None else feed
+        poller = feed.setdefault('poller', shared_input.Poller(directory, projection)) if primary else None
         while True:
-            shared = poller.tick(now())
+            if poller:
+                shared = poller.tick(now())
+            else:
+                with contextlib.closing(connect()) as db:
+                    shared = shared_input.selected(db)
             if not shared: metadata.refresh()
-            with contextlib.closing(connect_state(directory)) as db, db:
+            with contextlib.closing(connect()) as db, db:
                 if not shared_input.selected(db) and metadata.sync(db): mark_dirty(db)
-                control = control_state(db)
-                held = controller_state.held(db, control['revision'])
-                overrides = controller_state.overrides(db)
+                control = control_state(db, device)
+                held = held_at(db, control['revision'])
+                overrides = current_overrides(db)
             if held:
                 if not shared: return
                 sleep(1)
@@ -816,54 +869,55 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
             # Free mode does not even poll the light controller after handoff.
             observing = bool(scenes) and (mode != 'free' or pending_mode)
             external_scene = scenes.observe() if observing else False
-            with contextlib.closing(connect_state(directory)) as db, db:
+            with contextlib.closing(connect()) as db, db:
                 db.execute('BEGIN IMMEDIATE')
-                if controller_state.held(db, control['revision']):
+                if held_at(db, control['revision']):
                     return
-                if control_state(db)['revision'] != control['revision']:
+                if control_state(db, device)['revision'] != control['revision']:
                     continue
-                if observing:
+                if observing and primary:
                     controller_state.discovered(db, scenes.names)
-                if controller_state.overrides(db) != overrides:
+                if current_overrides(db) != overrides:
                     continue  # A control admitted during the device round trip restarts the pass.
-                preview = db.execute("SELECT value FROM meta WHERE key='preview'").fetchone()
+                preview = db.execute('SELECT value FROM meta WHERE key=?', (key('preview'),)).fetchone()
                 if preview:
-                    db.execute("DELETE FROM meta WHERE key='preview'")
+                    db.execute('DELETE FROM meta WHERE key=?', (key('preview'),))
             if preview and mode != 'free' and not dark:
                 def preview_send(cfg, snap, instant, loop):
-                    with contextlib.closing(connect_state(directory)) as check, check:
+                    with contextlib.closing(connect()) as check, check:
                         check.execute('BEGIN IMMEDIATE')
-                        if (controller_state.held(check, control['revision']) or
-                                control_state(check)['revision'] != control['revision']):
+                        if (held_at(check, control['revision']) or
+                                control_state(check, device)['revision'] != control['revision']):
                             raise PreviewCancelled()
                         sender(cfg, snap, instant, loop)
                 def preview_sleep(seconds):
                     deadline = now() + seconds
                     while now() < deadline:
                         sleep(min(0.25, deadline - now()))
-                        with contextlib.closing(connect_state(directory)) as check:
-                            if control_state(check)['revision'] != control['revision']:
+                        with contextlib.closing(connect()) as check:
+                            if control_state(check, device)['revision'] != control['revision']:
                                 raise PreviewCancelled()
                 try:
                     play_preview(config, preview[0], preview_send, preview_sleep, now)
                 except PreviewCancelled:
                     pass
-                with contextlib.closing(connect_state(directory)) as db, db:
-                    db.execute('DELETE FROM display_v3')
+                with contextlib.closing(connect()) as db, db:
+                    db.execute('DELETE FROM display_v3 WHERE device=?', (device,))
                 continue
             started = now()
             unread = None if shared else read_unread()
-            with contextlib.closing(connect_state(directory)) as db, db:
+            with contextlib.closing(connect()) as db, db:
                 db.execute('BEGIN IMMEDIATE')
-                if controller_state.held(db, control['revision']):
+                if held_at(db, control['revision']):
                     return
-                if control_state(db)['revision'] != control['revision']:
+                if control_state(db, device)['revision'] != control['revision']:
                     continue
+                # Read evidence is shared; every instance may apply it idempotently.
                 if not shared_input.selected(db): reconcile_read_state(db, unread, started)
-                device = devices.device_of(config)
                 prune_comets(db, started, mode, device)
-                import integration_api
-                integration_api.process(db, projection, config, now=started)
+                if primary:
+                    import integration_api
+                    integration_api.process(db, projection, config, now=started)
                 if wall.apply_pending(db, device): mark_dirty(db)
                 config['_locate'] = wall.locate_state(db, config, started, mode)
                 snapshot = dashboard(db, config, started)
@@ -873,33 +927,35 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
                 generation = db.execute("SELECT value FROM meta WHERE key='event_revision'").fetchone()
                 db.commit()
                 db.execute('BEGIN IMMEDIATE')
-                if controller_state.held(db, control['revision']):
+                if held_at(db, control['revision']):
                     return
-                if (control_state(db)['revision'] != control['revision'] or
+                if (control_state(db, device)['revision'] != control['revision'] or
                         db.execute("SELECT value FROM meta WHERE key='event_revision'").fetchone() != generation):
                     continue
-                if controller_state.overrides(db) != overrides:
+                if current_overrides(db) != overrides:
                     continue  # Overrides and queued controls must come from one locked read.
                 waves = [item if item and item[1] > control['wave_cutoff'] else None for item in snapshot]
                 loop = not config['_locate'] and (mode != 'work' or (not config['_comet'] and started >= introduction_ends(waves)))
                 if pending_mode or (scenes and mode != 'free' and
                         (external_scene or (bool(any(snapshot) or config['_comet'] or config['_locate']) or mode == 'quiet') != scenes.state['owned'])):
-                    db.execute('DELETE FROM display_v3')
-                execution = controller_state.Execution(db, control['revision'])
+                    db.execute('DELETE FROM display_v3 WHERE device=?', (device,))
+                # Other devices never journal into the protected controller's receipts.
+                execution = controller_state.Execution(db, control['revision']) if primary else None
                 def guarded_sender(*args):
-                    return execution.call(sender, *args) if send else sender(*args)
+                    return execution.call(sender, *args) if send and execution else sender(*args)
                 def apply_mode():
                     active_execution[0] = execution
                     if mode == 'free':
                         if pending_mode:
                             guarded_sender(config, [None] * len(snapshot), started, True)
-                        db.execute('DELETE FROM display_v3')
+                        db.execute('DELETE FROM display_v3 WHERE device=?', (device,))
                     elif not dark:
                         update_display(db, config, snapshot, started, loop, guarded_sender)
-                    execution.complete()
+                    if execution:
+                        execution.complete()
                 def apply_controls():
                     # Native one-shot writes, each journaled under its own request, oldest first.
-                    for sequence, command in controller_state.controls(db, control['revision']):
+                    for sequence, command in controller_state.controls(db, control['revision']) if primary else ():
                         target = controller_state.control_payload(controller_state.read(db), command)
                         if target is None:
                             controller_state.finish(db, sequence, 'failed', 'unsupported-capability')
@@ -921,23 +977,23 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
                 finally:
                     active_execution[0] = None
                 # A concurrent decision can commit between journaled sends.
-                if controller_state.held(db, control['revision']):
+                if held_at(db, control['revision']):
                     return
-                if control_state(db)['revision'] != control['revision']:
+                if control_state(db, device)['revision'] != control['revision']:
                     continue
-                if controller_state.overrides(db) != overrides or controller_state.controls(db, control['revision']):
+                if current_overrides(db) != overrides or (primary and controller_state.controls(db, control['revision'])):
                     continue  # A control admitted mid-apply keeps its wake-up and runs next pass.
-                db.execute("INSERT OR REPLACE INTO meta VALUES ('mode_applied', ?)", (str(control['revision']),))
-                db.execute("DELETE FROM meta WHERE key IN ('dirty','control_error')")
+                db.execute('INSERT OR REPLACE INTO meta VALUES (?, ?)', (key('mode_applied'), str(control['revision'])))
+                db.execute('DELETE FROM meta WHERE key IN (?, ?)', ('dirty', key('control_error')))
                 watching = (shared_input.selected(db) or bool(db.execute('SELECT 1 FROM receipts LIMIT 1').fetchone()) or
                             bool(scenes and mode != 'free' and (any(snapshot) or config['_comet'] or config['_locate'] or mode == 'quiet')))
                 settling = db.execute('SELECT MIN(completed + ?) FROM receipts WHERE observed=0',
                                       (READ_SETTLE_SECONDS,)).fetchone()[0]
                 if loop and not watching:
-                    db.execute("DELETE FROM meta WHERE key='rendering'")
+                    db.execute('DELETE FROM meta WHERE key=?', (key('rendering'),))
                     guard.rollback()
                     return
-                db.execute("INSERT OR REPLACE INTO meta VALUES ('rendering','1')")
+                db.execute('INSERT OR REPLACE INTO meta VALUES (?, ?)', (key('rendering'), '1'))
             deadline = started + (1.0 if loop else PULSE_SECONDS)
             if shared: deadline = min(deadline, started + 1)
             if config['_locate']:
@@ -949,8 +1005,11 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
             while now() < deadline:
                 sleep(min(0.25, deadline - now()))
                 with contextlib.closing(sqlite3.connect(directory / 'status.sqlite', timeout=2.5)) as db:
-                    dirty = db.execute("SELECT 1 FROM meta WHERE key IN ('dirty','preview') LIMIT 1").fetchone()
-                if dirty or (watching and not shared and read_unread() != unread):
+                    # Another device's instance may already have cleared the global dirty flag;
+                    # any change since this pass's rendered revision still wakes this device.
+                    woken = db.execute("SELECT 1 FROM meta WHERE (key='event_revision' AND value IS NOT ?) OR key=? LIMIT 1",
+                                       (generation[0] if generation else None, key('preview'))).fetchone()
+                if woken or (watching and not shared and read_unread() != unread):
                     break
 
 
@@ -1011,27 +1070,30 @@ def setup(args):
     directory.mkdir(parents=True, exist_ok=True)
     config_file = directory / 'config.json'
     if args.check or args.demo or args.reset or args.notify or args.refresh or args.comet:
-        config = load_config(directory)
-        if (args.demo or args.notify) and get_status(directory)['mode'] == 'free':
+        # Previews, checks and refresh address one device; reset clears the shared tasks of every device.
+        device = getattr(args, 'device', None) or devices.DEFAULT
+        preview = devices.meta_key('preview', device)
+        config = load_config(directory, device)
+        if (args.demo or args.notify) and get_status(directory, device)['mode'] == 'free':
             print('Choose Work or Quiet before running a preview.')
             return
         if args.comet:
-            if get_status(directory)['mode'] != 'work':
+            if get_status(directory, device)['mode'] != 'work':
                 print('Choose Work before previewing a completion comet.')
                 return
             with contextlib.closing(connect_state(directory)) as db, db:
-                db.execute("INSERT OR REPLACE INTO meta VALUES ('preview','comet')")
+                db.execute("INSERT OR REPLACE INTO meta VALUES (?,'comet')", (preview,))
             launch_worker(directory)
             print('Previewing one completion comet; live status returns afterward.')
         if args.check:
             info = light_request(config, 'GET')
             print('Connected:', info.get('name', 'Nanoleaf'), 'at', config['ip'],
-                  'with', len(config['line_groups']), 'physical Lines')
+                  'with', len(config['line_groups']), 'physical Lines' if config.get('kind', 'lines') == 'lines' else 'triangles')
             saved = SceneRestorer(directory, config).state['scene']
             print('Restore scene:', saved['name'] if saved else 'Choose a scene in the Nanoleaf app.')
         if args.demo:
             with contextlib.closing(connect_state(directory)) as db, db:
-                db.execute("INSERT OR REPLACE INTO meta VALUES ('preview','all')")
+                db.execute("INSERT OR REPLACE INTO meta VALUES (?,'all')", (preview,))
             launch_worker(directory)
             print('Previewing green, yellow, red, and unread blue pulses; live status returns afterward.')
         if args.reset:
@@ -1043,18 +1105,18 @@ def setup(args):
                 db.execute('DELETE FROM receipts')
                 db.execute('DELETE FROM slots')
                 db.execute('DELETE FROM waits')
-                db.execute("DELETE FROM meta WHERE key='preview'")
+                db.execute("DELETE FROM meta WHERE key='preview' OR key LIKE 'preview@%'")
                 mark_dirty(db)
             launch_worker(directory)
-            print('Status cleared. The saved scene returns, or blue if no scene has been remembered.')
+            print('Status cleared on every device. Each saved scene returns, or blue if no scene has been remembered.')
         if args.notify:
             with contextlib.closing(connect_state(directory)) as db, db:
-                db.execute("INSERT OR REPLACE INTO meta VALUES ('preview','working')")
+                db.execute("INSERT OR REPLACE INTO meta VALUES (?,'working')", (preview,))
             launch_worker(directory)
             print('Queued one outward green pulse, then a local pulse. Live status returns afterward.')
         if args.refresh:
             with contextlib.closing(connect_state(directory)) as db, db:
-                db.execute('DELETE FROM display_v3')
+                db.execute('DELETE FROM display_v3 WHERE device=?', (device,))
                 mark_dirty(db)
             launch_worker(directory)
         return
@@ -1064,7 +1126,9 @@ def setup(args):
     original = json.loads(hooks_file.read_text(encoding='utf-8-sig')) if hooks_file.exists() else {}
     if args.uninstall:
         if (directory / 'status.sqlite').exists():
-            set_mode(directory, 'free')
+            # Removing the hooks hands every registered device back to the Nanoleaf app.
+            for device in registered_devices(directory):
+                set_mode(directory, 'free', device=device)
         remover = directory / 'remove-modes.ps1'
         if os.name == 'nt' and remover.exists():
             subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-File', str(remover)], check=True)
@@ -1138,6 +1202,7 @@ def main():
     parser.add_argument('--json', action='store_true')
     parser.add_argument('--port', type=int, help='Wall-map loopback port; overrides the installation setting.')
     parser.add_argument('--no-open', action='store_true', help='Print the wall-map URL without opening a browser.')
+    parser.add_argument('--device', help='Registered device for mode, status, worker and device setup operations; defaults to the original Lines device.')
     group = parser.add_mutually_exclusive_group()
     for flag in ('check', 'demo', 'reset', 'uninstall', 'notify', 'refresh', 'comet'):
         group.add_argument('--' + flag, action='store_true')
@@ -1146,6 +1211,14 @@ def main():
             getattr(args, flag) for flag in ('check', 'demo', 'reset', 'uninstall', 'notify', 'refresh', 'comet')):
         parser.error('Use bridge/install_linux.py from the reviewed source checkout for a fresh Linux installation.')
     directory = args.state_dir or data_dir()
+    device = devices.DEFAULT
+    if args.device is not None:
+        # An unknown target never falls back to the original device.
+        targeted = args.mode in ('mode', 'status', 'worker') or (args.mode == 'setup' and any(
+            getattr(args, flag) for flag in ('check', 'demo', 'notify', 'refresh', 'comet')))
+        if not targeted or args.device not in registered_devices(directory):
+            parser.error('Unknown or unsupported device target.')
+        device = args.device
     if args.mode == 'map-status':
         with contextlib.closing(connect_state(directory)) as db:
             print(json.dumps({**get_status(directory), **wall.settings(db), 'map_pending': wall.pending(db) is not None}))
@@ -1162,12 +1235,12 @@ def main():
     if args.mode == 'mode':
         if args.selection not in MODES:
             parser.error('Choose work, free, or quiet.')
-        set_mode(directory, args.selection)
-        print(json.dumps(get_status(directory)))
+        set_mode(directory, args.selection, device=device)
+        print(json.dumps(get_status(directory, device)))
         return
     if args.mode == 'status':
         try:
-            print(json.dumps(get_status(directory)))
+            print(json.dumps(get_status(directory, device)))
         except Exception:
             print(json.dumps({'mode': None, 'pending': True, 'error': 'Local status unavailable.'}))
             sys.exit(1)
@@ -1180,19 +1253,17 @@ def main():
                          creationflags=subprocess.CREATE_NO_WINDOW)
         return
     if args.mode == 'worker':
+        feed = {}
         while True:
             try:
-                if run_worker(directory) is False: return
+                if run_worker(directory, device=device, feed=feed) is False: return
                 with contextlib.closing(connect_state(directory)) as db:
                     resume_shared = shared_input.selected(db)
                 if not resume_shared: return
                 time.sleep(1)
             except Exception:
-                try:
-                    with contextlib.closing(connect_state(directory)) as db, db:
-                        db.execute("INSERT OR REPLACE INTO meta VALUES ('control_error', 'Light update failed; retrying.')")
-                        mark_dirty(db)
-                except Exception:
+                # A failed pass records and retries this device only.
+                if not record_failure(directory, device):
                     return
                 # Release locks between attempts. All retries read the newest mode.
                 time.sleep(2)

@@ -189,7 +189,8 @@ def render_config(db,config,snapshot):
             if 0<=slot<len(snapshot) and snapshot[slot]}
     settings_value=settings(db,device)
     config['_style']=settings_value['style']; config['_coverage']=settings_value['coverage']
-    config['_signatures']=[(colors.get(active.get(i) or owner),signature) for i,(owner,signature) in enumerate(prefs)]
+    # Project/status halves are a Lines feature; a triangle always shows its status.
+    config['_signatures']=[(colors.get(active.get(i) or owner),signature) for i,(owner,signature) in enumerate(prefs)] if config.get('kind','lines')=='lines' else []
 
 
 def pending(db,device=devices.DEFAULT):

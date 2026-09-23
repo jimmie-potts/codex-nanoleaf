@@ -8,7 +8,7 @@ Turn Nanoleaf Lines into status indicators for Codex Desktop tasks. A local wall
 - Project layout uses a steady project half and a task-status half, with Shared overflow.
 - The wall map supports multi-selection, color picking, half swapping, Locate, and rotation, in a neon HUD style that pulses active Lines on screen in Work and dims the wall in Free.
 
-The integration supports a fresh Linux installation with separate Python services and a Node MCP host. Hooks, the map, controller, and worker coordinate through private Linux SQLite. The existing worker remains the sole light writer. Legacy Windows installations retain their Windows Python forwarding. Tests and the demo run without lights or credentials.
+The integration supports a fresh Linux installation with separate Python services and a Node MCP host. Hooks, the map, controller, and worker coordinate through private Linux SQLite. The existing worker remains the sole light writer, with one instance per registered device. Legacy Windows installations retain their Windows Python forwarding. Tests and the demo run without lights or credentials.
 
 ## Development
 
@@ -45,7 +45,9 @@ The [wall Line identification specification](openspec/specs/wall-line-identifica
 owns numbering, selection, and the Locate boundary. The
 [device state specification](openspec/specs/device-state/spec.md) owns the
 device registry, device-scoped state, the per-device layout shape and the
-Linux migration. Other behavior remains
+Linux migration. The [device worker](openspec/specs/device-worker/spec.md) and
+[Panels rendering](openspec/specs/panels-rendering/spec.md) specifications own
+per-device workers and NL22 triangles. Other behavior remains
 documented in [the bridge guide](bridge/README.md) until migrated through review.
 
 ## Installation

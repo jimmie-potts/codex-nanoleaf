@@ -1,7 +1,7 @@
 # Fresh Linux installation
 
 Run the existing Nanoleaf processes in Linux with private Linux SQLite state and
-one light-writing worker. The wall map, controller API and Node MCP host are
+one light-writing worker per registered device. The wall map, controller API and Node MCP host are
 separate services. Hooks and CLI commands update the same state and start the
 worker when needed. Windows can still run Codex Desktop and the browser.
 
@@ -104,7 +104,8 @@ systemctl --user status codex-nanoleaf-wall codex-nanoleaf-controller codex-nano
 ```
 
 Each unit runs a foreground process with a private umask and restarts on failure.
-The worker stays on demand and keeps the existing exclusive SQLite lock.
+The worker stays on demand. Each registered device has its own instance and
+exclusive SQLite lock, and the Lines keep the existing lock file.
 For foreground operation, run each command in its own terminal, with the matching
 user service stopped:
 
