@@ -7,7 +7,7 @@
 - A session with an evidenced parent is part of its nearest top-level ancestor's task. It is not a separate task.
 - A child's blocked or question attention, and the owner's count of its fresh activity, raise the parent task to blocked, question or working. A child's turn-ended notices do not make the parent unread.
 - A child joins its topmost ancestor present in the snapshot, whatever the snapshot order. If that top's parent is missing, or the parents form a cycle, the group is presented only while it has blocked or question attention.
-- A task is current only when a current member supplies its displayed status. A subagent alert that outranks the retained status shows steadily. A silent subagent that still reports activity keeps a retained working status until the members that supplied it clear it with current evidence.
+- A task is current only when a current member supplies its displayed status. A subagent alert that outranks the retained status shows steadily. Working follows the owner's count of fresh active children, so a silent subagent does not hold its parent.
 - Child task rows left by the earlier projection leave on the next snapshot, which frees their Lines for waiting tasks.
 
 Top-level notices, read evidence, acknowledgment and the new-turn policy are unchanged.

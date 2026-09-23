@@ -413,12 +413,6 @@ def _project(db, bridge, envelope, config, instant, resync=False, targets=(DEFAU
         owner_cleared_block = (prior_blocked and old and old[1] == 'blocked' and status != 'blocked'
                                and prior_session['turn'] == session['turn']
                                and snapshot['revision'] > previous['snapshot']['revision'])
-        # A retained working status stays steady while an uncertain subagent still reports activity,
-        # until the members that supplied it clear it with current evidence. Uncertain child
-        # attention is already part of the status, so only working can be withdrawn this way.
-        withdrawn = bool(old) and old[1] == 'working' and RANK[status] < RANK['working'] and any(
-            child['freshness'] != 'current' and child['activity'] == 'active' for child in children)
-        stale = stale or withdrawn
         # Current members that supplied the retained status and no longer do clear it, and a
         # higher subagent alert is shown steadily rather than hidden behind an older color.
         members = {identity_key(item['identity']):item for item in (session, *children)}

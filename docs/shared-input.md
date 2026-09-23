@@ -161,18 +161,17 @@ A session with an evidenced parent, such as a Codex subagent, is part of its
 nearest top-level ancestor's task. It is not a task of its own. Its blocked or
 question attention and the owner's count of its fresh activity raise the parent
 task. Its turn-ended notices never make the parent unread: the owner records a
-subagent's turn as unknown, so those notices cannot clear on a new turn. A
-task is current only when a current member supplies its displayed status. A
-current subagent alert therefore shows normally under an uncertain parent, and
-its resolution takes effect steadily. An alert held only by uncertain subagents
+subagent's turn as unknown, so those notices cannot clear on a new turn. A task
+is current only when a current member supplies its displayed status. A current
+subagent alert therefore shows normally under an uncertain parent, and its
+resolution takes effect steadily. An alert held only by uncertain subagents
 shows steadily with uncertain evidence, even over a lower retained or current
-status. A silent subagent that still reports activity keeps its parent working
-steadily. That hold ends when fresh subagent evidence resolves it or when the
-parent's own turn ends, and the parent's new turns still show normally. When the topmost ancestor present in the snapshot has a missing
-parent, that group appears only while it has blocked or question attention.
-Parentage that the owner marks ambiguous leaves a session top-level, with its
-own notices. Legacy hooks attributed subagent events to the parent session in
-the same way.
+status. Working follows the owner's count of fresh active subagents, so a silent
+subagent never holds its parent working. When the topmost ancestor present in
+the snapshot has a missing parent, that group appears only while it has blocked
+or question attention. Parentage that the owner marks ambiguous leaves a session
+top-level, with its own notices. Legacy hooks attributed subagent events to the
+parent session in the same way.
 
 A top-level completion notice legitimately stays unread until one of these
 happens:

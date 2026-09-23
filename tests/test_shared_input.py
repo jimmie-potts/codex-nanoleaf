@@ -664,40 +664,27 @@ class ChildSessionTest(SelectionTest):
         self.advance(1001)
         self.assertEqual(self.tasks(1001), {self.key: ('blocked', 100, 'uncertain')})
 
-    def test_silent_subagent_keeps_its_parent_working_steadily(self):
+    def test_silent_subagent_follows_the_owners_active_count(self):
         self.root['notices'][0]['acknowledgedBy'].append('nanoleaf')
         self.value['snapshot']['sessions'].append(child_of(self.root, 'child', activity='active'))
         self.select(recount(self.value))
         self.assertEqual(self.tasks(1000), {self.key: ('working', 100, 'current')})
-        # Five minutes without subagent evidence: the owner no longer counts it active.
+        # Five minutes without subagent evidence: the owner no longer counts it active, and the
+        # task follows the parent's current evidence, as the owner's counts and Tidbyt do.
         self.value['snapshot']['sessions'][1] = child_of(self.root, 'child', activity='active', fresh=False)
         self.advance(1001)
-        self.assertEqual(self.tasks(1001), {self.key: ('working', 100, 'uncertain')})
-        self.advance(1002)
-        self.assertEqual(self.tasks(1002), {self.key: ('working', 100, 'uncertain')})
-        # Fresh evidence that the subagent finished releases the task and its Line.
-        self.value['snapshot']['sessions'][1] = child_of(self.root, 'child')
-        self.advance(1003)
-        self.assertEqual(self.tasks(1003), {})
-
-    def test_parent_turns_release_a_dead_subagent_hold(self):
-        self.root['notices'][0]['acknowledgedBy'].append('nanoleaf')
-        self.value['snapshot']['sessions'].append(child_of(self.root, 'child', activity='active'))
-        self.select(recount(self.value))
-        self.value['snapshot']['sessions'][1] = child_of(self.root, 'child', activity='active', fresh=False)
-        self.advance(1001)
-        self.assertEqual(self.tasks(1001), {self.key: ('working', 100, 'uncertain')})
-        # The parent's own new turn updates the task normally under the silent subagent.
+        self.assertEqual(self.tasks(1001), {})
+        # The parent's own turns show normally under the silent subagent.
         self.root['turn'] = {'status': 'known', 'id': 'turn-2'}; self.root['activity'] = 'active'; self.advance(1002)
         self.assertEqual(self.tasks(1002), {self.key: ('working', 100, 'current')})
-        self.assertEqual(self.rows('SELECT turn,status FROM sessions'), [('turn-2', 'working')])
-        # Its completion shows even though the subagent still reports activity.
         self.root['activity'] = 'idle'
         self.root['notices'].append({'id': 'c' * 64, 'kind': 'turn-ended', 'turn': {'status': 'known', 'id': 'turn-2'}, 'acknowledgedBy': []})
         self.advance(1003)
-        self.assertEqual({k: v[0] for k, v in self.tasks(1003).items()}, {self.key: 'unread'})
+        self.assertEqual(self.tasks(1003), {self.key: ('unread', 100, 'current')})
+        # When the parent is uncertain too, the task keeps its last color steadily.
+        self.root['freshness'] = 'uncertain'; self.root['restartUncertain'] = True
         self.root['notices'][1]['acknowledgedBy'].append('nanoleaf'); self.advance(1004)
-        self.assertEqual(self.tasks(1004), {})
+        self.assertEqual(self.tasks(1004), {self.key: ('unread', 100, 'uncertain')})
 
     def test_owner_recovery_clears_an_uncertain_child_approval(self):
         self.root['freshness'] = 'uncertain'; self.root['restartUncertain'] = True

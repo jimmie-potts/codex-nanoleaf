@@ -54,7 +54,7 @@ The consumer SHALL map semantic activity and attention into the existing allocat
 - **THEN** that group is presented under the topmost present member, whatever the snapshot order, while it has blocked or question attention, and is otherwise not a task
 
 ### Requirement: Honest freshness and effect recovery
-Disconnected or uncertain shared sessions SHALL keep their last colors steady with no pulses/comets while current peers retain normal behavior. A task SHALL be current only when current evidence from one of its members supplies its displayed status. When current members that supplied a retained status no longer supply it, the task SHALL take its new status while remaining uncertain and steady. A subagent alert of higher priority than the retained status SHALL be shown steadily rather than hidden. A lower status SHALL NOT replace a retained working status while an uncertain child still reports activity, until the members that supplied it clear it with current evidence. A later authoritative owner revision that removes an unknown-ID approval on the same turn MAY clear that frozen blocked color while preserving uncertain evidence, assignments and effect suppression. Health and map task status evidence SHALL distinguish transport and session freshness from the displayed status. Recovery SHALL preserve epochs and assignments and SHALL NOT replay expired effects. Agents SHALL never wait on this consumer. This covers #29 disconnect and reconnect criteria, #72 approval recovery and #74 subagent freshness.
+Disconnected or uncertain shared sessions SHALL keep their last colors steady with no pulses/comets while current peers retain normal behavior. A task SHALL be current only when current evidence from one of its members supplies its displayed status. When current members that supplied a retained status no longer supply it, the task SHALL take its new status while remaining uncertain and steady. A subagent alert of higher priority than the retained status SHALL be shown steadily rather than hidden. Working SHALL follow the owner's count of fresh active children, which excludes uncertain children. A later authoritative owner revision that removes an unknown-ID approval on the same turn MAY clear that frozen blocked color while preserving uncertain evidence, assignments and effect suppression. Health and map task status evidence SHALL distinguish transport and session freshness from the displayed status. Recovery SHALL preserve epochs and assignments and SHALL NOT replay expired effects. Agents SHALL never wait on this consumer. This covers #29 disconnect and reconnect criteria, #72 approval recovery and #74 subagent freshness.
 
 #### Scenario: Feed loss in Work or Free
 - **WHEN** a selected shared feed is lost
@@ -77,9 +77,9 @@ Disconnected or uncertain shared sessions SHALL keep their last colors steady wi
 - **THEN** the task shows the alert steadily with uncertain status evidence and no new outward wave, including over a retained lower status or a current question
 
 #### Scenario: Silent subagent
-- **WHEN** a task's retained status is working and one of its subagents is uncertain while it still reports activity
-- **THEN** the task keeps working steadily with uncertain status evidence and keeps its Line until fresh subagent evidence resolves it or the members that supplied working clear it with current evidence, such as the parent's own turn ending
-- **AND** the parent's new turns still update the task normally
+- **WHEN** a subagent that supplied its task's working status becomes uncertain while its parent is current
+- **THEN** the task follows the parent's current evidence and the owner's active count, which no longer includes that subagent, so the parent's idle state, turns and completions show normally
+- **AND** when the parent is uncertain too, the task keeps its last color steadily
 
 ### Requirement: Pure sanitized inspection and private ownership
 Inspection SHALL report source selection, owner, consumer health and sanitized identity/project mapping without starting a worker, changing state, contacting a device or returning credentials/private metadata. One installation-local Python worker SHALL remain the sole device writer; SQLite SHALL remain private to its operating system. This covers #29 additional health and runtime criteria.
