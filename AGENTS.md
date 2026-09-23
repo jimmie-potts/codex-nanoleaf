@@ -51,13 +51,16 @@ Use the centrally installed `$unslop` skill for the final editorial pass on comm
 
 The hub owns the cross-project guide HTML and its inputs. Read
 [the hub guide maintenance procedure](https://github.com/jimmie-potts/agent-device-hub/blob/main/docs/work-guide/README.md)
-when a task intentionally changes or publishes that guide. That procedure
-covers the linked hub PR, input refresh, HTML regeneration and required checks
-for the guide revision. Ordinary planning and delivery do not refresh
-the guide or open a hub PR only to record status, and they need no no-impact
-entry. The hub retired `docs/work-guide/updates.md`.
+when a task intentionally changes or publishes that guide. A change here needs
+a linked hub PR only when the task's authorized scope includes a guide update.
+That procedure covers the hub PR, input refresh, HTML regeneration and required
+checks for the guide revision. Ordinary planning and delivery do not refresh the
+guide or open a hub PR only to record status, and they need no no-impact entry.
+The hub retired `docs/work-guide/updates.md`.
 
 Read-only tasks do not authorize writes, tracker-only requests change only the
-tracker, and guide maintenance does not authorize devices or hosting. Keep source completion, guide revision, public publication
-and live verification as separate claims. Public publication requires the
-user's applicable finish line; a source merge does not update the public site.
+tracker, and guide maintenance does not authorize devices or hosting. Keep
+source completion, guide revision, public publication and live verification as
+separate claims, each with evidence or a pending owner and next action. Public
+publication requires the user's applicable finish line; a source merge does not
+update the public site.

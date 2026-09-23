@@ -281,7 +281,9 @@ bootstrap has none.
 Install shared skills as described in [the development guide](development.md#shared-skills).
 Use `plan-work` and `deliver-work` only when explicitly invoked; ordinary work
 follows this SDLC. When a task intentionally updates or publishes the
-cross-project guide, follow [its procedure](#cross-project-work-guide).
+cross-project guide, follow [its procedure](#cross-project-work-guide). When
+`plan-work` or `deliver-work` is invoked, its documentation checkpoints use that
+section; ordinary work has no guide obligation to record.
 Do not vendor copies, renamed wrappers, or external symlinks into this repository.
 Review shared skill changes in their owning repository and record the evaluated
 catalog revision in PR evidence. Updating OpenSpec integrations is a catalog task;
@@ -314,10 +316,12 @@ currency. The hub retired its `docs/work-guide/updates.md` ledger; Git history
 and PRs keep that record.
 
 When a task's authorized scope intentionally updates or publishes the guide,
-follow the hub procedure. The task's coordinator owns the linked hub PR and
-any separately authorized public publication. Link the hub PR from this repository's
-PR. Reconcile merge or acceptance facts that were unavailable before review in a
-linked follow-up. Report source completion, guide revision, public publication
-and live verification separately. Keep installation, client and physical
-evidence as separate claims. These rules grant no authority for read-only tasks,
-tracker changes, installation or deployment.
+follow the hub procedure. The task's coordinator owns the linked hub PR and any
+separately authorized public publication. Link the hub PR from this
+repository's PR. If the authorized guide revision must include merge or
+acceptance facts that were unavailable before merge, reconcile them in a linked
+follow-up. Report source completion, guide revision, public publication and live
+verification separately, each with evidence or a pending owner and next action.
+Keep installation, client and physical evidence as separate claims. These rules
+grant no authority for read-only tasks, tracker changes, installation or
+deployment.
