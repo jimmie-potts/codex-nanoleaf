@@ -644,5 +644,43 @@ class ProtectedApiTest(DeviceWorkerTest):
         self.assertTrue(ticks)
 
 
+
+class UnregisteredDeviceTest(DeviceWorkerTest):
+    # #45 removal: an instance for a device that is no longer registered stops.
+    def unregister(self, device='panels'):
+        config = json.loads((self.directory / 'config.json').read_text())
+        del config['devices'][device]
+        b.write_json(self.directory / 'config.json', config)
+        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+            b.mark_dirty(db)
+
+    def test_waiting_instance_exits_after_its_device_is_removed(self):
+        self.event('UserPromptSubmit')
+        removed = self.clock.now() + 3
+        self.run_worker('panels', [(removed, self.unregister)])
+        self.assertTrue(self.effects(self.fake.panels))
+        self.assertFalse([call for call in self.fake.panels.calls if call[0] > removed])
+        self.run_worker('wall', self.free_after(3, 'wall'))
+        self.assertTrue(self.effects(self.fake.lines))
+
+    def test_retry_loop_stops_for_an_unregistered_device(self):
+        class Stop(BaseException):
+            pass
+        attempts = []
+        def run(directory, device='wall', feed=None):
+            attempts.append(device)
+            if len(attempts) > 1:
+                raise Stop()
+            self.unregister()
+            raise OSError('Device unavailable')
+        with patch.object(sys, 'argv', ['bridge.py', 'worker', '--device', 'panels', '--state-dir', str(self.directory)]), \
+                patch.object(b, 'run_worker', side_effect=run), patch.object(b.time, 'sleep', lambda seconds: None):
+            try:
+                b.main()
+            except Stop:
+                pass
+        self.assertEqual(attempts, ['panels'])
+        self.assertEqual(self.query("SELECT key FROM meta WHERE key LIKE '%@panels' AND key LIKE 'control_error%'"), [])
+
 if __name__ == '__main__':
     unittest.main()

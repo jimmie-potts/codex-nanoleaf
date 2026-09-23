@@ -1,7 +1,6 @@
 """Fresh Linux installation using the existing bridge and controller processes."""
 import argparse
 import contextlib
-import getpass
 import hashlib
 import ipaddress
 import json
@@ -11,14 +10,14 @@ import re
 import secrets
 import shlex
 import shutil
-import stat
 import subprocess
 import sys
 import venv
-import warnings
 
 import bridge as b
 import devices
+# The runtime copy of this reader serves device enrollment after installation.
+from enrollment import read_token
 
 
 @contextlib.contextmanager
@@ -200,26 +199,6 @@ def native_tool(value, name):
     if not resolved or Path(resolved).suffix.lower() in {'.exe', '.cmd', '.bat', '.ps1'}:
         raise ValueError(f'Install a native Linux {name} executable and select its path.')
     return Path(resolved).resolve()
-
-
-def read_token(path):
-    if path is None:
-        with warnings.catch_warnings():
-            warnings.simplefilter('error', getpass.GetPassWarning)
-            try:
-                return getpass.getpass('Nanoleaf auth_token (hidden): ').strip()
-            except getpass.GetPassWarning:
-                raise ValueError('A hidden prompt is unavailable. Use a private --token-file.') from None
-    descriptor = os.open(Path(path).expanduser(), os.O_RDONLY | os.O_NONBLOCK)
-    try:
-        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
-            raise ValueError('The token file must be a regular private text file.')
-        value = os.read(descriptor, 1025)
-        if len(value) > 1024:
-            raise ValueError('The token file exceeds 1024 bytes.')
-        return value.decode('ascii').strip()
-    finally:
-        os.close(descriptor)
 
 
 def install(args, request=None):

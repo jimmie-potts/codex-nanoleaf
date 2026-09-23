@@ -845,6 +845,8 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
         feed = {} if feed is None else feed
         poller = feed.setdefault('poller', shared_input.Poller(directory, projection)) if primary else None
         while True:
+            if not primary and device not in registered_devices(directory):
+                return  # The device was removed; its instance stops without another request.
             if poller:
                 shared = poller.tick(now())
             else:
@@ -1195,6 +1197,11 @@ def main():
     if sys.argv[1:2] and sys.argv[1].startswith('controller-'):
         import controller_server
         return controller_server.command(sys.argv[1:], sys.modules[__name__])
+    if sys.argv[1:2] and sys.argv[1].startswith('device-'):
+        # Linux-only enrollment; it refuses Windows and Windows-mounted state itself.
+        import enrollment
+        from types import SimpleNamespace
+        raise SystemExit(enrollment.command(sys.argv[1:], SimpleNamespace(**globals())))
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('mode', choices=['setup', 'hook', 'worker', 'mode', 'status', 'tray', 'map', 'serve', 'style', 'map-status'])
     parser.add_argument('--state-dir', type=Path, help=argparse.SUPPRESS)
@@ -1256,14 +1263,15 @@ def main():
         feed = {}
         while True:
             try:
+                if device not in registered_devices(directory): return
                 if run_worker(directory, device=device, feed=feed) is False: return
                 with contextlib.closing(connect_state(directory)) as db:
                     resume_shared = shared_input.selected(db)
                 if not resume_shared: return
                 time.sleep(1)
             except Exception:
-                # A failed pass records and retries this device only.
-                if not record_failure(directory, device):
+                # A failed pass records and retries this device only, while it is still registered.
+                if device not in registered_devices(directory) or not record_failure(directory, device):
                     return
                 # Release locks between attempts. All retries read the newest mode.
                 time.sleep(2)

@@ -216,13 +216,17 @@ def save_device_layout(path, device, entry, write=write_json):
 
     Each device's worker may discover its layout at the same time; re-reading under the
     lock keeps the other device's entry instead of overwriting it with a stale copy.
+    An entry of None removes that device's entry.
     """
     import sqlite3
     with contextlib.closing(sqlite3.connect(path.with_name('layout-lock.sqlite'), timeout=5)) as lock:
         lock.execute('BEGIN EXCLUSIVE')
         current = layout_devices(json.loads(path.read_text())) if path.exists() else {}
-        current[device] = entry
-        save_layout(path, current, write)
+        if entry is not None:
+            current[device] = entry
+            save_layout(path, current, write)
+        elif current.pop(device, None) is not None and current:
+            save_layout(path, current, write)
         lock.rollback()
 
 
