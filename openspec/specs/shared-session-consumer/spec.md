@@ -79,7 +79,7 @@ Disconnected or uncertain shared sessions SHALL keep their last colors steady wi
 #### Scenario: Silent subagent
 - **WHEN** a subagent that supplied its task's working status becomes uncertain while its parent is current
 - **THEN** the task follows the parent's current evidence and the owner's active count, which no longer includes that subagent, so the parent's idle state, turns and completions show normally
-- **AND** when the parent is uncertain too, the task keeps its last color steadily
+- **AND** when the parent is uncertain too, the task keeps its last color steadily until current evidence from the members that supplied it, including that subagent, clears it
 
 ### Requirement: Pure sanitized inspection and private ownership
 Inspection SHALL report source selection, owner, consumer health and sanitized identity/project mapping without starting a worker, changing state, contacting a device or returning credentials/private metadata. One installation-local Python worker SHALL remain the sole device writer; SQLite SHALL remain private to its operating system. This covers #29 additional health and runtime criteria.

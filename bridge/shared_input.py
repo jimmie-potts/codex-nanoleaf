@@ -373,13 +373,14 @@ def presented(snapshot):
     return tasks
 
 
-def _supporters(session, children, status):
-    """Task members whose evidence supplies a status."""
+def _supporters(session, children, status, retained=False):
+    """Task members whose evidence supplies a status. For a retained status, a silent child
+    that still reports activity counts too, so its later current evidence can clear it."""
     if status in ALERTS:
         return [item for item in (session, *children) if ALERTS[status] & {a['kind'] for a in item['attention']}]
     if status == 'working':
-        return [session] * (session['activity'] == 'active') + [child for child in children
-                                                                if child['activity'] == 'active' and child['freshness'] == 'current']
+        return [session] * (session['activity'] == 'active') + [child for child in children if child['activity'] == 'active'
+                                                                and (retained or child['freshness'] == 'current')]
     return [session]
 
 
@@ -416,7 +417,7 @@ def _project(db, bridge, envelope, config, instant, resync=False, targets=(DEFAU
         # Current members that supplied the retained status and no longer do clear it, and a
         # higher subagent alert is shown steadily rather than hidden behind an older color.
         members = {identity_key(item['identity']):item for item in (session, *children)}
-        prior_support = ({identity_key(item['identity']) for item in _supporters(*prior_tasks[key][:2], old[1])}
+        prior_support = ({identity_key(item['identity']) for item in _supporters(*prior_tasks[key][:2], old[1], retained=True)}
                          if old and key in prior_tasks and old[1] != status else set())
         still = {identity_key(item['identity']) for item in _supporters(session, children, old[1])} if old else set()
         evidence_cleared = bool(prior_support) and all(

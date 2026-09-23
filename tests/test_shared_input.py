@@ -686,6 +686,23 @@ class ChildSessionTest(SelectionTest):
         self.root['notices'][1]['acknowledgedBy'].append('nanoleaf'); self.advance(1004)
         self.assertEqual(self.tasks(1004), {self.key: ('unread', 100, 'uncertain')})
 
+    def test_silent_subagent_clears_when_it_returns_idle_under_an_uncertain_parent(self):
+        self.root['notices'][0]['acknowledgedBy'].append('nanoleaf')
+        self.root['freshness'] = 'uncertain'; self.root['restartUncertain'] = True
+        self.value['snapshot']['sessions'].append(child_of(self.root, 'child', activity='active'))
+        self.select(recount(self.value))
+        self.assertEqual(self.tasks(1000), {self.key: ('working', 100, 'current')})
+        # Parent and silent subagent both uncertain: the task keeps working steadily.
+        self.value['snapshot']['sessions'][1] = child_of(self.root, 'child', activity='active', fresh=False)
+        self.advance(1001)
+        self.assertEqual(self.tasks(1001), {self.key: ('working', 100, 'uncertain')})
+        self.advance(1002)
+        self.assertEqual(self.tasks(1002), {self.key: ('working', 100, 'uncertain')})
+        # The subagent's current evidence that it finished releases the task and its Line.
+        self.value['snapshot']['sessions'][1] = child_of(self.root, 'child')
+        self.advance(1003)
+        self.assertEqual(self.tasks(1003), {})
+
     def test_owner_recovery_clears_an_uncertain_child_approval(self):
         self.root['freshness'] = 'uncertain'; self.root['restartUncertain'] = True
         self.value['snapshot']['sessions'].append(child_of(self.root, 'child', attention=('approval',), fresh=False))
