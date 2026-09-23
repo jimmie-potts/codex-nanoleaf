@@ -158,6 +158,7 @@ new tasks. Cancelled/expired tickets cannot become new work on later upgrade.
 
 Run `python3 scripts/check.py` with native Node 24 on PATH for cross-language
 fixtures, plus `npm run test:browser`, `npm run check:workflow` and
-`npm run test:workflow`. Hosted Python checks use Node 24 on Windows and Linux.
-Windows installer fixtures verify module packaging; forwarding fixtures retain
-native-OS routing. These are source checks, not installed-client or physical proof.
+`npm run test:workflow`. Depot CI runs the Python checks with Node 24 on Linux
+only; run them locally on Windows for Windows-affecting changes. Windows
+installer fixtures verify module packaging; forwarding fixtures retain native-OS
+routing. These are source checks, not installed-client or physical proof.

@@ -35,7 +35,7 @@ npm run test:browser
 
 On a fresh Linux machine, Playwright may also need its browser system dependencies. The CI workflow uses `npx playwright install --with-deps chromium`. `PYTHON` can select a Python executable; `NANOLEAF_BROWSER_EXECUTABLE` can select an existing Chromium-based browser.
 
-GitHub Actions runs the Python suite on Linux and Windows with Python 3.12 and 3.14, workflow checks on both platforms, and browser checks on Linux.
+[Depot CI](docs/development.md#hosted-ci) runs workflow checks, the Python suite with Python 3.12 and 3.14, browser checks, and MCP source checks on Linux. Depot CI has no Windows sandboxes, so Windows checks run locally.
 
 After `npm ci`, run `npm run check:workflow` to validate OpenSpec work and
 `npm run test:workflow` to exercise the validation commands. OpenSpec 1.12.0 is
@@ -79,7 +79,8 @@ Codex work uses a separate branch and worktree for each deliverable.
 | `tests/` | Isolated regression tests and browser checks |
 | `tests/fixtures/` | Geometry fixture with substituted panel IDs |
 | `scripts/` | Test runner and device-free demo |
-| `.github/` | CI and pull request template |
+| `.depot/` | Depot CI workflow |
+| `.github/` | Pull request and issue templates; disabled GitHub Actions source workflow |
 
 Credentials, hook configuration, live databases, task metadata, scene preferences, screenshots, and installation backups are excluded from Git. No live state is required to run the tests.
 

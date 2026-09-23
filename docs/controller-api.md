@@ -84,7 +84,7 @@ Before import, the bridge verifies the archive checksum, the manifest against th
 
 | Consumer | Supported verification |
 | --- | --- |
-| Nanoleaf optional API | Python 3.12/3.14 on Windows/Linux, pinned jsonschema 4.19.2, all 220 shared cases plus owning HTTP/queue/worker tests |
+| Nanoleaf optional API | Python 3.12/3.14 on Linux in Depot CI, pinned jsonschema 4.19.2, all 220 shared cases plus owning HTTP/queue/worker tests. Windows runs are local; hosted Windows evidence predates the Depot migration |
 | Existing bridge | Standard-library startup without controller dependencies; full legacy regression and browser suites |
 | Real native client / installed bridge / physical device | Separate acceptance; source tests do not establish these results |
 

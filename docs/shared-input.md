@@ -95,7 +95,7 @@ services. Source delivery creates no personal service or listener.
 
 Legacy Windows commands use the same `shared-*` operations through the installed
 Python bridge; retained WSL entry points forward to Windows before opening state.
-Source fixtures and Windows CI do not prove installed forwarding or light output.
+Source fixtures, hosted CI, and local Windows checks do not prove installed forwarding or light output.
 
 ## Task continuity and rollback
 
