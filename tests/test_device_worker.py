@@ -484,10 +484,11 @@ class IsolationTest(DeviceWorkerTest):
         server.configure(self.directory, b, 'controller', 'wall', 'source')
         self.event('UserPromptSubmit')
         self.fake.panels.fail = lambda method, endpoint, payload: True
-        attempts = []
+        attempts, feeds = [], []
         original = b.run_worker
         def run(directory, device='wall', feed=None):
             attempts.append(device)
+            feeds.append(feed)
             return original(directory, device=device, feed=feed, sleep=self.clock.sleep, now=self.clock.now,
                             read_unread=lambda: self.unread)
         with patch.object(sys, 'argv', ['bridge.py', 'worker', '--device', 'panels', '--state-dir', str(self.directory)]), \
@@ -495,6 +496,9 @@ class IsolationTest(DeviceWorkerTest):
                 patch.object(b.time, 'sleep', lambda seconds: self.assertEqual(seconds, 2) or self.mode('free', 'panels')):
             b.main()
         self.assertEqual(attempts, ['panels', 'panels'])
+        # The retry loop hands every attempt the same feed state, so a failed pass cannot force a resync.
+        self.assertIsInstance(feeds[0], dict)
+        self.assertIs(feeds[0], feeds[1])
         self.assertIsNone(b.get_status(self.directory)['error'])
         with contextlib.closing(b.connect_state(self.directory)) as db:
             self.assertIsNone(db.execute("SELECT value FROM meta WHERE key='control_error'").fetchone())
@@ -565,9 +569,10 @@ class ProtectedApiTest(DeviceWorkerTest):
         self.assertEqual(self.app.snapshot()['state']['lastOutcome']['receipt']['outcome'], 'uncertain')
         held = self.query("SELECT value FROM meta WHERE key='controller_hold_revision'")[0][0]
         # Give Panels the same revision number, so a hold that ignored the device would match it.
-        while b.control_state(sqlite3.connect(self.directory / 'status.sqlite'), 'panels')['revision'] < int(held):
+        revision = lambda: self.query("SELECT value FROM meta WHERE key='mode_revision@panels'")
+        while int((revision() or [('0',)])[0][0]) < int(held):
             self.mode('quiet' if b.get_status(self.directory, 'panels')['mode'] == 'work' else 'work', 'panels')
-        self.assertEqual(str(b.control_state(sqlite3.connect(self.directory / 'status.sqlite'), 'panels')['revision']), held)
+        self.assertEqual(revision(), [(held,)])
         self.event('UserPromptSubmit')
         self.run_worker('panels', self.free_after(3, 'panels'))
         self.assertTrue(self.effects(self.fake.panels))
@@ -589,7 +594,8 @@ class ProtectedApiTest(DeviceWorkerTest):
             self.run_worker('wall', self.free_after(3, 'wall'))
         self.assertIn('integration', calls)
         self.assertIn('discovered', calls)
-        names = controller_state.read(sqlite3.connect(self.directory / 'status.sqlite')).get('scenes', [])
+        with contextlib.closing(b.connect_state(self.directory)) as db:
+            names = controller_state.read(db).get('scenes', [])
         self.assertNotIn('Forest', names)
 
     def test_panels_pass_keeps_the_lines_error(self):
