@@ -11,7 +11,7 @@ Run `python3 scripts/check.py` from the root. Install the optional controller de
 
 Run `npm run test:browser` after map or API changes. It starts the synthetic demo on an available loopback port and shuts it down afterward. Screenshots are written to ignored `test-results/`. To inspect the map manually, run `python3 scripts/demo.py` and open its printed URL.
 
-Exercise Linux installation with isolated state and fake device transport. Use Windows PowerShell for the legacy tray and Windows installer. `bridge/tray.ps1 -Check` verifies Windows Forms support and icon loading without starting a tray or worker. Run `tests/test_tray_icon.ps1` to check all six icon sizes with Windows, transparency, the blue/green palette, tray sizing, and missing or corrupt asset fallback. Run `tests/test_controller_install.ps1` for the Windows controller installer. Hosted CI runs none of these PowerShell checks, so run them locally on Windows when a change touches the tray, the Windows installer, or other Windows-only behavior. Menu interaction still needs a Windows smoke check.
+Exercise Linux installation with isolated state and fake device transport. Use Windows PowerShell for the legacy tray and Windows installer. `bridge/tray.ps1 -Check` verifies Windows Forms support and icon loading without starting a tray or worker. Run `tests/test_tray_icon.ps1` to check all six icon sizes with Windows, transparency, the blue/green palette, tray sizing, and missing or corrupt asset fallback. Run `tests/test_controller_install.ps1` for the Windows controller installer. Hosted CI has no Windows jobs. When a change touches the tray, the Windows installer, Windows forwarding, the Windows MCP clients, or other Windows-only behavior, run these PowerShell checks locally on Windows together with `python scripts/check.py`, `npm run check:workflow`, `npm run test:workflow`, and `npm run test:mcp`. Menu interaction still needs a Windows smoke check.
 
 ## Hosted CI
 
@@ -21,7 +21,7 @@ Depot CI runs the workflow in `.depot/workflows/ci.yml` on pull requests and pus
 | --- | --- |
 | Workflow checks | `npm run check:workflow` and `npm run test:workflow` with Node 24 |
 | Python 3.12 and Python 3.14 | Controller dependencies and `python scripts/check.py` with Node 24 available |
-| Wall map browser checks | Prism tests, a clean Prism export, and `npm run test:browser` in Chromium; screenshots retained for 14 days |
+| Wall map browser checks | Prism tests, a clean Prism export, and `npm run test:browser` in Chromium; screenshots uploaded as the `prism-wall-review` artifact with a requested 14-day retention |
 | MCP source checks | `npm run test:mcp` |
 
 `.github/workflows/ci.yml` stays in the repository as the migration source. It is disabled in GitHub Actions. Its runs, including earlier billing-blocked failures, are not evidence for a candidate.

@@ -246,10 +246,11 @@ native auto-merge dependency is introduced. Honor any protections added later.
 
 ## Completion and installation handoff
 
-Record source revision, local checks, local Windows PowerShell checks, and
+Record source revision, local checks, local Windows checks, and
 installation/physical status separately. Hosted CI has no Windows jobs. An
-installed-feature issue remains open until its requested checks are satisfied. Source-only work does not invoke the installer. For an authorized
-upgrade, follow [the existing deployment procedure](development.md#upgrade-the-installed-integration)
+installed-feature issue remains open until its requested checks are satisfied.
+Source-only work does not invoke the installer. For an authorized upgrade,
+follow [the existing deployment procedure](development.md#upgrade-the-installed-integration)
 and coordinate with the installation owner. Preserve live tasks, scene choices,
 and the single Windows light writer.
 
