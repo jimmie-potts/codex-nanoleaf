@@ -275,7 +275,7 @@ database and is qualified on Linux; [ADR 0009](../docs/decisions/0009-device-awa
 records the decisions.
 
 Original NL22 Light Panels can be registered beside the Lines as a `panels`
-device. The worker runs once per registered device, each with its own lock, so
+device with `nanoleaf device-enroll`. The worker runs once per registered device, each with its own lock, so
 every device has one writer. Each device mirrors the same tasks with its own
 placements, reservations, capacity and waiting list. It also keeps its own
 mode, saved scene, comets and failure state. Each triangle is one task slot
@@ -289,6 +289,21 @@ integration settings API and MCP stay on the Lines. The
 own this behavior, and [ADR 0010](../docs/decisions/0010-per-device-worker-and-nl22.md)
 records the decisions. Hardware verification of the NL22 payload belongs to
 [#46](https://github.com/jimmie-potts/codex-nanoleaf/issues/46).
+
+Enrollment reads the device once and requires model NL22 and a valid triangle
+layout before it writes anything. It stores the credential under its own private
+configuration key, saves the reported geometry and starts the device in Free, so
+the Panels receive nothing until `mode work --device panels` or `mode quiet
+--device panels`. It refuses the `wall` id, an address another device uses, and
+an existing id at a new address. Repeating it for the same id and address
+replaces only the credential. `nanoleaf device-remove --device panels` removes a
+device after its Free handoff has applied; `--force` removes an unreachable one.
+It stops that device's worker and deletes its registration, credential, layout
+entry, device-scoped rows and saved scene. Lines and shared tasks are unchanged.
+Neither command changes hooks, listeners or machine credentials, and no service
+restart is needed. The [device enrollment specification](../openspec/specs/device-enrollment/spec.md)
+owns this behavior, and the [Linux installation guide](../docs/linux-install.md#add-nl22-light-panels)
+has the commands.
 
 A local worker sends custom Nanoleaf animations. During the initial outward pulse,
 it checks for changed task states and rebuilds the animation without resetting

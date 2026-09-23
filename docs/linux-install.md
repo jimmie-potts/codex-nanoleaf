@@ -151,6 +151,59 @@ desired state, pending work and transport evidence; they do not prove visible
 light output. Stopping a listener does not cancel work already owned by the
 worker. Stop the services and active worker when retiring this installation.
 
+## Add NL22 Light Panels
+
+Enroll original NL22 Light Panels beside the Lines with the installed launcher.
+Enrollment never runs fresh setup, clears tasks or changes hooks, listeners or
+machine credentials. It verifies the device before it writes anything:
+
+```bash
+read -r -p 'Light Panels private IPv4 address: ' PANELS_IP
+~/.local/share/codex-nanoleaf/nanoleaf device-enroll --ip "$PANELS_IP"
+unset PANELS_IP
+```
+
+Paste the Panels credential at the hidden prompt, or pass `--token-file
+/private/path/panels-token` as with Lines setup. To obtain a new credential from the
+device instead, add `--pair`. The command asks you to hold the Panels' power
+button for 5 to 7 seconds until the lights flash, then press Enter. The device
+id defaults to `panels`; choose another with `--device <id>`. The command
+refuses `wall`, an address another device already uses, and an existing id at a
+different address. Repeating it for the same id and address replaces only the
+credential and keeps the device's mode, layout and reservations.
+
+The new device starts in Free and receives nothing until you activate it.
+Activation shows only current task status; it replays no earlier wave or comet:
+
+```bash
+~/.local/share/codex-nanoleaf/nanoleaf mode work --device panels
+~/.local/share/codex-nanoleaf/nanoleaf status --device panels
+```
+
+No service needs a restart. Hooks and the worker read the device list each time
+they start, and the wall map, controller and MCP stay on the Lines. The map
+shows only the Lines until [#44](https://github.com/jimmie-potts/codex-nanoleaf/issues/44).
+
+To remove the Panels, hand them back first and wait until status shows nothing
+pending, so they restore their own scene:
+
+```bash
+~/.local/share/codex-nanoleaf/nanoleaf mode free --device panels
+~/.local/share/codex-nanoleaf/nanoleaf status --device panels
+~/.local/share/codex-nanoleaf/nanoleaf device-remove --device panels
+```
+
+Removal stops that device's worker and deletes its registration, credential,
+layout entry, saved state and scene. Lines and shared tasks are unchanged. Add
+`--force` only for an unreachable device whose Free handoff cannot finish; its
+lights then keep what they last showed. If its worker is still stopping, the
+command says so, and running it again finishes the cleanup.
+
+Source tests use temporary state and fake devices. They are not evidence that
+enrollment worked on the installed runtime or that the Panels lit up.
+[#46](https://github.com/jimmie-potts/codex-nanoleaf/issues/46) owns that
+installation and physical check.
+
 ## Connect MCP
 
 Setup configures the existing direct HTTP transport, whose compatibility name
