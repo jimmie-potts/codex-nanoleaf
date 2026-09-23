@@ -49,5 +49,5 @@ Disconnected or uncertain shared sessions SHALL keep their last colors steady wi
 
 #### Scenario: Silent subagent
 - **WHEN** a subagent that supplied its task's working status becomes uncertain while its parent is current
-- **THEN** the task follows the parent's current evidence and the owner's active count, which no longer includes that subagent, so the parent's idle state, turns and completions show normally
+- **THEN** the task follows the parent's current evidence and the owner's active count, which no longer includes that subagent, so the parent's idle state, turns and completion status show normally; a completion whose unread transition an active subagent delayed shows without a completion comet (#81)
 - **AND** when the parent is uncertain too, the task keeps its last color steadily until current evidence from the members that supplied it, including that subagent, clears it

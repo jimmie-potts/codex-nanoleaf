@@ -167,11 +167,15 @@ subagent alert therefore shows normally under an uncertain parent, and its
 resolution takes effect steadily. An alert held only by uncertain subagents
 shows steadily with uncertain evidence, even over a lower retained or current
 status. Working follows the owner's count of fresh active subagents, so a silent
-subagent never holds its parent working. When the topmost ancestor present in
-the snapshot has a missing parent, that group appears only while it has blocked
-or question attention. Parentage that the owner marks ambiguous leaves a session
-top-level, with its own notices. Legacy hooks attributed subagent events to the
-parent session in the same way.
+subagent never holds a current parent working. Under an uncertain parent, the
+task keeps its last color until the members that supplied it, including that
+subagent, return with current evidence. A completion that an active subagent
+delayed shows without its completion comet
+([#81](https://github.com/jimmie-potts/codex-nanoleaf/issues/81)). When the
+topmost ancestor present in the snapshot has a missing parent, that group
+appears only while it has blocked or question attention. Parentage that the
+owner marks ambiguous leaves a session top-level, with its own notices. Legacy
+hooks attributed subagent events to the parent session in the same way.
 
 A top-level completion notice legitimately stays unread until one of these
 happens:
