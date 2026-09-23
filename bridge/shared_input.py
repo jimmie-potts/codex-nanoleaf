@@ -271,9 +271,16 @@ def _bound_preferences(db, config):
     for binding in config['bindings']:
         key = identity_key(binding['identity'])
         info = db.execute('SELECT project,manual_project FROM task_info WHERE session=?', (key,)).fetchone()
-        slot = db.execute('SELECT slot FROM slots WHERE session=? AND device=?', (key, DEFAULT_DEVICE)).fetchone()
-        result[binding['legacySessionId']] = (info, slot)
+        # One placement per device; switching keeps each device's bound placement.
+        placed = db.execute('SELECT device,slot FROM slots WHERE session=? ORDER BY device', (key,)).fetchall()
+        result[binding['legacySessionId']] = (info, placed)
     return result
+
+
+def _targets(bridge, directory):
+    # Devices whose Work mode queues completion comets; the original Lines device by default.
+    registered = getattr(bridge, 'registered_devices', None)
+    return registered(directory) if registered else [DEFAULT_DEVICE]
 
 
 def select_source(directory, bridge, source, fetch=fetch_snapshot, now=time.time):
@@ -301,23 +308,24 @@ def select_source(directory, bridge, source, fetch=fetch_snapshot, now=time.time
             _restore_tables(db, transferred)
             db.execute('UPDATE shared_input SET backup=?,source=\'shared\',generation=generation+1,envelope=NULL,connection=\'unavailable\' WHERE id=1', (dumps(saved),))
             db.execute('DELETE FROM shared_stale')
-            _project(db, bridge, envelope, config, instant, resync=True)
+            _project(db, bridge, envelope, config, instant, resync=True, targets=_targets(bridge, directory))
         else:
             prefs = _bound_preferences(db, config)
             _restore_tables(db, current['backup'])
             # Release old slots before applying the complete remap to avoid swaps colliding.
             for session in prefs: db.execute('DELETE FROM slots WHERE session=?', (session,))
-            for session, (info, slot) in prefs.items():
+            for session, (info, placed) in prefs.items():
                 if info: db.execute('UPDATE task_info SET project=?,manual_project=? WHERE session=?', (*info, session))
-                if slot:
-                    db.execute('DELETE FROM slots WHERE slot=? AND device=?', (slot[0], DEFAULT_DEVICE))
-                    db.execute('INSERT INTO slots (session, slot, device) VALUES (?,?,?)', (session, slot[0], DEFAULT_DEVICE))
+                for device, slot in placed:
+                    db.execute('DELETE FROM slots WHERE slot=? AND device=?', (slot, device))
+                    db.execute('INSERT INTO slots (session, slot, device) VALUES (?,?,?)', (session, slot, device))
             db.execute('DELETE FROM comets')
             db.execute('DELETE FROM receipts')
             db.execute('DELETE FROM shared_stale')
             db.execute('INSERT INTO shared_stale SELECT id FROM sessions')
             db.execute("UPDATE shared_input SET source='legacy',generation=generation+1,connection='unavailable',error=NULL WHERE id=1")
         db.execute('DELETE FROM shared_suppressed_waves')
+        # Switching the task source resets every device's comets and display cache.
         db.execute('DELETE FROM display_v3')
         bridge.mark_dirty(db)
 
@@ -332,7 +340,7 @@ def semantic_status(session, consumer):
     return 'idle'
 
 
-def _project(db, bridge, envelope, config, instant, resync=False):
+def _project(db, bridge, envelope, config, instant, resync=False, targets=(DEFAULT_DEVICE,)):
     current = state(db)
     previous = current['envelope']
     snapshot = envelope['snapshot']
@@ -374,10 +382,12 @@ def _project(db, bridge, envelope, config, instant, resync=False):
             db.execute('INSERT OR REPLACE INTO shared_suppressed_waves SELECT session,started FROM activity WHERE session=?', (key,))
         if stale or resync or was_stale:
             db.execute('DELETE FROM comets WHERE session=?', (key,))
-        elif changed and status == 'unread' and bridge.control_state(db)['mode'] == 'work' and key in prior:
+        elif changed and status == 'unread' and key in prior:
             old_notices = {n['id'] for n in prior[key]['notices']}
             if any(n['id'] not in old_notices and config['consumerId'] not in n['acknowledgedBy'] for n in session['notices']):
-                db.execute('INSERT OR IGNORE INTO comets (session,turn,queued,source,started,device) VALUES (?,?,?,NULL,NULL,?)', (key,turn,instant,DEFAULT_DEVICE))
+                for device in targets:
+                    if bridge.control_state(db, device)['mode'] == 'work':
+                        db.execute('INSERT OR IGNORE INTO comets (session,turn,queued,source,started,device) VALUES (?,?,?,NULL,NULL,?)', (key,turn,instant,device))
         project = 'shared-project-' + session['projectId'] if session.get('projectId') else None
         if project:
             db.execute('INSERT OR IGNORE INTO projects VALUES (?,?,?,?)', (project,session['projectId'],bridge.wall.default_color(project),'[]'))
@@ -403,7 +413,7 @@ def accept(directory, bridge, envelope, now=time.time, generation=None, resync=F
             return False
         minimum = current['envelope']['snapshot']['revision'] if current['envelope'] else 0
         envelope = check_envelope(envelope, current['config'], minimum)
-        _project(db,bridge,envelope,current['config'],now(),resync)
+        _project(db,bridge,envelope,current['config'],now(),resync,targets=_targets(bridge,directory))
         return True
 
 

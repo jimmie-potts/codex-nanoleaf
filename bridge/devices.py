@@ -50,6 +50,13 @@ def scene_file(device=DEFAULT):
     return 'scene-state.json' if device == DEFAULT else 'scene-state.' + device + '.json'
 
 
+def lock_file(device=DEFAULT):
+    """The worker's exclusive lock; the original device keeps the existing file name."""
+    if device != DEFAULT and not ID.fullmatch(device):
+        raise ValueError('Invalid device identity.')
+    return 'notification-lock.sqlite' if device == DEFAULT else 'notification-lock.' + device + '.sqlite'
+
+
 def registry(config):
     """Registered devices from the private configuration; the original Lines device is implied."""
     if not isinstance(config, dict):

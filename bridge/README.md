@@ -272,7 +272,23 @@ ID, number and zones. The
 [device state specification](../openspec/specs/device-state/spec.md) owns that
 contract and the in-place migration, which runs wherever this source opens a
 database and is qualified on Linux; [ADR 0009](../docs/decisions/0009-device-aware-state.md)
-records the decisions. This worker still renders the original device only.
+records the decisions.
+
+Original NL22 Light Panels can be registered beside the Lines as a `panels`
+device. The worker runs once per registered device, each with its own lock, so
+every device has one writer. Each device mirrors the same tasks with its own
+placements, reservations, capacity and waiting list. It also keeps its own
+mode, saved scene, comets and failure state. Each triangle is one task slot
+with whole-triangle colors; Lines keep their project and status halves.
+`nanoleaf mode <mode> --device panels` and `status --device panels` target the
+panels, and commands without `--device` address the Lines. `setup --reset` and
+switching the shared task source reset every device. The protected controller,
+integration settings API and MCP stay on the Lines. The
+[device worker](../openspec/specs/device-worker/spec.md) and
+[Panels rendering](../openspec/specs/panels-rendering/spec.md) specifications
+own this behavior, and [ADR 0010](../docs/decisions/0010-per-device-worker-and-nl22.md)
+records the decisions. Hardware verification of the NL22 payload belongs to
+[#46](https://github.com/jimmie-potts/codex-nanoleaf/issues/46).
 
 A local worker sends custom Nanoleaf animations. During the initial outward pulse,
 it checks for changed task states and rebuilds the animation without resetting

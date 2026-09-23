@@ -40,7 +40,7 @@ class LinuxHookTest(unittest.TestCase):
                     contextlib.redirect_stdout(io.StringIO()):
                 scene.return_value.state = {'scene': None}
                 b.setup(args)
-            load.assert_called_once_with(target)
+            load.assert_called_once_with(target, 'wall')
             self.assertFalse(default.exists())
 
     def test_hook_honors_explicit_state_directory(self):

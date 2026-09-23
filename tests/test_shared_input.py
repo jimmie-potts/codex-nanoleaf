@@ -368,3 +368,41 @@ class StartupTest(SelectionTest):
         self.select()
         wall_server.App(self.path,b,config=config,launch=lambda path:launches.append(path))
         self.assertEqual(launches,[self.path])
+
+
+class DeviceSwitchTest(unittest.TestCase):
+    # #43 AC2 and AC3: switching keeps each device's bound placement; comets follow device modes.
+    setUp=SelectionTest.setUp; select=SelectionTest.select; rows=SelectionTest.rows
+
+    def test_switching_preserves_bound_placements_on_every_device(self):
+        with contextlib.closing(b.connect_state(self.path)) as db,db:
+            db.execute("INSERT INTO slots (session, slot, device) VALUES ('legacy',4,'panels')")
+        self.select(); key=self.s.identity_key(fixture()['sessions'][0]['identity'])
+        self.assertEqual(sorted(self.rows('SELECT session,slot,device FROM slots')),[(key,0,'wall'),(key,4,'panels')])
+        with contextlib.closing(b.connect_state(self.path)) as db,db:
+            db.execute("UPDATE slots SET slot=7 WHERE session=? AND device='panels'",(key,))
+            db.execute("UPDATE slots SET slot=2 WHERE session=? AND device='wall'",(key,))
+        self.s.select_source(self.path,b,'legacy',now=lambda:1005)
+        self.assertEqual(sorted(self.rows('SELECT session,slot,device FROM slots')),[('legacy',2,'wall'),('legacy',7,'panels')])
+
+    def test_shared_completion_queues_comets_on_registered_work_devices(self):
+        b.write_json(self.path/'config.json',{'ip':'192.0.2.1','token':'fake','panelsToken':'other','devices':{
+            'panels':{'kind':'panels','ip':'192.0.2.2','token_ref':'panelsToken'}}})
+        b.set_mode(self.path,'quiet',launch=lambda _:None,device='panels')
+        def complete(revision):
+            active=envelope(); first=active['snapshot']['sessions'][0]; notice=first['notices'].pop()
+            first['activity']='active'; active['snapshot']['revision']=revision
+            done=copy.deepcopy(active); done['snapshot']['revision']=revision+1
+            second=done['snapshot']['sessions'][0]; second['activity']='idle'; second['notices']=[notice]
+            return active,done
+        active,done=complete(1)
+        self.select(active)
+        self.s.accept(self.path,b,done,now=lambda:1001)
+        self.assertEqual(self.rows('SELECT device FROM comets'),[('wall',)])
+        with contextlib.closing(b.connect_state(self.path)) as db,db:
+            db.execute('DELETE FROM comets')
+        b.set_mode(self.path,'work',launch=lambda _:None,device='panels')
+        active,done=complete(3)
+        self.s.accept(self.path,b,active,now=lambda:1002)
+        self.s.accept(self.path,b,done,now=lambda:1003)
+        self.assertEqual(sorted(self.rows('SELECT device FROM comets')),[('panels',),('wall',)])
