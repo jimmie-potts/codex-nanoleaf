@@ -280,11 +280,10 @@ bootstrap has none.
 
 Install shared skills as described in [the development guide](development.md#shared-skills).
 Use `plan-work` and `deliver-work` only when explicitly invoked; ordinary work
-follows this SDLC. At planning, candidate review and completion, follow the
-[Hub guide checkpoints](https://github.com/jimmie-potts/agent-device-hub/blob/main/docs/work-guide/README.md).
-The coordinator owns the Hub companion and any authorized public publication.
-Report source/tracker completion, guide synchronization, public publication and
-live verification separately, retaining pending owners and narrower user limits.
+follows this SDLC. When a task intentionally updates or publishes the
+cross-project guide, follow [its procedure](#cross-project-work-guide). When
+`plan-work` or `deliver-work` is invoked, its documentation checkpoints use that
+section; ordinary work has no guide obligation to record.
 Do not vendor copies, renamed wrappers, or external symlinks into this repository.
 Review shared skill changes in their owning repository and record the evaluated
 catalog revision in PR evidence. Updating OpenSpec integrations is a catalog task;
@@ -303,18 +302,26 @@ Sources: [OpenSpec 1.12.0 CLI](https://github.com/Fission-AI/OpenSpec/blob/v1.12
 [OpenAI model guidance](https://developers.openai.com/api/docs/guides/latest-model),
 and [GitHub branch protection](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches).
 
-## Cross-project guide completion gate
+## Cross-project work guide
 
-The [hub work guide](https://github.com/jimmie-potts/agent-device-hub/blob/main/docs/work-guide/README.md) is the canonical remaining-work,
-history and architecture document for these projects. For every authorized
-delivery, follow its maintenance procedure and identify the coordinator of the
-companion hub PR. Review affected status, dependencies, history, architecture
-and acceptance evidence. Record changed sections or a specific no-impact reason
-in the hub maintenance history. Link the hub PR and its validation here.
+The [hub work guide](https://github.com/jimmie-potts/agent-device-hub/blob/main/docs/work-guide/README.md) is a dated
+publication of remaining work, history and architecture for these projects.
+GitHub issues remain authoritative for scope and status, and the guide is not a
+live status claim. The hub owns the guide's inputs, generated HTML and
+maintenance procedure.
 
-Merge the hub adoption PR before these instructions take effect. Guide
-synchronization remains pending until its companion PR merges; include that
-status in the completion report. Reconcile post-merge facts in a follow-up when
-they were unavailable before review. Preserve source, installation, client and
-physical evidence as separate claims. These requirements do not grant authority
-for read-only tasks, tracker changes, installation or deployment.
+Ordinary planning and delivery have no guide obligation. They do not refresh
+the guide, open a companion hub PR, write a no-impact entry, or check public
+currency. The hub retired its `docs/work-guide/updates.md` ledger; Git history
+and PRs keep that record.
+
+When a task's authorized scope intentionally updates or publishes the guide,
+follow the hub procedure. The task's coordinator owns the linked hub PR and any
+separately authorized public publication. Link the hub PR from this
+repository's PR. If the authorized guide revision must include merge or
+acceptance facts that were unavailable before merge, reconcile them in a linked
+follow-up. Report source completion, guide revision, public publication and live
+verification separately, each with evidence or a pending owner and next action.
+Keep installation, client and physical evidence as separate claims. These rules
+grant no authority for read-only tasks, tracker changes, installation or
+deployment.
