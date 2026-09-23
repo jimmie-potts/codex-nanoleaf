@@ -181,13 +181,18 @@ ownership before editing. Retain uncommitted work in place; do not silently
 stash, reset, or overwrite it. Shared personal memory is context, never a claim
 or a substitute for current GitHub and Git evidence.
 
-Only the owner may remove its worktree after handoff has ended and the work is
-delivered or explicitly abandoned. Check dirty/untracked files, unmerged
-commits, running sessions, and tool-managed retention first. Use ordinary
-`git worktree remove <owned-path>` only when clean and no longer in use; never
-force removal or prune another owner's registration. Preserve changes when a
-check fails. The [Claude setup guide](claude-code.md) and
-[Codex setup notes](../.codex/README.md) cover their different lifecycles.
+Only the owner removes its worktree. After the PR merges, main CI passes, and
+any handoff has ended, the owner removes its worktree and deletes its own
+`.local/scratch/<task>` folder. First check dirty/untracked files, running
+sessions, and tool-managed retention, and confirm that evidence the issue needs
+is in the PR, the issue, or the main checkout's `.local/evidence/`. Squash
+merges leave a branch's commits off `main`, so judge delivery by the PR's merged
+state, not by unmerged commits. Use ordinary `git worktree remove <owned-path>`
+only when clean and no longer in use; never force removal or prune another
+owner's registration. Preserve changes when a check fails. For failed or
+abandoned work, ask the user whether to keep or remove it and keep it until they
+decide. The [Claude setup guide](claude-code.md) and [Codex setup
+notes](../.codex/README.md) cover their different lifecycles.
 
 ## Review and merge
 
