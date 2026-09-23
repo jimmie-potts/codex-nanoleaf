@@ -182,6 +182,41 @@ class SelectionTest(unittest.TestCase):
         self.assertEqual(list(fresh.iterdir()),[])
 
 class RecoveryTest(SelectionTest):
+    def test_owner_recovery_clears_stale_red_without_clearing_other_state(self):
+        from test_bridge import decode as decode_effect
+        layout={'line_groups':[[100,101]],'line_positions':[[0,0]],'_mode':'work'}
+        def rendered_colors(instant):
+            with contextlib.closing(b.connect_state(self.path)) as db,db:
+                snapshot=b.dashboard(db,layout,instant)
+                self.s.render_config(db,layout)
+            colors={tuple(frame[:3]) for frame in decode_effect(b.effect_payload(layout,snapshot,instant,True))[100]}
+            self.assertTrue(colors)
+            return colors
+        value=envelope();session=value['snapshot']['sessions'][0]
+        session['attention']=[{'id':{'status':'unknown'},'kind':'approval','turn':session['turn']}]
+        session['unavailable']=[{'kind':'evidence.unavailable','dimension':'attention','reason':'ambiguous'}]
+        self.select(value)
+        self.assertEqual(self.rows('SELECT status FROM sessions'),[('blocked',)])
+        self.assertTrue(all(red>blue for red,_,blue in rendered_colors(1000)))
+        value=copy.deepcopy(value);value['snapshot']['revision']=3
+        session=value['snapshot']['sessions'][0];session['freshness']='uncertain';session['restartUncertain']=True
+        self.s.accept(self.path,b,value,now=lambda:1001)
+        self.assertEqual(self.rows('SELECT status FROM sessions'),[('blocked',)])
+        self.assertTrue(all(red>blue for red,_,blue in rendered_colors(1001)))
+        import wall_server
+        app=wall_server.App(self.path,b,config={'line_groups':[[100,101]],'line_positions':[[0,0]]},launch=lambda _:None)
+        self.assertEqual(app.state()['tasks'][0]['statusEvidence'],'uncertain')
+        value=copy.deepcopy(value);value['snapshot']['revision']=4
+        value['snapshot']['sessions'][0]['attention']=[]
+        self.s.accept(self.path,b,value,now=lambda:1002)
+        self.assertEqual(self.rows('SELECT status FROM sessions'),[('unread',)])
+        self.assertEqual(len(self.rows('SELECT * FROM shared_stale')),1)
+        self.assertEqual(self.rows('SELECT * FROM comets'),[])
+        self.assertTrue(all(blue>red for red,_,blue in rendered_colors(1002)))
+        with contextlib.closing(b.connect_state(self.path)) as db:
+            snapshot=b.dashboard(db,layout,1002)
+        self.assertEqual(snapshot[0][0],'unread')
+
     def test_loss_freezes_colors_and_reconnect_preserves_epoch(self):
         value=envelope();value['snapshot']['sessions'][0]['activity']='active';self.select(value)
         epoch=self.rows('SELECT started FROM activity')
