@@ -17,6 +17,7 @@ backup-*/
 *.new
 
 # Local development artifacts
+.local/
 __pycache__/
 *.py[cod]
 .venv/
