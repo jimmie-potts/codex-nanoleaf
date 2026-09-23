@@ -22,6 +22,10 @@ MODEL = 'NL22'
 REMOVE_WAIT_SECONDS = 10.0
 
 
+class Partial(Exception):
+    """A failure after the first state write; rerunning the same command finishes the change."""
+
+
 def read_token(path):
     """A credential from a private token-only file, or a hidden prompt that never echoes."""
     if path is None:
@@ -72,9 +76,11 @@ def pair(ip):
 
 
 def state_directory(directory):
-    if os.name == 'nt' or re.match(r'^/mnt/[a-zA-Z](?:/|$)', str(Path(directory).expanduser().absolute())):
+    # Resolve symlinks first, as the installer does, so a link cannot reach a Windows drive.
+    resolved = Path(directory).expanduser().resolve()
+    if os.name == 'nt' or re.match(r'^/mnt/[a-zA-Z](?:/|$)', str(resolved)):
         raise ValueError('Only Linux state outside Windows-mounted drives is supported')
-    return Path(directory)
+    return resolved
 
 
 def device_id(device):
@@ -128,6 +134,30 @@ def purge(directory, b, device):
     (directory / devices.scene_file(device)).unlink(missing_ok=True)
 
 
+def check_target(config, device, ip):
+    """The existing entry for a repeat, or None; refuses anything that would redirect an identity."""
+    registry = devices.registry(config)
+    existing = registry.get(device)
+    if existing and (existing['kind'] != KIND or existing['ip'] != ip):
+        raise ValueError(f'Device `{device}` is registered at another address or as another kind. '
+                         'Remove it first; enrollment never redirects an identity.')
+    for other, entry in registry.items():
+        if other == device:
+            continue
+        if entry['ip'] == ip:
+            raise ValueError(f'Device `{other}` already uses that address.')
+        if existing and entry['token_ref'] == existing['token_ref']:
+            raise ValueError(f'Device `{device}` shares a credential with `{other}`. Remove it first.')
+    return existing
+
+
+def check(directory, device, ip):
+    """Refuse a conflicting target before a credential is requested from the operator or device."""
+    directory = state_directory(directory)
+    with exclusive(directory / 'registry-lock.sqlite'):
+        check_target(read_config(directory), device_id(device), private_address(ip))
+
+
 def enroll(directory, b, *, ip, token, device=KIND, request=None):
     """Verify an NL22 device and register it in Free; nothing is written unless every check passes."""
     directory = state_directory(directory)
@@ -137,14 +167,7 @@ def enroll(directory, b, *, ip, token, device=KIND, request=None):
         raise ValueError('The device credential must contain only ASCII letters and numbers.')
     with exclusive(directory / 'registry-lock.sqlite'):
         config = read_config(directory)
-        registry = devices.registry(config)
-        existing = registry.get(device)
-        if existing and (existing['kind'] != KIND or existing['ip'] != ip):
-            raise ValueError(f'Device `{device}` is registered at another address or as another kind. '
-                             'Remove it first; enrollment never redirects an identity.')
-        for other, entry in registry.items():
-            if other != device and entry['ip'] == ip:
-                raise ValueError(f'Device `{other}` already uses that address.')
+        existing = check_target(config, device, ip)
         info = (request or b.light_request)({'ip': ip, 'token': token}, 'GET')
         if not isinstance(info, dict) or info.get('model') != MODEL:
             raise ValueError('The device at that address is not NL22 Light Panels.')
@@ -152,21 +175,26 @@ def enroll(directory, b, *, ip, token, device=KIND, request=None):
         layout = panels.read_layout(info.get('panelLayout'))
         token_ref = 'token@' + device
         if existing:
+            # A repeat replaces only the credential; layout, mode and reservations stay.
             config[existing['token_ref']] = token
+            b.write_json(directory / 'config.json', config)
         else:
             lock = worker_lock(directory, device)
             if lock is None:
                 raise ValueError(f'A worker for `{device}` is still running. Retry in a moment.')
-            with contextlib.closing(lock):
-                purge(directory, b, device)
-                with contextlib.closing(b.connect_state(directory)) as db, db:
-                    # No revision keys: revision and applied both read 0, so nothing is pending.
-                    db.execute('INSERT INTO meta VALUES (?, ?)', (devices.meta_key('mode', device), 'free'))
-                devices.save_device_layout(directory / 'layout.json', device, layout, b.write_json)
-            config.setdefault('devices', {})[device] = {'kind': KIND, 'ip': ip, 'token_ref': token_ref}
-            config[token_ref] = token
-        # The registry is written last, so an earlier failure leaves only unread state for an unregistered id.
-        b.write_json(directory / 'config.json', config)
+            try:
+                with contextlib.closing(lock):
+                    purge(directory, b, device)
+                    with contextlib.closing(b.connect_state(directory)) as db, db:
+                        # No revision keys: revision and applied both read 0, so nothing is pending.
+                        db.execute('INSERT INTO meta VALUES (?, ?)', (devices.meta_key('mode', device), 'free'))
+                    devices.save_device_layout(directory / 'layout.json', device, layout, b.write_json)
+                config.setdefault('devices', {})[device] = {'kind': KIND, 'ip': ip, 'token_ref': token_ref}
+                config[token_ref] = token
+                # The registry is written last, so an earlier failure leaves only unread state for an unregistered id.
+                b.write_json(directory / 'config.json', config)
+            except Exception as error:
+                raise Partial() from error
     return {'device': device, 'triangles': len(layout['elements']), 'repeat': bool(existing),
             'firmware': info.get('firmwareVersion')}
 
@@ -192,15 +220,19 @@ def remove(directory, b, device, *, force=False, wait=REMOVE_WAIT_SECONDS, sleep
                                                      for other in config['devices'].values()):
                 config.pop(entry['token_ref'], None)
             b.write_json(directory / 'config.json', config)
-            with contextlib.closing(b.connect_state(directory)) as db, db:
-                b.mark_dirty(db)  # A waiting instance wakes, sees the device is gone and exits.
         elif not leftovers(directory, b, device):
             raise ValueError('Unknown device.')
-        lock = worker_lock(directory, device, wait, sleep)
-        if lock is None:
-            return {'device': device, 'cleaned': False}
-        with contextlib.closing(lock):
-            purge(directory, b, device)
+        try:
+            if entry is not None:
+                with contextlib.closing(b.connect_state(directory)) as db, db:
+                    b.mark_dirty(db)  # A waiting instance wakes, sees the device is gone and exits.
+            lock = worker_lock(directory, device, wait, sleep)
+            if lock is None:
+                return {'device': device, 'cleaned': False}
+            with contextlib.closing(lock):
+                purge(directory, b, device)
+        except Exception as error:
+            raise Partial() from error
     return {'device': device, 'cleaned': True}
 
 
@@ -216,6 +248,17 @@ def leftovers(directory, b, device):
             return True
         return any(db.execute('SELECT 1 FROM ' + table + ' WHERE device=? LIMIT 1', (device,)).fetchone()
                    for table in devices.SCHEMAS)
+
+
+def reason(error, action):
+    """An operator message that never repeats device responses or credentials."""
+    if isinstance(error, sqlite3.Error):
+        return 'the saved state is busy; retry in a moment'
+    if isinstance(error, ValueError):
+        return str(error).rstrip('.')
+    if action == 'Device removal':
+        return 'the saved state could not be read or written'
+    return 'the device or saved state could not be reached'
 
 
 def command(argv, b):
@@ -246,9 +289,7 @@ def command(argv, b):
                 print(f'Removed the `{result["device"]}` registration, but its worker is still stopping. '
                       f'Run `device-remove --device {result["device"]}` again to finish removing its saved state.')
             return 0
-        state_directory(directory)
-        device_id(args.device)
-        private_address(args.ip)
+        check(directory, args.device, args.ip)
         if args.pair:
             print("Hold the Light Panels' power button for 5 to 7 seconds until the lights flash, "
                   'then press Enter within 30 seconds.')
@@ -257,13 +298,16 @@ def command(argv, b):
         else:
             token = read_token(args.token_file)
         result = enroll(directory, b, ip=args.ip, token=token, device=args.device)
+    except Partial as error:
+        print(f'{action} stopped after changing saved state: {reason(error.__cause__, action)}. '
+              'Lines and shared tasks are unchanged; run the same command again to finish.', file=sys.stderr)
+        return 1
     except urllib.error.HTTPError as error:
         error.close()
         print(f'{action}: the device answered HTTP {error.code}. Nothing was changed.', file=sys.stderr)
         return 1
-    except (ValueError, OSError) as error:
-        message = str(error) if isinstance(error, ValueError) else 'the device or state could not be reached'
-        print(f'{action}: {message.rstrip(".")}. Nothing was changed.', file=sys.stderr)
+    except (ValueError, OSError, sqlite3.Error) as error:
+        print(f'{action}: {reason(error, action)}. Nothing was changed.', file=sys.stderr)
         return 1
     device = result['device']
     if result['repeat']:

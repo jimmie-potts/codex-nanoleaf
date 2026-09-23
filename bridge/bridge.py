@@ -1263,7 +1263,6 @@ def main():
         feed = {}
         while True:
             try:
-                if device not in registered_devices(directory): return
                 if run_worker(directory, device=device, feed=feed) is False: return
                 with contextlib.closing(connect_state(directory)) as db:
                     resume_shared = shared_input.selected(db)

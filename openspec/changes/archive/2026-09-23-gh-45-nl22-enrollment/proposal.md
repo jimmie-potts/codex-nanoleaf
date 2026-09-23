@@ -20,7 +20,7 @@ Unchanged baseline: fresh Linux setup, hooks, task ingestion, allocation, render
 - `device-enrollment`: enrollment verification, credential intake, private storage, the Free start, conflict and repeat handling, removal, and operator guidance.
 
 ### Modified Capabilities
-- `device-worker`: a worker instance for a device that is no longer registered exits instead of retrying.
+- `device-worker`: a worker instance for a device that is no longer registered exits instead of retrying, and the failure-isolation requirement names that exception.
 
 ## Impact
 
@@ -28,7 +28,7 @@ Affected code:
 
 - A new `bridge/enrollment.py` holding the commands, the token reader shared with the installer, and pairing.
 - `bridge/bridge.py`: the `device-` command dispatch and the unregistered-device worker exit.
-- `bridge/devices.py`: removal of a device's layout entry and state rows.
+- `bridge/devices.py`: removal of a device's layout entry.
 - `bridge/install_linux.py`: imports the shared token reader.
 
 Tests use temporary Linux state, fake Lines and NL22 transports and the synthetic 18-triangle fixture. No personal device is contacted. The change touches the bridge guide and the development, Linux installation and controller API guides. It does not install anything, change services or hooks, or alter the protected API.

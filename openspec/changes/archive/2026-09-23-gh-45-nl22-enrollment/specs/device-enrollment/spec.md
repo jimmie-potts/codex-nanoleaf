@@ -41,11 +41,19 @@ A newly enrolled device SHALL start in Free with no pending mode change. Its wor
 - **THEN** no comet is queued for Panels, its wave cutoff is the activation time, and Lines' comets and mode are unchanged
 
 ### Requirement: Conflicts and repeats keep existing state
-Enrollment SHALL refuse the reserved `wall` id, an invalid id, an address used by another registered device, and an existing id registered at a different address or as a different kind. It SHALL NOT silently redirect an existing identity. Repeating enrollment for the same id and address SHALL replace only its credential and SHALL keep its layout, mode, reservations and scene. A failed enrollment SHALL leave every device and all shared tasks intact. Enrollment SHALL NOT issue, revoke or change machine credentials. The protected controller API SHALL stay Lines-only. Saved geometry and preferences SHALL stay usable while the device is unreachable. Covers #45 AC4.
+Enrollment SHALL refuse the reserved `wall` id, an invalid id, an address used by another registered device, an existing id registered at a different address or as a different kind, and a repeat for an id whose credential key another device shares. It SHALL run these checks before it asks the operator or the device for a credential. It SHALL NOT silently redirect an existing identity. Repeating enrollment for the same id and address SHALL replace only its credential and SHALL keep its layout, mode, reservations and scene. A failed enrollment SHALL leave every device and all shared tasks intact. Enrollment SHALL NOT issue, revoke or change machine credentials. The protected controller API SHALL stay Lines-only. Saved geometry and preferences SHALL stay usable while the device is unreachable. Covers #45 AC4.
 
 #### Scenario: Address and identity conflicts
 - **WHEN** the operator enrolls with id `wall`, with the Lines address, or with the registered Panels id at a new address
 - **THEN** the command fails, and the configuration, layout and state are unchanged
+
+#### Scenario: Conflict found before a credential is requested
+- **WHEN** the operator enrolls with the pairing option or the hidden prompt at an address another device uses
+- **THEN** the command fails without pairing or prompting
+
+#### Scenario: Shared credential on repeat
+- **WHEN** a hand-edited Panels entry refers to the Lines credential and the operator repeats its enrollment
+- **THEN** the command fails, and the Lines credential is unchanged
 
 #### Scenario: Repeat enrollment
 - **WHEN** the operator enrolls the same id at the same address again with a new credential, after choosing Quiet and a reservation for it
@@ -64,7 +72,7 @@ Enrollment SHALL refuse the reserved `wall` id, an invalid id, an address used b
 - **THEN** its configuration and layout still load without a device request
 
 ### Requirement: Explicit removal
-A removal command SHALL remove a registered non-Lines device's registration, credential, layout entry, device-scoped state and saved scene. It SHALL require the device to be in Free with that mode applied, unless the operator forces removal of an unreachable device. It SHALL stop that device's worker, and it SHALL leave Lines, shared tasks and other devices unchanged. If the worker does not stop in time, the command SHALL say so, and rerunning it SHALL finish the cleanup. Covers #45 AC4 and AC6.
+A removal command SHALL remove a registered non-Lines device's registration, credential, layout entry, device-scoped state and saved scene. It SHALL require the device to be in Free with that mode applied, unless the operator forces removal of an unreachable device. It SHALL stop that device's worker, and it SHALL leave Lines, shared tasks and other devices unchanged. If the worker does not stop in time, or a failure follows the first state write, the command SHALL say so, and rerunning it SHALL finish the cleanup. Covers #45 AC4 and AC6.
 
 #### Scenario: Remove Panels after Free
 - **WHEN** Panels is in Free with the handoff applied and the operator removes it
@@ -73,6 +81,10 @@ A removal command SHALL remove a registered non-Lines device's registration, cre
 #### Scenario: Removal before handoff
 - **WHEN** the operator removes Panels while it is in Work or its Free change is still pending
 - **THEN** the command refuses without the force option and explains how to hand the device back first, and with the force option it removes the device
+
+#### Scenario: Failure after the registration is removed
+- **WHEN** removal fails after it has removed the registration, for example on a malformed layout file
+- **THEN** the command does not claim that nothing changed, and it asks the operator to run it again
 
 #### Scenario: Removing Lines
 - **WHEN** the operator tries to remove `wall` or an unknown id

@@ -188,6 +188,15 @@ class EnrollTest(EnrollmentTest):
         self.assertEqual(self.snapshot()[0]['layout.json'], files['layout.json'])
         self.assertEqual(b.get_status(self.directory, 'panels')['mode'], 'quiet')
 
+    def test_repeat_refuses_an_entry_that_shares_the_lines_credential(self):
+        config = self.config()
+        config['devices']['panels'] = {'kind': 'panels', 'ip': PANELS_IP, 'token_ref': 'token'}
+        b.write_json(self.directory / 'config.json', config)  # A hand-edited registry.
+        before = self.snapshot()
+        with self.assertRaisesRegex(ValueError, 'shares'):
+            self.enroll()
+        self.assertEqual(self.snapshot(), before)
+
     def test_machine_credentials_are_unchanged(self):
         credentials = (self.directory / 'mcp-credentials.json').read_bytes()
         records = self.query('SELECT * FROM controller_credentials')
@@ -251,6 +260,18 @@ class PrivacyTest(EnrollmentTest):
         self.assertNotIn(PANELS_TOKEN, out + err)
         self.assertEqual(self.config()['token@panels'], PANELS_TOKEN)
 
+    def test_conflicts_are_refused_before_pairing_or_prompting(self):
+        pairs = []
+        with patch.object(enrollment, 'pair', lambda ip: pairs.append(ip) or PANELS_TOKEN), \
+                patch('getpass.getpass', return_value=PANELS_TOKEN) as prompt:
+            for argv in (['--ip', LINES_IP, '--pair'], ['--ip', LINES_IP], ['--device', 'wall', '--ip', PANELS_IP, '--pair']):
+                with self.subTest(argv=argv):
+                    code, out, err = self.run_command('device-enroll', *argv, stdin='\n')
+                    self.assertEqual(code, 1)
+                    self.assertNotIn('power button', out)
+        self.assertEqual(pairs, [])
+        prompt.assert_not_called()
+
     def test_pair_posts_to_the_new_endpoint_without_a_proxy(self):
         requests = []
         class Response(io.BytesIO):
@@ -278,6 +299,12 @@ class PrivacyTest(EnrollmentTest):
             enrollment.enroll(Path('/mnt/c/Users/fixture/CodexNanoleaf'), b, ip=PANELS_IP, token=PANELS_TOKEN)
         with self.assertRaisesRegex(ValueError, 'Windows'):
             enrollment.remove(Path('/mnt/c/Users/fixture/CodexNanoleaf'), b, 'panels')
+
+    def test_symlink_to_a_windows_drive_is_refused(self):
+        linked = self.directory.parent / 'linked-state'
+        linked.symlink_to('/mnt/c/Users/fixture/CodexNanoleaf')
+        with self.assertRaisesRegex(ValueError, 'Windows'):
+            enrollment.enroll(linked, b, ip=PANELS_IP, token=PANELS_TOKEN)
 
     def test_installer_reads_its_token_file_through_the_shared_reader(self):
         import install_linux
@@ -412,13 +439,37 @@ class RemoveTest(EnrollmentTest):
         with self.assertRaisesRegex(ValueError, 'Unknown'):
             enrollment.remove(self.directory, b, 'panels')
 
+    def test_removing_the_only_layout_entry_removes_it(self):
+        layout = self.layout()
+        del layout['devices']['wall']
+        b.write_json(self.directory / 'layout.json', layout)
+        self.assertTrue(enrollment.remove(self.directory, b, 'panels')['cleaned'])
+        self.assertFalse((self.directory / 'layout.json').exists())
+        with self.assertRaisesRegex(ValueError, 'Unknown'):
+            enrollment.remove(self.directory, b, 'panels')
+
+    def test_failure_after_the_registry_write_asks_for_a_rerun(self):
+        b.write_json(self.directory / 'layout.json', {'version': 99, 'devices': {}})
+        code, out, err = self.run_command('device-remove', '--device', 'panels')
+        self.assertEqual(code, 1)
+        self.assertNotIn('Nothing was changed', err)
+        self.assertIn('again', err)
+
+    def test_busy_state_is_reported_without_a_traceback(self):
+        def busy(*args, **kwargs):
+            raise sqlite3.OperationalError('database is locked')
+        with patch.object(b, 'connect_state', busy):
+            code, out, err = self.run_command('device-remove', '--device', 'panels')
+        self.assertEqual(code, 1)
+        self.assertIn('busy', err)
+        self.assertNotIn('Traceback', err)
+
     def test_command_reports_removal(self):
         code, out, err = self.run_command('device-remove', '--device', 'panels')
         self.assertEqual(code, 0, err)
         self.assertIn('Removed', out)
         code, out, err = self.run_command('device-remove', '--device', 'wall')
         self.assertEqual(code, 1)
-
 
 
 class DispatchTest(EnrollmentTest):
@@ -430,6 +481,17 @@ class DispatchTest(EnrollmentTest):
                 b.main()
         self.assertEqual(exit.exception.code, 1)
         self.assertEqual(command.call_args.args[0], argv)
+
+    def test_bridge_enrolls_through_its_own_functions(self):
+        import sys
+        token = self.directory.parent / 'panels-token'
+        token.write_text(PANELS_TOKEN)
+        argv = ['bridge.py', 'device-enroll', '--ip', PANELS_IP, '--token-file', str(token), '--state-dir', str(self.directory)]
+        with patch.object(sys, 'argv', argv), contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaises(SystemExit) as exit:
+                b.main()
+        self.assertEqual(exit.exception.code, 0)
+        self.assertEqual(self.config()['devices']['panels']['token_ref'], 'token@panels')
 
 if __name__ == '__main__':
     unittest.main()

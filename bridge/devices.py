@@ -225,8 +225,11 @@ def save_device_layout(path, device, entry, write=write_json):
         if entry is not None:
             current[device] = entry
             save_layout(path, current, write)
-        elif current.pop(device, None) is not None and current:
-            save_layout(path, current, write)
+        elif current.pop(device, None) is not None:
+            if current:
+                save_layout(path, current, write)
+            else:
+                path.unlink()
         lock.rollback()
 
 

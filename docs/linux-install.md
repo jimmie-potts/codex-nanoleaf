@@ -170,7 +170,10 @@ button for 5 to 7 seconds until the lights flash, then press Enter. The device
 id defaults to `panels`; choose another with `--device <id>`. The command
 refuses `wall`, an address another device already uses, and an existing id at a
 different address. Repeating it for the same id and address replaces only the
-credential and keeps the device's mode, layout and reservations.
+credential and keeps the device's mode, layout and reservations. Enrollment never
+changes a registered address. If the Panels' address changes, remove them and
+enroll again, which clears their reservations, or keep the address fixed in the
+router.
 
 The new device starts in Free and receives nothing until you activate it.
 Activation shows only current task status; it replays no earlier wave or comet:

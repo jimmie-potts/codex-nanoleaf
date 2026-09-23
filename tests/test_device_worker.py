@@ -644,7 +644,6 @@ class ProtectedApiTest(DeviceWorkerTest):
         self.assertTrue(ticks)
 
 
-
 class UnregisteredDeviceTest(DeviceWorkerTest):
     # #45 removal: an instance for a device that is no longer registered stops.
     def unregister(self, device='panels'):

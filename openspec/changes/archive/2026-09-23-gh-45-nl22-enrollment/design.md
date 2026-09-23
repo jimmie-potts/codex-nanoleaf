@@ -43,11 +43,11 @@ The Linux installer (`install_linux.py`) is not copied into the runtime. Its tok
 ### Verification before any write
 
 - The command reads `GET /api/v1/<token>/` once. It requires `model == "NL22"`, then passes `panelLayout` to `panels.read_layout`, which rejects unsupported shapes, overlap and disconnection. Only after both checks pass does it write anything.
-- The command also checks, before writing:
+- The command runs the registry checks below before it asks for a credential, so a conflict never costs a pairing or a paste, and repeats them inside the registry lock. It also checks, before writing:
   - the address is a private IPv4 address;
   - the credential is ASCII alphanumeric;
   - no other registered device, including `wall`, uses the address;
-  - an existing entry with this id is a Panels entry at the same address.
+  - an existing entry with this id is a Panels entry at the same address, and no other entry shares its credential key.
 - Rejected alternative: register first and let the worker discover the layout. A wrong model or broken layout would then surface as a worker retry loop instead of a refused command.
 
 ### Write order and the Free start
@@ -55,7 +55,7 @@ The Linux installer (`install_linux.py`) is not copied into the runtime. Its tok
 - The whole command runs under an exclusive `registry-lock.sqlite`, so two enrollment or removal commands cannot interleave their read-modify-write of `config.json`.
 - New registration (the id is not registered):
   1. Take the id's worker lock without waiting. A running worker means a previous registration is still winding down, so the command refuses.
-  2. In one state transaction, delete any leftover rows and `@<id>` meta keys for the id, and set `mode@<id>` to `free` with no revision keys. Revision and applied revision both read 0, so nothing is pending. Also delete a leftover scene file.
+  2. In two short state transactions, delete any leftover rows and `@<id>` meta keys for the id, then set `mode@<id>` to `free` with no revision keys. Revision and applied revision both read 0, so nothing is pending. Also delete a leftover scene file.
   3. Save the layout entry.
   4. Write `config.json` atomically with the new entry and credential. Every other key and entry is kept as it was, including an implied `wall`.
 
@@ -71,6 +71,7 @@ The Linux installer (`install_linux.py`) is not copied into the runtime. Its tok
   2. Mark the state dirty so a waiting worker instance wakes.
   3. Wait up to ten seconds for the id's worker lock. A non-`wall` worker checks at the start of each pass, and in the retry loop, that its device is still registered, and returns when it is not.
   4. With the lock held, delete the id's rows, meta keys, layout entry and scene file.
+- A failure after the first write (for example a malformed layout file during purge) is reported as a partial change with a rerun instruction, never as "nothing was changed". SQLite busy errors are reported without a traceback.
 - If the lock is not free in time, the registration is already gone. The command says that state cleanup is pending, and rerunning `device-remove` for the now-unregistered id finishes it. Enrolling the id again also clears it.
 - The shared-input backup may still list a removed device's placements. Restoring it re-creates rows for an unregistered id, which no reader uses and a later enrollment clears.
 
@@ -87,4 +88,4 @@ No unit needs a restart. Hooks, CLI and worker launches read the registry when t
 
 ## Migration Plan
 
-Nothing migrates. Source delivery changes no installation. After #46 copies this source into the Linux runtime, the operator runs `nanoleaf device-enroll` and then `nanoleaf mode work --device panels`. To back out, run `nanoleaf mode free --device panels`, wait for status to show it applied, then run `nanoleaf device-remove --device panels`.
+Nothing migrates. Source delivery changes no installation. After #46 copies this source into the Linux runtime, the operator runs `nanoleaf device-enroll` and then `nanoleaf mode work --device panels`. To back out, run `nanoleaf mode free --device panels`, wait for status to show it applied, then run `nanoleaf device-remove --device panels`. Enrollment never changes a registered address; if the Panels' address changes, remove and enroll again (their reservations are cleared) or keep the address fixed in the router.
