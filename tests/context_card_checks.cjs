@@ -62,6 +62,9 @@ module.exports = async function(page, root) {
     assert.equal(await page.locator('#locate').isVisible(), true);
     assert.equal(await page.locator('#locate').isDisabled(), false);
     assert.equal(await page.locator('#locate').textContent(), `Locate Line ${lines[0].number}`);
+    await wallLine(lines[3]).click(); await refresh(); await settle();
+    assert.match(await page.locator('#taskDetail').textContent(), /No task on this Line/, 'A Line without a task says so');
+    assert.equal(await visible('#selectionHint'), false, 'Classic shows no reservation hint for an idle Line');
 
     // Escape clears; Options takes Escape first.
     await page.keyboard.press('Escape');
@@ -132,9 +135,14 @@ module.exports = async function(page, root) {
     assert.equal(await page.getByRole('combobox', {name: 'Task project override'}).count(), 0);
     assert.deepEqual(writes, ['/api/settings', '/api/assign', '/api/settings'], 'Only layout changes and Reserve wrote');
 
-    await page.setViewportSize({width: 390, height: 844}); await refresh(); await settle();
-    await wallLine(lines[0]).click();
-    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'The context card fits the narrow page');
+    for (const [width, height] of [[800, 1000], [390, 844]]) {
+      await page.setViewportSize({width, height}); await refresh(); await settle();
+      assert.equal(await page.locator('header #classic, header #project, header #coverage').count(), 0, `${width}px: the header holds no layout control`);
+      assert.equal(await page.locator('header .control').count(), 1, `${width}px: the header keeps Mode only`);
+      await wallLine(lines[0]).click();
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `${width}px: the context card fits the page`);
+      if (width === 800) await page.keyboard.press('Escape');
+    }
     await page.screenshot({path: path.join(root, 'test-results/context-card-narrow.png'), fullPage: true});
     await page.keyboard.press('Escape');
     console.log('Context card checks passed: Mode-only header, Layout in Options, one card, Project-only editing, Escape and canvas clearing, Free-only Locate hint.');
