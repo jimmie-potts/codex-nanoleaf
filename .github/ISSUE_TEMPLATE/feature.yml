@@ -1,51 +1,47 @@
 name: Feature
-description: Request a feature or a change to an existing behavior.
+description: Define the smallest useful change for the real setup.
 labels: [enhancement, 'status:backlog']
 body:
+  - type: markdown
+    attributes:
+      value: >-
+        Size the story for one operator, the selected installation and its
+        registered devices. A small story may answer each prompt in a few
+        sentences. See the scope defaults in docs/sdlc.md.
   - type: textarea
     id: outcome
     attributes:
-      label: Desired outcome
-      description: Describe the problem and the behavior that would solve it.
+      label: Outcome and real setup
+      description: State what the user will observe, on which installation and devices, and what is excluded.
     validations:
       required: true
   - type: textarea
-    id: scope
+    id: implementation
     attributes:
-      label: Scope
-      description: State what this deliverable includes and its boundaries.
+      label: Smallest useful implementation
+      description: Start from existing components and explicit manual steps. Link prerequisite issues, or state none.
+    validations:
+      required: true
+  - type: textarea
+    id: preserve
+    attributes:
+      label: Behavior and protections to preserve
+      description: Name the existing behavior, light-writer ownership, targets, manual control, credentials, and task and scene state that must keep working.
     validations:
       required: true
   - type: textarea
     id: acceptance
     attributes:
-      label: Acceptance criteria
-      description: List observable scenarios that establish completion.
+      label: Observable acceptance and planned evidence
+      description: List observable scenarios and the automated check or manual observation for each, including any Windows or device verification. Choose the delivery target, source-only or including installation and its verification. Installation requires an explicit request and an identified installation owner.
+      value: "Delivery target: source-only"
     validations:
       required: true
   - type: textarea
-    id: verification
+    id: deferrals
     attributes:
-      label: Verification approach
-      description: Name automated checks, manual observations, and any Windows or device verification needed.
-    validations:
-      required: true
-  - type: textarea
-    id: dependencies
-    attributes:
-      label: Dependencies
-      description: Link prerequisite issues or state None.
+      label: Meaningful deferrals
+      description: For each meaningful omission, state its consequence or manual alternative and its owning issue or revisit trigger.
       value: None
-    validations:
-      required: true
-  - type: dropdown
-    id: delivery
-    attributes:
-      label: Delivery target
-      description: Installation work requires an explicit request and an identified installation owner.
-      options:
-        - Source-only
-        - Includes installation and its verification
-      default: 0
     validations:
       required: true
