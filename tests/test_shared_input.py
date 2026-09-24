@@ -108,6 +108,10 @@ class SelectionTest(unittest.TestCase):
         import shared_input as s
         self.s=s; self.temp=tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
         self.path=Path(self.temp.name); self.instant=1000.0
+        self.codex_home = self.path / 'codex-home'
+        codex_environment = patch.dict(b.os.environ, {'CODEX_HOME': str(self.codex_home)})
+        codex_environment.start(); self.addCleanup(codex_environment.stop)
+        b.manage_hooks(self.codex_home, 'register', script=Path(b.__file__))
         self.config={'version':1,'ownerId':'owner','consumerId':'nanoleaf',
                      'endpoint':'http://127.0.0.1:12345/api/monitor/v1','tokenFile':str(self.path/'token'),
                      'clearOnNewTurn':True,'qualifiedSources':[{'provider':'codex','client':'desktop','hostId':'host','sourceId':'source'}],
@@ -148,6 +152,15 @@ class SelectionTest(unittest.TestCase):
         with self.assertRaises(self.s.FeedError):self.select()
         self.assertEqual(self.rows('SELECT id FROM sessions'),[('legacy',)])
 
+    def test_selecting_legacy_without_hooks_preserves_shared_source(self):
+        self.select()
+        before=self.rows('SELECT id,status FROM sessions')
+        with patch.dict(b.os.environ, {'CODEX_HOME': str(self.path/'empty-codex-home')}):
+            with self.assertRaisesRegex(self.s.FeedError, r'hooks register'):
+                self.s.select_source(self.path,b,'legacy',now=lambda:self.instant+1)
+        self.assertEqual(self.s.inspect(self.path)['source'],'shared')
+        self.assertEqual(self.rows('SELECT id,status FROM sessions'),before)
+
     def test_rollback_preserves_mode_and_current_bound_assignment(self):
         self.select(); key=self.s.identity_key(fixture()['sessions'][0]['identity'])
         with contextlib.closing(b.connect_state(self.path)) as db,db:
@@ -159,6 +172,18 @@ class SelectionTest(unittest.TestCase):
         self.assertEqual(self.rows("SELECT value FROM meta WHERE key='mode'"),[('free',)])
         self.assertEqual(self.s.inspect(self.path)['source'],'legacy')
         self.assertEqual(self.rows('SELECT * FROM comets'),[])
+
+    def test_selecting_legacy_with_partial_hooks_preserves_shared_source(self):
+        self.select()
+        hooks_file = self.codex_home / 'hooks.json'
+        hooks = json.loads(hooks_file.read_text())
+        del hooks['hooks']['UserPromptSubmit']
+        hooks_file.write_text(json.dumps(hooks))
+        before = self.rows('SELECT id,status FROM sessions')
+        with self.assertRaisesRegex(self.s.FeedError, r'hooks register'):
+            self.s.select_source(self.path,b,'legacy',now=lambda:self.instant+1)
+        self.assertEqual(self.s.inspect(self.path)['source'],'shared')
+        self.assertEqual(self.rows('SELECT id,status FROM sessions'),before)
 
     def test_notices_read_and_same_project_concurrency(self):
         value=envelope(); value['snapshot']['sessions'][0]['activity']='active'
