@@ -88,8 +88,9 @@ class HookManagementTests(unittest.TestCase):
                              for h in group.get('hooks', [])), 1)
         self.assertIn(self.original['hooks']['Stop'][0]['hooks'][1],
                       [h for group in after_register['hooks']['Stop'] for h in group.get('hooks', [])])
-        self.assertEqual(after_register['hooks']['PreToolUse'], self.original['hooks']['PreToolUse'])
-        self.assertEqual(after_register['hooks']['PostToolUse'], self.original['hooks']['PostToolUse'])
+        self.assertEqual(after_register['hooks']['PreToolUse'][0], self.original['hooks']['PreToolUse'][0])
+        self.assertEqual(after_register['hooks']['PostToolUse'][0], self.original['hooks']['PostToolUse'][0])
+        self.assertTrue(bridge.has_legacy_hooks(self.home))
         self.assertEqual(after_register['hooks']['Stop'][1], self.original['hooks']['Stop'][1])
         self.assertEqual(self.raw_group(self.hooks.read_bytes(), 'PreToolUse', 0),
                          self.raw_group(after_remove, 'PreToolUse', 0))
@@ -105,11 +106,60 @@ class HookManagementTests(unittest.TestCase):
         self.assertEqual(installed['hooks']['UserPromptSubmit'][0]['hooks'][0]['statusMessage'], bridge.MARKER)
 
     def test_malformed_hooks_are_left_byte_for_byte_untouched(self):
-        malformed = b'{not json\n'
-        self.hooks.write_bytes(malformed)
-        with self.assertRaises((ValueError, json.JSONDecodeError)):
-            bridge.manage_hooks(self.home, 'remove', script=Path('/opt/nanoleaf/bridge.py'))
-        self.assertEqual(self.hooks.read_bytes(), malformed)
+        for malformed in (b'{not json\n', b'', b'{', b'{"hooks":'):
+            with self.subTest(malformed=malformed):
+                self.hooks.write_bytes(malformed)
+                with self.assertRaises(ValueError):
+                    bridge.manage_hooks(self.home, 'remove', script=Path('/opt/nanoleaf/bridge.py'))
+                self.assertEqual(self.hooks.read_bytes(), malformed)
+
+    def test_failed_atomic_replacement_leaves_original_hooks_untouched(self):
+        from unittest.mock import patch
+        before = self.hooks.read_bytes()
+        with patch.object(Path, 'replace', side_effect=OSError('fixture replacement failure')):
+            with self.assertRaises(OSError):
+                bridge.manage_hooks(self.home, 'remove', script=Path('/opt/nanoleaf/bridge.py'))
+        self.assertEqual(self.hooks.read_bytes(), before)
+        self.assertEqual(list(self.home.glob('.hooks-*.tmp')), [])
+
+    def test_register_completes_partial_hooks_and_preserves_existing_commands(self):
+        self.assertFalse(bridge.has_legacy_hooks(self.home))
+        bridge.manage_hooks(self.home, 'register', script=Path('/opt/nanoleaf/bridge.py'))
+        self.assertTrue(bridge.has_legacy_hooks(self.home))
+        marked = [h for group in self.read()['hooks']['Stop'] for h in group['hooks']
+                  if h.get('statusMessage') == bridge.MARKER]
+        self.assertEqual(marked, [self.original['hooks']['Stop'][0]['hooks'][1]])
+
+    @unittest.skipUnless(bridge.sys.platform == 'linux', 'Linux launcher contract')
+    def test_installed_launcher_uses_its_custom_state_for_hook_lifecycle(self):
+        import contextlib
+        import shlex
+        import subprocess
+        import install_linux
+        state_dir = self.home / 'custom-runtime'
+        (state_dir / 'runtime').mkdir(parents=True)
+        (state_dir / 'runtime' / 'bridge').symlink_to(ROOT / 'bridge', target_is_directory=True)
+        launcher = install_linux.write_launcher(state_dir, Path(bridge.sys.executable))
+        with contextlib.closing(bridge.connect_state(state_dir)) as db, db:
+            db.execute("UPDATE shared_input SET source='shared' WHERE id=1")
+        codex_home = self.home / 'launcher-codex'
+        def run(operation):
+            return subprocess.run([str(launcher), 'hooks', operation, '--codex-home', str(codex_home)],
+                                  capture_output=True, text=True, timeout=5)
+        result = run('register')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        command = json.loads((codex_home / 'hooks.json').read_text())['hooks']['UserPromptSubmit'][0]['hooks'][0]['command']
+        self.assertEqual(shlex.split(command)[-2:], ['--state-dir', str(state_dir)])
+        before = (state_dir / 'status.sqlite').read_bytes()
+        result = run('remove')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(bridge.has_legacy_hooks(codex_home))
+        self.assertEqual((state_dir / 'status.sqlite').read_bytes(), before)
+        result = run('register')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(bridge.has_legacy_hooks(codex_home))
+        restored = json.loads((codex_home / 'hooks.json').read_text())['hooks']['UserPromptSubmit'][0]['hooks'][0]['command']
+        self.assertEqual(restored, command)
 
     def test_duplicate_keys_are_rejected_before_mutation(self):
         duplicate = (b'{"hooks":{},"hooks":{"Stop":[{"hooks":[{"type":"command",'

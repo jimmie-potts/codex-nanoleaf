@@ -84,8 +84,9 @@ nanoleaf hooks remove --codex-home /mnt/c/Users/ACCOUNT/.codex
 Hook removal changes only entries carrying this integration's marker and keeps
 a private backup. It refuses while legacy input is selected. To roll back,
 register the hooks in each Codex home first, then run
-`nanoleaf shared-select legacy`. Legacy selection refuses when the configured
-Codex home lacks the marked hook and directs the operator to `hooks register`.
+`nanoleaf shared-select legacy`. Registration retains the installation's state
+directory in new hook commands. Legacy selection refuses when the configured
+Codex home lacks a marked handler for any legacy event and directs the operator to `hooks register`.
 These commands do not change device mode, tasks, or physical device state.
 
 The existing metadata readers accept explicit mounted paths:

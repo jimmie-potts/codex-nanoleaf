@@ -13,6 +13,7 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -1043,17 +1044,20 @@ class PreviewCancelled(Exception):
     pass
 
 
-def hook_command(script):
+def hook_command(script, state_dir=None):
+    state_args = ['--state-dir', str(state_dir)] if state_dir is not None else []
     if os.name == 'nt':
         # Select PowerShell explicitly, regardless of Codex's command shell.
         quote = lambda text: "'" + str(text).replace("'", "''") + "'"
         source = '& ' + quote(sys.executable) + ' ' + quote(script) + ' hook'
+        if state_args:
+            source += ' --state-dir ' + quote(state_dir)
         encoded = base64.b64encode(source.encode('utf-16le')).decode('ascii')
         windows = 'powershell.exe -NoProfile -NonInteractive -EncodedCommand ' + encoded
         drive, rest = str(script).split(':', 1)
         wsl_script = '/mnt/' + drive.lower() + rest.replace('\\', '/')
-        return shlex.join(['python3', wsl_script, 'hook']), windows
-    return shlex.join([sys.executable, str(script), 'hook']), None
+        return shlex.join(['python3', wsl_script, 'hook', *state_args]), windows
+    return shlex.join([sys.executable, str(script), 'hook', *state_args]), None
 
 
 def merge_hooks(original, command, remove=False, windows_command=None):
@@ -1091,16 +1095,16 @@ def write_json(path, value):
     temporary.replace(path)
 
 
-def manage_hooks(codex_home, operation, script):
+def manage_hooks(codex_home, operation, script, state_dir=None):
     """Change this integration's hooks in one explicitly selected Codex home."""
     if operation not in ('remove', 'register'):
         raise ValueError('invalid hook operation')
     codex_home = Path(codex_home)
     hooks_file = codex_home / 'hooks.json'
     original_bytes = hooks_file.read_bytes() if hooks_file.exists() else None
+    original = json.loads(original_bytes.decode('utf-8-sig')) if original_bytes is not None else {}
     if original_bytes is not None:
         json_spans(original_bytes.decode('utf-8-sig'))
-    original = json.loads(original_bytes.decode('utf-8-sig')) if original_bytes is not None else {}
     if type(original) is not dict or type(original.get('hooks', {})) is not dict:
         raise ValueError('invalid hooks.json structure')
     hooks = original.get('hooks', {})
@@ -1109,9 +1113,9 @@ def manage_hooks(codex_home, operation, script):
            or any(type(handler) is not dict for handler in group.get('hooks', []))
            for group in groups) for groups in hooks.values()):
         raise ValueError('invalid hooks.json structure')
-    command, windows_command = hook_command(Path(script))
-    saved = None
-    if operation == 'register':
+    command, windows_command = hook_command(Path(script), state_dir=state_dir)
+    saved = original if has_legacy_hooks_value(original) else None
+    if operation == 'register' and saved is None:
         for candidate in sorted(codex_home.glob('hooks.nanoleaf-backup-*.json'), reverse=True):
             try:
                 value = json.loads(candidate.read_text(encoding='utf-8-sig'))
@@ -1125,11 +1129,10 @@ def manage_hooks(codex_home, operation, script):
             return False
         rendered = remove_marked_hooks_json(original_bytes)
     else:
+        fresh = merge_hooks({}, command, windows_command=windows_command)
+        groups_by_event = marked_groups(fresh)
         if saved is not None:
-            groups_by_event = marked_groups(saved)
-        else:
-            fresh = merge_hooks({}, command, windows_command=windows_command)
-            groups_by_event = marked_groups(fresh)
+            groups_by_event.update(marked_groups(saved))
         rendered = remove_marked_hooks_json(original_bytes) if original_bytes is not None else b'{}'
         for event, groups in groups_by_event.items():
             rendered = append_hook_groups_json(rendered, event, groups)
@@ -1145,9 +1148,15 @@ def manage_hooks(codex_home, operation, script):
         descriptor = os.open(backup, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(descriptor, 'wb') as backup_file:
             backup_file.write(original_bytes)
-    hooks_file.write_bytes(rendered)
-    if os.name != 'nt':
-        hooks_file.chmod(0o600)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=codex_home, prefix='.hooks-', suffix='.tmp', delete=False) as output:
+            temporary = Path(output.name)
+            output.write(rendered)
+        temporary.replace(hooks_file)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
     return True
 
 
@@ -1155,13 +1164,14 @@ def hooks_command(argv):
     parser = argparse.ArgumentParser(description='Manage Nanoleaf hooks in one Codex home.')
     parser.add_argument('operation', choices=('remove', 'register'))
     parser.add_argument('--codex-home', type=Path, required=True)
+    parser.add_argument('--state-dir', type=Path, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+    directory = args.state_dir or data_dir()
     if args.operation == 'remove':
-        directory = data_dir()
         if shared_input.inspect(directory)['source'] != 'shared':
             parser.error('Cannot remove legacy hooks while legacy input is selected.')
     try:
-        changed = manage_hooks(args.codex_home, args.operation, Path(__file__).resolve())
+        changed = manage_hooks(args.codex_home, args.operation, Path(__file__).resolve(), state_dir=directory)
     except (OSError, ValueError, UnicodeError, json.JSONDecodeError):
         parser.error('Cannot update hooks.json; it is malformed or unavailable, and no changes were made.')
     print(('Updated' if changed else 'Already current') + ' Nanoleaf hooks in ' + str(args.codex_home / 'hooks.json'))
@@ -1169,10 +1179,15 @@ def hooks_command(argv):
 
 
 def has_legacy_hooks(codex_home):
+    """Legacy input needs marked handlers for every lifecycle event."""
     hooks_file = Path(codex_home) / 'hooks.json'
     try:
-        value = json.loads(hooks_file.read_text(encoding='utf-8-sig'))
-        return has_legacy_hooks_value(value)
+        text = hooks_file.read_text(encoding='utf-8-sig')
+        value = json.loads(text)
+        json_spans(text)
+        hooks = value.get('hooks', {}) if type(value) is dict else {}
+        return type(hooks) is dict and all(
+            has_legacy_hooks_value({'hooks': {event: hooks.get(event)}}) for event in EVENTS)
     except (OSError, ValueError, UnicodeError):
         return False
 

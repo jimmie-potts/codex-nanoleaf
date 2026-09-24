@@ -7,7 +7,7 @@ Allow Nanoleaf to consume one shared interpretation of agent sessions while pres
 ## Requirements
 
 ### Requirement: Explicit source authority
-The installation SHALL default to legacy input and persist an explicit legacy/shared selection independently of Work/Quiet/Free. Only the selected input SHALL update each session. Shared mode SHALL use the shared owner as the authority for agent state, with local presentation projections only. The operator SHALL register this integration's legacy hooks in the selected Codex home before selecting legacy input. This covers #29 source selection and ownership criteria and #89 rollback safety.
+The installation SHALL default to legacy input and persist an explicit legacy/shared selection independently of Work/Quiet/Free. Only the selected input SHALL update each session. Shared mode SHALL use the shared owner as the authority for agent state, with local presentation projections only. The operator SHALL register this integration's hooks for every legacy event in the selected Codex home before selecting legacy input. This covers #29 source selection and ownership criteria and #89 rollback safety.
 
 #### Scenario: Configure without cutover
 - **WHEN** shared input is configured or source software is upgraded
@@ -19,11 +19,11 @@ The installation SHALL default to legacy input and persist an explicit legacy/sh
 - **AND** an active comet reservation prevents cutover until it finishes
 
 #### Scenario: Legacy selection without registered hooks
-- **WHEN** the operator selects legacy while the selected Codex home lacks this integration's marked hooks
+- **WHEN** the operator selects legacy while the selected Codex home lacks this integration's marked handler for any legacy event
 - **THEN** selection is refused without changing source state and the diagnostic names `hooks register`
 
 ### Requirement: Explicit legacy hook lifecycle
-The CLI SHALL provide hook removal and registration commands that take a Codex home explicitly and change only handlers marked `nanoleaf-codex-status-v1`. Removal SHALL create a private backup, preserve every other hook entry, and SHALL NOT change device modes, tasks or device state. Repeating either operation SHALL be safe. Removal SHALL be refused while legacy input is selected. Malformed hook JSON SHALL be left untouched.
+The CLI SHALL provide hook removal and registration commands that take a Codex home explicitly and change only handlers marked `nanoleaf-codex-status-v1`. Removal SHALL create a private backup, preserve every other hook entry, and SHALL NOT change device modes, tasks or device state. Repeating either operation SHALL be safe. Removal SHALL be refused while legacy input is selected. Malformed hook JSON SHALL be left untouched. Registration SHALL preserve existing or backed-up commands, fill missing legacy events, and include the selected installation state directory in newly generated commands. Hook-file replacement SHALL be atomic.
 
 #### Scenario: Remove and restore marked hooks
 - **WHEN** an operator removes legacy hooks after selecting shared input and then registers them for rollback

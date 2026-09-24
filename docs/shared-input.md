@@ -136,10 +136,12 @@ nanoleaf hooks register --codex-home <path>
 nanoleaf shared-select legacy
 ```
 
-Legacy selection refuses when its configured `$CODEX_HOME` has no marked
-Nanoleaf hooks and names `hooks register` in its diagnostic. Register hooks in
+Legacy selection refuses when its configured `$CODEX_HOME` lacks a marked
+Nanoleaf handler for any legacy event and names `hooks register` in its diagnostic. Register hooks in
 each Codex home used by the installation, including separate WSL CLI and
-Windows Desktop homes.
+Windows Desktop homes. Registration preserves existing or backed-up commands,
+fills missing events, and uses the launcher's installation directory for new
+commands, including custom Linux installations.
 
 Rollback restores retained legacy tasks and current bound presentation choices,
 while preserving current modes, scenes, project colors and Line reservations.

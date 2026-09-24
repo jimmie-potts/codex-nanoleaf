@@ -173,6 +173,18 @@ class SelectionTest(unittest.TestCase):
         self.assertEqual(self.s.inspect(self.path)['source'],'legacy')
         self.assertEqual(self.rows('SELECT * FROM comets'),[])
 
+    def test_selecting_legacy_with_partial_hooks_preserves_shared_source(self):
+        self.select()
+        hooks_file = self.codex_home / 'hooks.json'
+        hooks = json.loads(hooks_file.read_text())
+        del hooks['hooks']['UserPromptSubmit']
+        hooks_file.write_text(json.dumps(hooks))
+        before = self.rows('SELECT id,status FROM sessions')
+        with self.assertRaisesRegex(self.s.FeedError, r'hooks register'):
+            self.s.select_source(self.path,b,'legacy',now=lambda:self.instant+1)
+        self.assertEqual(self.s.inspect(self.path)['source'],'shared')
+        self.assertEqual(self.rows('SELECT id,status FROM sessions'),before)
+
     def test_notices_read_and_same_project_concurrency(self):
         value=envelope(); value['snapshot']['sessions'][0]['activity']='active'
         self.select(value)

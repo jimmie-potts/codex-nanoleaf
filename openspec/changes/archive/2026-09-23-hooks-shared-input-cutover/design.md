@@ -12,9 +12,9 @@ The legacy installer already owns hook composition through `merge_hooks`, uses t
 
 - Put `hooks remove|register --codex-home PATH` in the bridge CLI. An explicit home prevents accidental reliance on environment-specific defaults when managing WSL CLI and Windows Desktop separately.
 - Back up the existing bytes to a private timestamped sibling before each actual mutation; avoid creating backups for an idempotent no-op. Use parsed spans to remove or append only marked handler objects, preserving every unrelated JSON entry byte for byte.
-- When a backup contains marked handlers, restore those saved handlers instead of synthesizing new ones. This retains each client's platform-specific command during rollback; without a matching backup, register the handler for the command's current platform.
-- Parse before writing and perform all checks first. Malformed input or refusal leaves the source file and Nanoleaf state unchanged.
-- Check for marked handlers in the configured Codex home before selecting legacy. Report a stable diagnostic that names `hooks register`.
+- Prefer existing marked handlers; otherwise restore saved handlers from a backup. Fill missing legacy events with newly generated handlers. This retains each client's platform-specific command during rollback; new handlers use the current platform and the installation state directory supplied by the launcher.
+- Parse before writing and perform all checks first. Stage the new bytes in a private sibling temporary file and atomically replace the hook file after the backup is complete. Malformed input or refusal leaves the source file and Nanoleaf state unchanged.
+- Require marked handlers for every legacy event in the configured Codex home before selecting legacy. Report a stable diagnostic that names `hooks register`.
 - Keep the feature in the existing `shared-session-consumer` capability. The change adds a lifecycle behavior and strengthens its legacy-selection precondition.
 
 ## Risks / Trade-offs
