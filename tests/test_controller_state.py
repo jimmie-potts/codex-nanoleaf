@@ -163,6 +163,44 @@ class ControllerStateTest(unittest.TestCase):
                 self.assertEqual(observed[field],before[field],field)
             self.assertNotEqual(self.app.snapshot()['generation'],before['generation'])
 
+    def test_snapshot_and_feed_wait_for_a_transient_writer(self):
+        import sqlite3
+        import time
+        for observe in (self.app.snapshot, lambda: self.app.feed(None)[0]['snapshot']):
+            with self.subTest(observe=observe):
+                locked=threading.Event();errors=[]
+                def write():
+                    try:
+                        with contextlib.closing(sqlite3.connect(self.directory/'status.sqlite')) as db,db:
+                            db.execute('BEGIN EXCLUSIVE')
+                            db.execute("INSERT OR REPLACE INTO meta VALUES ('mode','quiet')")
+                            locked.set()
+                            time.sleep(.35)
+                    except Exception as error:errors.append(error);locked.set()
+                thread=threading.Thread(target=write);thread.start()
+                try:
+                    self.assertTrue(locked.wait(2))
+                    observed=observe()
+                    self.assertEqual(observed['state']['desired']['mode']['value'],'Quiet')
+                    self.assertTrue(self.app.contract.validate('snapshot',observed))
+                finally:thread.join(3)
+                self.assertFalse(thread.is_alive())
+                self.assertEqual(errors,[])
+
+    def test_snapshot_contention_is_bounded_and_does_not_write(self):
+        import sqlite3
+        import time
+        before=(self.directory/'status.sqlite').read_bytes()
+        with contextlib.closing(sqlite3.connect(self.directory/'status.sqlite')) as writer:
+            writer.execute('BEGIN EXCLUSIVE')
+            started=time.monotonic()
+            with self.assertRaises(sqlite3.OperationalError) as failure:
+                self.app.snapshot()
+            self.assertEqual(failure.exception.sqlite_errorcode,sqlite3.SQLITE_BUSY)
+            self.assertLess(time.monotonic()-started,2)
+            writer.rollback()
+        self.assertEqual((self.directory/'status.sqlite').read_bytes(),before)
+
     def test_deadline_during_validation_or_before_commit_rolls_back(self):
         from unittest.mock import patch
         for hook in ('validation','commit'):

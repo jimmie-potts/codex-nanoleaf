@@ -186,11 +186,20 @@ module.exports = async function(page, root) {
     assert.deepEqual(await numbers(project('a').locator('[data-line-group="in-use"]')), ['2']);
     await colorNode.dispose();
     const sharedBadge = page.locator(`.shared-pool .line-badge[data-line-id="${line(12).id}"]`);
+    // Polling can replace a badge between locator resolution and evaluation.
+    // Inspect the current focus and physical ID together in one browser call.
+    const sharedFocus = () => page.evaluate(() => {
+      const active = document.activeElement;
+      return {shared: active.matches('.shared-pool .line-badge'), line: active.dataset.lineId,
+        group: active.closest('[data-line-group]')?.dataset.lineGroup};
+    });
     await sharedBadge.focus();
     snapshot.tasks[0].line = line(12).id; line(2).task = null; line(12).task = 'reserved-task'; await refresh();
-    assert.equal(await sharedBadge.evaluate(node => document.activeElement === node), true, 'Shared focus follows the physical Line from Available to In use');
+    await page.evaluate(() => {projectFingerprint = ''; drawProjects()});
+    assert.deepEqual(await sharedFocus(), {shared: true, line: line(12).id, group: 'in-use'}, 'Shared focus follows the physical Line from Available to In use');
     snapshot.tasks[0].line = line(2).id; line(12).task = null; line(2).task = 'reserved-task'; await refresh();
-    assert.equal(await sharedBadge.evaluate(node => document.activeElement === node), true, 'Shared focus follows the physical Line back to Available');
+    await page.evaluate(() => {projectFingerprint = ''; drawProjects()});
+    assert.deepEqual(await sharedFocus(), {shared: true, line: line(12).id, group: 'available'}, 'Shared focus follows the physical Line back to Available');
     await sharedBadge.press('Enter');
     assert.equal(await wallLine(12).getAttribute('aria-pressed'), 'true');
 
