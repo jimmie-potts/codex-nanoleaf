@@ -1,11 +1,11 @@
 ## 1. Capture the worker output
 
-- [x] 1.1 Return and persist a latest-only receipt after a successful dynamic effect and brightness send; verify its encoded payload, physical zone mapping, loop, mode, brightness, and distinct timing fields with a focused fake-controller test.
+- [x] 1.1 Return and persist a latest-only receipt after successful pulse and completion effect sends plus brightness; verify both encoded payloads, physical zone mapping, loop, mode, brightness, and timing fields with focused fake-controller tests.
 - [x] 1.2 Preserve the previous successful receipt when a worker output request fails; verify the fake-controller failure leaves the prior receipt intact and the worker records its existing failure/pending state.
 
 ## 2. Expose a passive snapshot
 
-- [x] 2.1 Add `GET /api/rendering` to the existing loopback server using a read-only SQLite connection; verify last-sent, pending, failed, external, and unknown cases through isolated API tests.
+- [x] 2.1 Add `GET /api/rendering` to the existing loopback server using a read-only SQLite connection; verify last-sent, pending, failed, external, and unknown cases, and rejection of writes, through isolated API tests.
 - [x] 2.2 Verify repeated reads and map-server restart preserve task, scene, and project state, and do not refresh metadata, acquire geometry, write lights, or advance effects; the read-only connection prevents startup migration or writes.
 
 ## 3. Document and complete the specification

@@ -8,7 +8,7 @@ Provides local display clients with the latest rendering output accepted by the 
 
 The loopback wall-map server SHALL provide a versioned rendering snapshot at `GET /api/rendering` for the worker's latest successful bridge-controlled output. The snapshot SHALL identify each physical Line and its zone IDs, preserve the controller's encoded frames and transition durations, and report the loop setting, mode, effective brightness, and animation epoch. It SHALL identify the worker-send acceptance time separately from the animation epoch. It SHALL NOT include credentials or claim optical verification.
 
-#### Scenario: Dynamic worker output was accepted
+#### Scenario: Pulse or completion output was accepted
 - **WHEN** the worker successfully sends a pulse or completion effect and its brightness update
 - **THEN** `GET /api/rendering` includes the exact accepted frame payload, zone mapping, loop setting, effective brightness, animation epoch, and send acceptance time
 
@@ -36,9 +36,9 @@ Reading rendering state SHALL use a read-only database connection and SHALL NOT 
 - **WHEN** clients poll repeatedly, reconnect, or restart the wall-map server
 - **THEN** reads return the current receipt and outcome without changing worker state or replaying an expired effect
 
-#### Scenario: On-screen preview only
-- **WHEN** a client shows an on-screen-only preview
-- **THEN** the live rendering receipt remains unchanged
+#### Scenario: Read route has no write action
+- **WHEN** a client submits preview data to `POST /api/rendering`
+- **THEN** the server rejects the request and retains the latest worker receipt unchanged
 
 ### Requirement: Existing local-server boundary
 

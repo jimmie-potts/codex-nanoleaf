@@ -184,16 +184,15 @@ class ProjectTest(unittest.TestCase):
                 self.assertEqual(response.status,200)
                 self.assertEqual(response.headers.get('Cache-Control'),'no-store')
                 snapshot=json.load(response)
-            # A display client may draw any preview locally; the worker receipt remains
-            # the last accepted device output and is not replaced by client-side frames.
-            on_screen_preview={'frames':[{'color':'#ff00ff','durationMs':500}]}
-            self.assertTrue(on_screen_preview['frames'])
-            with urlopen(url+'/api/rendering') as response:
-                after_preview=json.load(response)
+            request=Request(url+'/api/rendering',data=b'{"preview":"local-only"}',
+                            headers={'Origin':url,'X-Wall-Token':'test-secret',
+                                     'Content-Type':'application/json'})
+            with self.assertRaises(HTTPError) as rejected:urlopen(request)
+            self.assertEqual(rejected.exception.code,400);rejected.exception.close()
         self.assertEqual(snapshot['outcome'],'last-sent')
         self.assertEqual(snapshot['lastSuccessful'],receipt)
-        self.assertEqual(after_preview['lastSuccessful'],receipt)
-        self.assertEqual(after_preview['outcome'],'last-sent')
+        self.assertEqual(self.query("SELECT value FROM meta WHERE key='rendering_receipt'"),
+                         [(json.dumps(receipt),)])
         self.assertNotIn('PRIVATE_TEST_TOKEN',json.dumps(snapshot))
         self.assertEqual((self.query('SELECT * FROM line_prefs'),self.query('SELECT * FROM sessions'),
                           self.query('SELECT * FROM comets'),self.query('SELECT * FROM receipts')),before)
