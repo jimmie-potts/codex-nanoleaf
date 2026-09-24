@@ -130,7 +130,7 @@
   .group > button:last-child { border-radius: 0 var(--radius) var(--radius) 0; }
   .group > button.active, .group > button[aria-pressed="true"] { position: relative; z-index: 1; }
 
-  main { display: grid; grid-template-columns: 264px minmax(320px, 1fr) 320px; flex: 1; min-height: 0; }
+  main { display: grid; grid-template-columns: 240px minmax(320px, 1fr) 480px; flex: 1; min-height: 0; }
   aside { overflow: auto; padding: 12px 18px 20px; background: var(--panel); scrollbar-width: thin; min-height: 0; }
   #projects { border-right: 1px solid var(--edge); }
   #inspector { border-left: 1px solid var(--edge); overflow-anchor: none; }
@@ -222,6 +222,21 @@
   #taskFilters label { display: block; margin-top: 6px; }
   #taskFilters input, #taskFilters select { box-sizing: border-box; width: 100%; min-width: 0; }
   #taskSummary, #taskStatusCounts, #waiting, #taskSelectionNote { margin: 6px 0; }
+  #taskList[data-compact="true"] { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 14px; }
+  #taskList[data-compact="true"] .task { min-width: 0; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 6px; padding: 6px 0; }
+  #taskList[data-compact="true"] .task-title { grid-column: 1 / -1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #taskList[data-compact="true"] .dot, #taskList[data-compact="true"] .task-meta > span:not(.badge) { display: none; }
+  #taskList[data-compact="true"] .task-meta { grid-column: 1; grid-row: 2; }
+  #taskList[data-compact="true"] .task-placement { grid-column: 2; grid-row: 2; white-space: nowrap; line-height: 1.2; }
+  #taskList[data-compact="true"] .task-placement .small { font-size: 11px; }
+  #taskList[data-compact="true"] .task.selected { padding-left: 5px; }
+  #taskList[data-compact="true"] .empty { grid-column: 1 / -1; }
+  @media (min-width: 681px) and (max-width: 1049.98px) {
+    #taskCard { grid-column: 1 / -1; }
+  }
+  @media (max-width: 680px) {
+    #taskList[data-compact="true"] { grid-template-columns: minmax(0, 1fr); }
+  }
   .badge { display: inline-flex; align-items: center; gap: 5px; font: 600 var(--label-size)/1 var(--label-font); text-transform: var(--label-transform); letter-spacing: var(--label-tracking); padding: 3px 8px; border-radius: var(--radius-pill); border: 1px solid var(--badge-edge); background: var(--badge-bg); color: var(--muted); }
   .badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
   .dot[data-status="working"], .badge[data-status="working"] { color: var(--chip-working); }
@@ -364,7 +379,7 @@ body[data-mode="quiet"] #wall.prism-scene, body[data-mode="free"] #wall.prism-sc
       </div>
     </div>
     <div class="card" id="taskDetail"></div>
-    <div class="card">
+    <div class="card" id="taskCard">
       <h2 id="tasksTitle" tabindex="-1">Tasks <span class="small" id="taskCount"></span></h2>
       <p class="small" id="taskStatusCounts"></p>
       <p class="small" id="waiting"></p>
@@ -766,6 +781,7 @@ function elapsed(start){if(!start)return 'Start time unavailable';let s=Math.max
 function statusBadge(status){const badge=el('span',status,'badge');badge.dataset.status=status;return badge}
 function taskRow(t){
   const row=el('div',undefined,'task'),title=el('button',t.title,'task-title');row.dataset.task=t.id;title.type='button';title.dataset.focusKey=JSON.stringify([t.id,'title']);
+  title.title=t.title;
   const dot=el('span',undefined,'dot');dot.dataset.status=t.status;
   const placement=el('div',undefined,'task-placement'),line=lineById(t.line);
   if(line){const badge=lineBadge(line,'in-use','Current task placement');badge.textContent='Line '+line.number;badge.dataset.focusKey=JSON.stringify([t.id,'line']);placement.append(badge)}
@@ -781,13 +797,18 @@ function drawTasks(){
   const selectedIds=selectedTaskIds(),filter=showAllTasks?$('taskFilter').value:'all',query=showAllTasks?$('taskSearch').value.trim().toLocaleLowerCase():'';
   const fingerprint=JSON.stringify([showAllTasks,[...selectedIds],focusedId,filter,query,state.tasks,state.lines.map(l=>[l.id,l.number,l.task]),state.projects.map(p=>[p.id,p.name])]);
   if(fingerprint===taskFingerprint)return;taskFingerprint=fingerprint;
+  const inspector=$('inspector'),card=$('taskCard'),selection=inspector.querySelector('.selection'),detail=$('taskDetail');
+  // Keep compact tasks above the editors; the full list keeps its editors near the controls.
+  if(showAllTasks&&inspector.firstElementChild===card){inspector.insertBefore(selection,card);inspector.insertBefore(detail,card)}
+  else if(!showAllTasks&&inspector.firstElementChild!==card)inspector.append(selection,detail);
+  list.dataset.compact=String(!showAllTasks);
   const priority=t=>selectedIds.has(t.id)?-1:({blocked:0,question:1,working:2,unread:3}[t.status]??4);
   const ordered=[...state.tasks].sort((a,b)=>priority(a)-priority(b)||a.id.localeCompare(b.id));
   const matches=ordered.filter(t=>(filter==='all'||(filter==='waiting'?!lineById(t.line):t.status===filter))&&(!query||[t.title,t.id,projectName(t.project)].join(' ').toLocaleLowerCase().includes(query)));
-  const visible=showAllTasks?[...matches]:matches.slice(0,8),retained=state.tasks.find(t=>t.id===focusedId);
+  const limit=state.lines.length,visible=showAllTasks?[...matches]:matches.slice(0,limit),retained=state.tasks.find(t=>t.id===focusedId);
   const outsideFilter=retained&&!matches.includes(retained);
   // A poll may change priority or filter membership while a keyboard user is on a row.
-  if(retained&&!visible.includes(retained)){if(!showAllTasks&&visible.length===8)visible.pop();visible.push(retained);visible.sort((a,b)=>priority(a)-priority(b)||a.id.localeCompare(b.id))}
+  if(retained&&(showAllTasks||limit>0)&&!visible.includes(retained)){if(!showAllTasks&&visible.length===limit)visible.pop();visible.push(retained);visible.sort((a,b)=>priority(a)-priority(b)||a.id.localeCompare(b.id))}
   $('taskStatusCounts').textContent=['blocked','question','working','unread'].map(status=>state.tasks.filter(t=>t.status===status).length+' '+status).join(' · ');
   $('waiting').textContent=state.tasks.filter(t=>!lineById(t.line)).length+' waiting for a Line';
   $('taskSummary').textContent=`Showing ${visible.length} of ${state.tasks.length} tasks`+(filter!=='all'||query?` · ${matches.length} match filter`:'')+(outsideFilter?' · 1 focused task outside filter':'');
@@ -805,7 +826,7 @@ function drawTasks(){
     else if(row.dataset.fingerprint!==key){const fresh=taskRow(t);replaceKeepingFocus(row,...fresh.childNodes);row.onclick=fresh.onclick}
     row.dataset.fingerprint=key;return row;
   });
-  if(!rows.length)rows.push(el('p',state.tasks.length?'No tasks match this filter.':'No tracked tasks.','empty'));
+  if(!rows.length)rows.push(el('p',state.tasks.length?(!showAllTasks&&!limit?'No Lines available. Use Show all tasks to inspect retained tasks.':'No tasks match this filter.'):'No tracked tasks.','empty'));
   // Move siblings around the focused row instead of detaching it during a reorder.
   const pinned=focusedId?existing.get(focusedId):null;let next=null;
   for(const row of [...rows].reverse()){if(row!==pinned&&row.nextSibling!==next||!row.isConnected)list.insertBefore(row,next);next=row}

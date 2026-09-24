@@ -7,12 +7,21 @@ Make retained map tasks easy to inspect in a compact list without hiding their t
 ## Requirements
 
 ### Requirement: Compact rows retain truthful full-set counts
-The inspector SHALL show at most eight task rows by default and expose the total retained task count, per-status counts, waiting count, and number of rows shown. Counts SHALL use the full selected-device task projection before presentation filtering. Every retained task SHALL remain reachable through a labelled full-list control and filters. Covers issue #77 AC1 and AC3.
+The inspector SHALL show up to one task per selected-device Line by default (or all retained tasks when fewer exist) and expose the total retained task count, per-status counts, waiting count, and number of rows shown. Counts SHALL use the full selected-device task projection before presentation filtering. Every retained task SHALL remain reachable through a labelled full-list control and filters. Covers issue #77 AC1 and AC3.
 
-#### Scenario: Zero, eight, and seventy-two tasks
-- **WHEN** accepted snapshots contain zero, eight, or seventy-two tasks
-- **THEN** the initial list shows zero, eight, or eight rows respectively, with accurate full-set status and waiting counts
+#### Scenario: Zero, eight, fifteen, and seventy-two tasks
+- **WHEN** accepted snapshots contain zero, eight, fifteen, or seventy-two tasks with fifteen Lines
+- **THEN** the initial list shows zero, eight, fifteen, or fifteen rows respectively, with accurate full-set status and waiting counts
 - **AND** revealing the full list allows every retained task to be inspected and filtered
+
+#### Scenario: Selected-device Line count changes
+- **WHEN** the selected snapshot changes its Line count
+- **THEN** the default task limit follows that count, including zero, while full-list access and truthful task counts remain available
+
+#### Scenario: Desktop grid needs no task scrolling
+- **WHEN** the current fifteen-Line wall is inspected at 1440×900 or 1280×800 with at least fifteen retained tasks
+- **THEN** all fifteen compact task tiles are visible in two columns without scrolling the task area, including when a task is selected or tasks are waiting
+- **AND** task titles remain accessible in full through selection or accessible names while compact tiles may truncate their visible titles
 
 #### Scenario: Waiting has one row location
 - **WHEN** tasks wait for a Line or change placement
@@ -48,7 +57,7 @@ The inspector SHALL remove owner-retired rows and their counts on the next accep
 - **THEN** it is absent in the intervening list and counts, stale details/overrides are unavailable, and recreation does not restore obsolete local task selection
 
 ### Requirement: Compact inspection remains accessible
-The compact and full views SHALL support keyboard controls, missing project metadata, long labels, narrow viewports, and reduced motion without horizontal page overflow or motion required to inspect a task. Covers AC4.
+The compact and full views SHALL support keyboard controls, missing project metadata, long labels, narrow viewports, and reduced motion without horizontal page overflow or motion required to inspect a task. Narrow screens SHALL retain readable page flow and MAY require vertical page scrolling. Covers AC4.
 
 #### Scenario: Narrow view with absent metadata
 - **WHEN** many tasks have fallback labels and no known project at a 390-pixel viewport with reduced motion

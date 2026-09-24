@@ -4,7 +4,7 @@ The inspector renders every task and repeats waiting rows, making attention hard
 
 ## What Changes
 
-- Default to eight prioritized task rows with total, status, shown, and waiting counts.
+- Default to one prioritized task per selected-device Line in a two-column desktop grid with total, status, shown, and waiting counts.
 - Add a full-list control with status/waiting and text filters; keep each task in one row location.
 - Preserve local selection, details, manual overrides, keyboard focus, and scroll position across polling, placement, retirement, and recreation.
 - Retain the full API task set, existing lifecycle/projection, allocation, and passive-selection boundary.
@@ -18,6 +18,8 @@ The inspector renders every task and repeats waiting rows, making attention hard
 ### Modified Capabilities
 
 None.
+
+The user refined the unmerged candidate: replace the original eight-row cap with the selected device’s Line count and keep the current 15-Line wall’s task grid visible without scrolling.
 
 ## Impact
 

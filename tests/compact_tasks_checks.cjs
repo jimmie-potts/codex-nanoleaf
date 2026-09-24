@@ -17,14 +17,54 @@ module.exports=async function(page,root){
     await page.setViewportSize({width:1440,height:1000});
     await page.evaluate(()=>{selected.clear();taskFocus=null});
     await refresh();
-    assert.equal(await page.locator('#inspector .task').count(),8,'72 tracked tasks must render at most eight rows by default, without duplicate waiting rows');
+    assert.equal(await page.locator('#inspector .task').count(),15,'72 tracked tasks on 15 Lines must render 15 compact tasks without duplicate waiting rows');
     assert.equal(await page.locator('#taskCount').textContent(),'72');
-    assert.match(await page.locator('#taskSummary').textContent(),/Showing 8 of 72 tasks/);
+    assert.match(await page.locator('#taskSummary').textContent(),/Showing 15 of 72 tasks/);
     assert.match(await page.locator('#taskStatusCounts').textContent(),/2 blocked.*3 question.*4 working.*63 unread/);
     assert.match(await page.locator('#waiting').textContent(),/57 waiting for a Line/);
     assert.equal(await page.locator('#waiting .task').count(),0);
     snapshot.tasks.reverse();await refresh();
-    assert.deepEqual(await rows(),Array.from({length:8},(_,i)=>'task-0'+i),'Priority and identity ties cannot depend on snapshot order');
+    assert.deepEqual(await rows(),Array.from({length:15},(_,i)=>'task-'+String(i).padStart(2,'0')),'Priority and identity ties cannot depend on snapshot order');
+    const allLines=snapshot.lines,allGraph=snapshot.connector_layout;
+    for(const count of [5,0,15]){
+      snapshot.lines=allLines.slice(0,count);
+      const graphLines=allGraph.lines.filter(l=>snapshot.lines.some(current=>current.id===l.id)),nodes=new Set(graphLines.flatMap(l=>[l.a,l.b]));
+      snapshot.connector_layout={...allGraph,lines:graphLines,nodes:allGraph.nodes.filter(n=>nodes.has(n.id))};await refresh();
+      assert.equal(await page.locator('#taskList .task').count(),count,'The compact limit follows the current device Line count');
+      assert.equal(await page.locator('#taskCount').textContent(),'72');
+      assert.equal(await page.locator('#waiting').textContent(),`${72-count} waiting for a Line`);
+      if(!count){
+        await page.getByRole('button',{name:'Show all tasks'}).click();
+        assert.equal(await page.locator('#taskList .task').count(),72,'Zero Lines must not hide retained tasks from the full list');
+        await page.getByRole('button',{name:'Show fewer tasks'}).click();
+      }
+    }
+    const gridFits=async()=>{
+      const geometry=await page.evaluate(()=>{
+        const inspector=$('inspector'),bounds=inspector.getBoundingClientRect(),tiles=[...$('taskList').querySelectorAll('.task')].map(n=>n.getBoundingClientRect());
+        return {scroll:inspector.scrollTop,columns:new Set(tiles.map(r=>Math.round(r.left))).size,clipped:tiles.filter(r=>r.top<bounds.top||r.bottom>Math.min(bounds.bottom,innerHeight)||r.left<bounds.left||r.right>bounds.right).length};
+      });
+      if(geometry.clipped)await page.screenshot({path:path.join(root,'test-results/compact-tasks-fit-failure.png'),fullPage:true});
+      assert.deepEqual(geometry,{scroll:0,columns:2,clipped:0},'All 15 compact tasks fit in two columns without task scrolling');
+    };
+    for(const viewport of [{width:1440,height:900},{width:1280,height:800}]){
+      await page.setViewportSize(viewport);await page.evaluate(()=>{$('inspector').scrollTop=0;window.scrollTo(0,0)});
+      await gridFits();
+      await row('task-00').locator('.task-title').click();await refresh();await gridFits();
+      assert.match(await page.locator('#taskDetail').textContent(),/Task 0/);
+      await page.evaluate(()=>{selected.clear();taskFocus=null;document.activeElement.blur();render()});
+    }
+    const placements=new Map(snapshot.tasks.map(t=>[t.id,t.line]));
+    snapshot.tasks.forEach(t=>{t.line=null;t.title='Long retained task title '+t.id+' '.repeat(2)+'with project context '.repeat(6)});
+    snapshot.lines.forEach(l=>l.task=null);await refresh();await gridFits();
+    await row('task-00').locator('.task-title').click();await refresh();await gridFits();
+    assert.equal(await row('task-00').locator('.task-title').getAttribute('title'),snapshot.tasks.find(t=>t.id==='task-00').title,'Truncated titles retain their full tooltip');
+    assert.match(await page.locator('#taskDetail').textContent(),/Long retained task title task-00/);
+    await page.screenshot({path:path.join(root,'test-results/compact-tasks-waiting.png'),fullPage:true});
+    await page.evaluate(()=>{selected.clear();taskFocus=null;document.activeElement.blur();render()});
+    snapshot.tasks.forEach(t=>{t.line=placements.get(t.id);t.title='Task '+Number(t.id.slice(-2))});
+    snapshot.lines.forEach(l=>l.task=snapshot.tasks.find(t=>t.line===l.id)?.id||null);await refresh();
+    await page.setViewportSize({width:1440,height:900});
     await page.screenshot({path:path.join(root,'test-results/compact-tasks-72.png'),fullPage:true});
     await page.getByRole('button',{name:'Show all tasks'}).click();
     assert.equal(await page.locator('#taskList .task').count(),72);
@@ -48,7 +88,7 @@ module.exports=async function(page,root){
     assert.equal(await row('task-71').locator('.task-title').evaluate(n=>n===document.activeElement),true);
     await page.getByRole('button',{name:'Show fewer tasks'}).click();
     assert.equal((await rows())[0],'task-71');
-    assert.equal(await page.locator('#inspector .task').count(),8);
+    assert.equal(await page.locator('#inspector .task').count(),15);
     assert.equal(await page.getByLabel('Filter tasks').isVisible(),false);
 
     const moving=snapshot.tasks.find(t=>t.id==='task-71'),destination=snapshot.lines[0];
@@ -85,11 +125,12 @@ module.exports=async function(page,root){
     await page.getByRole('button',{name:'Show fewer tasks'}).click();
     await row('task-01').locator('.task-title').focus();
     snapshot.tasks.find(t=>t.id==='task-01').status='unread';
+    snapshot.tasks.filter(t=>Number(t.id.slice(-2))>=9&&Number(t.id.slice(-2))<=20).forEach(t=>t.status='working');
     focused.status='blocked';
     const scroll=await page.evaluate(()=>{const p=document.querySelector('#inspector');p.scrollTop=150;return p.scrollTop});
     await refresh();await page.waitForTimeout(1100);
     assert.equal(await row('task-01').locator('.task-title').evaluate(n=>n===document.activeElement),true,'Priority updates retain the focused compact row');
-    assert.equal(await page.locator('#taskList .task').count(),8);
+    assert.equal(await page.locator('#taskList .task').count(),15);
     assert.equal(await page.locator('#inspector').evaluate(n=>n.scrollTop),scroll,'Polling preserves inspector scroll');
 
     snapshot.tasks=snapshot.tasks.filter(t=>t.id!=='task-01');await refresh();
@@ -112,11 +153,11 @@ module.exports=async function(page,root){
     await page.setViewportSize({width:1440,height:1000});
 
     const all=snapshot.tasks;
-    for(const count of [0,8]){
+    for(const count of [0,8,15]){
       snapshot.tasks=all.slice(0,count);snapshot.lines.forEach(l=>l.task=null);await refresh();
       assert.equal(await page.locator('#taskList .task').count(),count);
       assert.equal(await page.locator('#taskCount').textContent(),String(count));
-      assert.equal(await page.locator('#taskStatusCounts').textContent(),`0 blocked · 0 question · 0 working · ${count} unread`,'Empty and eight-unread snapshots have truthful per-status counts');
+      assert.equal(await page.locator('#taskStatusCounts').textContent(),`0 blocked · 0 question · 0 working · ${count} unread`,'Empty and small unread snapshots have truthful per-status counts');
       assert.equal(await page.locator('#waiting').textContent(),`${count} waiting for a Line`,'All tasks in these small fixtures are waiting');
       assert.equal(await page.locator('#taskSummary').textContent(),`Showing ${count} of ${count} tasks`);
       await page.screenshot({path:path.join(root,`test-results/compact-tasks-${count}.png`),fullPage:true});
