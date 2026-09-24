@@ -1206,6 +1206,8 @@ def json_spans(text):
                 if key_node[0] != 'string':
                     raise ValueError('invalid JSON object key')
                 key = json.loads(text[key_node[1]:key_node[2]])
+                if any(member[0] == key for member in members):
+                    raise ValueError('duplicate JSON object key')
                 index = whitespace(index)
                 if text[index] != ':':
                     raise ValueError('invalid JSON object')

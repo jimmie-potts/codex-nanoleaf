@@ -111,6 +111,15 @@ class HookManagementTests(unittest.TestCase):
             bridge.manage_hooks(self.home, 'remove', script=Path('/opt/nanoleaf/bridge.py'))
         self.assertEqual(self.hooks.read_bytes(), malformed)
 
+    def test_duplicate_keys_are_rejected_before_mutation(self):
+        duplicate = (b'{"hooks":{},"hooks":{"Stop":[{"hooks":[{"type":"command",'
+                    b'"command":"old","statusMessage":"' + bridge.MARKER.encode() + b'"}]}]}}')
+        self.hooks.write_bytes(duplicate)
+        with self.assertRaisesRegex(ValueError, 'duplicate JSON object key'):
+            bridge.manage_hooks(self.home, 'remove', script=Path('/opt/nanoleaf/bridge.py'))
+        self.assertEqual(self.hooks.read_bytes(), duplicate)
+        self.assertEqual(list(self.home.glob('hooks.nanoleaf-backup-*.json')), [])
+
     def test_shared_selection_refusal_is_content_free_and_names_registration(self):
         import shared_input
         from unittest.mock import patch
