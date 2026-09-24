@@ -738,6 +738,15 @@ class ChildSessionTest(SelectionTest):
         self.root['activity'] = 'active'; self.advance(1004)
         self.assertEqual(self.tasks(1004), {self.key: ('unread', 100, 'uncertain')})
 
+    def test_read_evidence_clears_a_stale_unread_parent_with_a_subagent(self):
+        self.value['snapshot']['sessions'].append(child_of(self.root, 'child', fresh=False))
+        self.select(recount(self.value))
+        self.assertEqual(self.tasks(1000), {self.key: ('unread', 100, 'current')})
+        self.root['freshness'] = 'uncertain'; self.root['restartUncertain'] = True; self.advance(1001)
+        self.assertEqual(self.tasks(1001), {self.key: ('unread', 100, 'uncertain')})
+        self.root['read'] = 'read'; self.advance(1002)
+        self.assertEqual(self.tasks(1002), {})
+
     def test_silent_subagent_clears_when_it_returns_idle_under_an_uncertain_parent(self):
         self.root['notices'][0]['acknowledgedBy'].append('nanoleaf')
         self.root['freshness'] = 'uncertain'; self.root['restartUncertain'] = True
@@ -834,6 +843,7 @@ class StaleReadEvidenceTest(SelectionTest):
             for notice in session['notices']: notice['acknowledgedBy'].append('nanoleaf')
         self.change(self.stale_unread(), 1002, acknowledge)
         self.assertEqual(self.rows('SELECT status FROM sessions'), [('idle',)])
+        self.assertEqual(self.rows('SELECT * FROM activity'), [])
         self.assertEqual(self.rows('SELECT * FROM comets'), [])
 
     def test_partial_acknowledgment_keeps_the_task_unread(self):
@@ -848,6 +858,18 @@ class StaleReadEvidenceTest(SelectionTest):
         value = self.stale(value)
         self.change(value, 1002, lambda session: session.update(activity='idle', read='read'))
         self.assertEqual(self.rows('SELECT status FROM sessions'), [('working',)])
+
+    def test_stale_alerts_stay_frozen_when_resolved_and_read(self):
+        for kind, status in (('question', 'question'), ('approval', 'blocked')):
+            with self.subTest(kind=kind):
+                self.setUp()
+                value = envelope(); session = value['snapshot']['sessions'][0]
+                session['attention'] = [{'id': {'status': 'known', 'id': 'ask'}, 'kind': kind, 'turn': session['turn']}]
+                self.select(value)
+                self.assertEqual(self.rows('SELECT status FROM sessions'), [(status,)])
+                value = self.stale(value)
+                self.change(value, 1002, lambda item: item.update(attention=[], read='read'))
+                self.assertEqual(self.rows('SELECT status FROM sessions'), [(status,)])
 
     def test_stale_unread_does_not_become_working_from_uncertain_activity(self):
         self.change(self.stale_unread(), 1002, lambda session: session.update(activity='active', read='read'))
