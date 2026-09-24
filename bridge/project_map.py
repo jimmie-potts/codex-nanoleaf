@@ -34,6 +34,27 @@ def settings(db,device=devices.DEFAULT):
     return dict(zip(('style','coverage','rotation','flip_x','flip_y'),row or DEFAULT_SETTINGS))
 
 
+def rendering_snapshot(db,config,mode,mode_pending,error,instant):
+    """Return the latest worker receipt without advancing or refreshing bridge state."""
+    device=devices.device_of(config)
+    meta=dict(db.execute('SELECT key,value FROM meta'))
+    receipt=meta.get(devices.meta_key('rendering_receipt',device))
+    try:
+        receipt=json.loads(receipt) if receipt else None
+    except (TypeError,ValueError):
+        receipt=None
+    if not isinstance(receipt,dict): receipt=None
+    pending=meta.get('dirty')=='1' or mode_pending
+    if pending: outcome='pending'
+    elif error: outcome='failed'
+    elif mode=='free': outcome='externally-controlled'
+    elif not receipt or receipt.get('outcome')=='unknown': outcome='unknown'
+    else: outcome='last-sent'
+    return {'apiVersion':'1.0','deviceId':device,'mode':mode,'outcome':outcome,
+            'pending':pending,'failedAttempt':bool(error),'sampledAtMs':round(instant*1000),
+            'lastSuccessful':receipt if receipt and receipt.get('outcome')!='unknown' else None}
+
+
 def line_id(pair):
     return devices.element_id(pair)
 
