@@ -130,10 +130,10 @@
   .group > button:last-child { border-radius: 0 var(--radius) var(--radius) 0; }
   .group > button.active, .group > button[aria-pressed="true"] { position: relative; z-index: 1; }
 
-  main { display: grid; grid-template-columns: 264px minmax(320px, 1fr) 320px; flex: 1; min-height: 0; }
+  main { display: grid; grid-template-columns: 240px minmax(320px, 1fr) 480px; flex: 1; min-height: 0; }
   aside { overflow: auto; padding: 12px 18px 20px; background: var(--panel); scrollbar-width: thin; min-height: 0; }
   #projects { border-right: 1px solid var(--edge); }
-  #inspector { border-left: 1px solid var(--edge); }
+  #inspector { border-left: 1px solid var(--edge); overflow-anchor: none; }
   .aside-head { position: sticky; top: -12px; z-index: 1; background: var(--panel-solid); padding: 12px 0 10px; margin-top: -12px; display: flex; align-items: baseline; justify-content: space-between; gap: 10px; border-bottom: 1px solid var(--edge); }
 
   .canvas { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 12px 20px 10px; background: var(--canvas-bg); }
@@ -216,6 +216,27 @@
   .task-title:hover { background: transparent; text-decoration: underline; }
   .task-meta { grid-column: 2 / 4; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
   .task .line-badge { padding: 3px 7px; }
+  .task-controls { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  #taskFilters { margin-top: 8px; }
+  #taskSearch { color: var(--text); background: var(--panel-solid); border: 1px solid var(--btn-edge); border-radius: var(--radius); padding: 6px 10px; }
+  #taskFilters label { display: block; margin-top: 6px; }
+  #taskFilters input, #taskFilters select { box-sizing: border-box; width: 100%; min-width: 0; }
+  #taskSummary, #taskStatusCounts, #waiting, #taskSelectionNote { margin: 6px 0; }
+  #taskList[data-compact="true"] { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 14px; }
+  #taskList[data-compact="true"] .task { min-width: 0; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 6px; padding: 6px 0; }
+  #taskList[data-compact="true"] .task-title { grid-column: 1 / -1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #taskList[data-compact="true"] .dot, #taskList[data-compact="true"] .task-meta > span:not(.badge) { display: none; }
+  #taskList[data-compact="true"] .task-meta { grid-column: 1; grid-row: 2; }
+  #taskList[data-compact="true"] .task-placement { grid-column: 2; grid-row: 2; white-space: nowrap; line-height: 1.2; }
+  #taskList[data-compact="true"] .task-placement .small { font-size: 11px; }
+  #taskList[data-compact="true"] .task.selected { padding-left: 5px; }
+  #taskList[data-compact="true"] .empty { grid-column: 1 / -1; }
+  @media (min-width: 681px) and (max-width: 1049.98px) {
+    #taskCard { grid-column: 1 / -1; }
+  }
+  @media (max-width: 680px) {
+    #taskList[data-compact="true"] { grid-template-columns: minmax(0, 1fr); }
+  }
   .badge { display: inline-flex; align-items: center; gap: 5px; font: 600 var(--label-size)/1 var(--label-font); text-transform: var(--label-transform); letter-spacing: var(--label-tracking); padding: 3px 8px; border-radius: var(--radius-pill); border: 1px solid var(--badge-edge); background: var(--badge-bg); color: var(--muted); }
   .badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
   .dot[data-status="working"], .badge[data-status="working"] { color: var(--chip-working); }
@@ -358,8 +379,20 @@ body[data-mode="quiet"] #wall.prism-scene, body[data-mode="free"] #wall.prism-sc
       </div>
     </div>
     <div class="card" id="taskDetail"></div>
-    <div class="card"><h2>Tasks <span class="small" id="taskCount"></span></h2><div class="tasklist" id="taskList"></div></div>
-    <div class="card"><h2>Waiting for a Line</h2><div id="waiting"></div></div>
+    <div class="card" id="taskCard">
+      <h2 id="tasksTitle" tabindex="-1">Tasks <span class="small" id="taskCount"></span></h2>
+      <p class="small" id="taskStatusCounts"></p>
+      <p class="small" id="waiting"></p>
+      <p class="small" id="taskSummary"></p>
+      <div class="task-controls"><button type="button" id="showAllTasks" aria-expanded="false" aria-controls="taskList taskFilters">Show all tasks</button><button type="button" id="showSelectedTasks" hidden>Show selected tasks</button></div>
+      <p class="small" id="taskSelectionNote" hidden></p>
+      <div id="taskFilters" hidden>
+        <label class="small" for="taskFilter">Filter tasks</label>
+        <select id="taskFilter"><option value="all">All tasks</option><option value="blocked">Blocked</option><option value="question">Question</option><option value="working">Working</option><option value="unread">Unread</option><option value="waiting">Waiting for a Line</option></select>
+        <label class="small" for="taskSearch">Search tasks</label><input id="taskSearch" type="search" placeholder="Title, project or task ID" autocomplete="off">
+      </div>
+      <div class="tasklist" id="taskList"></div>
+    </div>
   </aside>
 </main>
 <footer><span>Local to this PC · Opening a task here does not mark it read</span><span>Refreshes once a second</span></footer>
@@ -371,6 +404,7 @@ body[data-mode="quiet"] #wall.prism-scene, body[data-mode="free"] #wall.prism-sc
 const token='__CSRF__', $=id=>document.getElementById(id), svgNS='http://www.w3.org/2000/svg';
 let state=null, selected=new Set(), projectFingerprint='', taskFingerprint='', taskFocus=null, wallFingerprint='', detailFingerprint='', errorUntil=0, refreshing=false;
 let showSavedProjects=false;
+let showAllTasks=false;
 const statusColors={working:'var(--wall-working)',question:'var(--wall-question)',blocked:'var(--wall-blocked)',unread:'var(--wall-unread)'};
 const modeNotes={work:['Work · indicators on','Task indicators pulse on the wall at 30% brightness. The map’s inward light flow follows task status.'],quiet:['Quiet · steady at 10%','Steady task colors without pulses or outward waves.'],free:['Free · lights released','The lights follow the Nanoleaf app. The map shows saved task assignments.']};
 const showAllNumbersKey='wall.numbers.showAll';
@@ -381,7 +415,7 @@ function el(tag,text,cls){const node=document.createElement(tag);if(text!==undef
 function message(text,error=false){$('notice').textContent=text;$('notice').style.display=text?'block':'none';$('notice').classList.toggle('error',error);if(error)errorUntil=Date.now()+6000}
 async function action(path,payload){endAssembly();try{const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-Wall-Token':token},body:JSON.stringify(payload)});const data=await r.json();if(!r.ok)throw Error(data.error);errorUntil=0;await refresh()}catch(e){message(e.message,true)}}
 function projectName(id){return state.projects.find(p=>p.id===id)?.name||'No project'}
-function choose(id,multi=false){if(!lineById(id))return;if(!multi)selected.clear();if(multi&&selected.has(id))selected.delete(id);else selected.add(id);taskFocus=null;const owners=state.lines.filter(l=>selected.has(l.id)).map(l=>l.project||'');if(owners.length&&owners.every(p=>p===owners[0]))$('assignProject').value=owners[0];drawWall();inspect();highlightAssociations()}
+function choose(id,multi=false){if(!lineById(id))return;if(!multi)selected.clear();if(multi&&selected.has(id))selected.delete(id);else selected.add(id);taskFocus=null;const owners=state.lines.filter(l=>selected.has(l.id)).map(l=>l.project||'');if(owners.length&&owners.every(p=>p===owners[0]))$('assignProject').value=owners[0];drawWall();inspect();drawTasks();highlightAssociations()}
 function selectOptions(select,sharedLabel){const fingerprint=JSON.stringify([sharedLabel,state.projects.map(p=>[p.id,p.name])]);if(select.dataset.options===fingerprint)return;select.dataset.options=fingerprint;const value=select.value;select.replaceChildren();let opt=el('option',sharedLabel);opt.value='';select.append(opt);for(const p of state.projects){opt=el('option',p.name);opt.value=p.id;select.append(opt)}select.value=value}
 function lineById(id){return state.lines.find(line=>line.id===id)}
 function lineTask(line){return state.tasks.find(task=>task.id===line.task)}
@@ -747,27 +781,68 @@ function elapsed(start){if(!start)return 'Start time unavailable';let s=Math.max
 function statusBadge(status){const badge=el('span',status,'badge');badge.dataset.status=status;return badge}
 function taskRow(t){
   const row=el('div',undefined,'task'),title=el('button',t.title,'task-title');row.dataset.task=t.id;title.type='button';title.dataset.focusKey=JSON.stringify([t.id,'title']);
+  title.title=t.title;
   const dot=el('span',undefined,'dot');dot.dataset.status=t.status;
   const placement=el('div',undefined,'task-placement'),line=lineById(t.line);
   if(line){const badge=lineBadge(line,'in-use','Current task placement');badge.textContent='Line '+line.number;badge.dataset.focusKey=JSON.stringify([t.id,'line']);placement.append(badge)}
   else placement.append(el('span','Waiting for a Line','small'));
   const meta=el('div',undefined,'task-meta');meta.append(statusBadge(t.status),el('span',projectName(t.project)));
   row.append(dot,title,placement,meta);
-  row.onclick=()=>{if(lineById(t.line))choose(t.line);else{selected.clear();taskFocus=t.id;drawWall();inspect();highlightAssociations()}};
+  row.onclick=()=>{selected=new Set(lineById(t.line)?[t.line]:[]);taskFocus=t.id;drawWall();inspect();drawTasks();highlightAssociations()};
   return row;
 }
 function drawTasks(){
-  const fingerprint=JSON.stringify([state.tasks,state.lines.map(l=>[l.id,l.number,l.task]),state.projects.map(p=>[p.id,p.name])]);
+  const list=$('taskList'),focused=list.contains(document.activeElement)?document.activeElement:null,focusedId=focused?.closest('.task')?.dataset.task;
+  const scroll=$('inspector').scrollTop;
+  const selectedIds=selectedTaskIds(),filter=showAllTasks?$('taskFilter').value:'all',query=showAllTasks?$('taskSearch').value.trim().toLocaleLowerCase():'';
+  const fingerprint=JSON.stringify([showAllTasks,[...selectedIds],focusedId,filter,query,state.tasks,state.lines.map(l=>[l.id,l.number,l.task]),state.projects.map(p=>[p.id,p.name])]);
   if(fingerprint===taskFingerprint)return;taskFingerprint=fingerprint;
-  const tasks=$('taskList'),waitingList=$('waiting');
-  const waitingFocus=waitingList.contains(document.activeElement)?document.activeElement.dataset.focusKey:null;
-  replaceKeepingFocus(tasks,...state.tasks.map(taskRow));
-  const waiting=state.tasks.filter(t=>!t.line);
-  replaceKeepingFocus(waitingList,...(waiting.length?waiting.map(taskRow):[el('p','Every task has a Line.','small')]));
-  // A placed task leaves Waiting but keeps its keyboard control in Tasks.
-  if(waitingFocus&&!waitingList.contains(document.activeElement))
-    [...tasks.querySelectorAll('[data-focus-key]')].find(node=>node.dataset.focusKey===waitingFocus)?.focus({preventScroll:true});
+  const inspector=$('inspector'),card=$('taskCard'),selection=inspector.querySelector('.selection'),detail=$('taskDetail');
+  // Keep compact tasks above the editors; the full list keeps its editors near the controls.
+  if(showAllTasks&&inspector.firstElementChild===card){inspector.insertBefore(selection,card);inspector.insertBefore(detail,card)}
+  else if(!showAllTasks&&inspector.firstElementChild!==card)inspector.append(selection,detail);
+  list.dataset.compact=String(!showAllTasks);
+  const priority=t=>selectedIds.has(t.id)?-1:({blocked:0,question:1,working:2,unread:3}[t.status]??4);
+  const ordered=[...state.tasks].sort((a,b)=>priority(a)-priority(b)||a.id.localeCompare(b.id));
+  const matches=ordered.filter(t=>(filter==='all'||(filter==='waiting'?!lineById(t.line):t.status===filter))&&(!query||[t.title,t.id,projectName(t.project)].join(' ').toLocaleLowerCase().includes(query)));
+  const limit=state.lines.length,visible=showAllTasks?[...matches]:matches.slice(0,limit),retained=state.tasks.find(t=>t.id===focusedId);
+  const outsideFilter=retained&&!matches.includes(retained);
+  // A poll may change priority or filter membership while a keyboard user is on a row.
+  if(retained&&(showAllTasks||limit>0)&&!visible.includes(retained)){if(!showAllTasks&&visible.length===limit)visible.pop();visible.push(retained);visible.sort((a,b)=>priority(a)-priority(b)||a.id.localeCompare(b.id))}
+  $('taskStatusCounts').textContent=['blocked','question','working','unread'].map(status=>state.tasks.filter(t=>t.status===status).length+' '+status).join(' · ');
+  $('waiting').textContent=state.tasks.filter(t=>!lineById(t.line)).length+' waiting for a Line';
+  $('taskSummary').textContent=`Showing ${visible.length} of ${state.tasks.length} tasks`+(filter!=='all'||query?` · ${matches.length} match filter`:'')+(outsideFilter?' · 1 focused task outside filter':'');
+  $('showAllTasks').textContent=showAllTasks?'Show fewer tasks':'Show all tasks';
+  $('showAllTasks').setAttribute('aria-expanded',String(showAllTasks));
+  $('taskFilters').hidden=!showAllTasks;
+  const outside=[...selectedIds].filter(id=>!visible.some(t=>t.id===id)).length;
+  $('showSelectedTasks').hidden=!outside;$('taskSelectionNote').hidden=!outside;
+  $('taskSelectionNote').textContent=outside?`${outside} selected task${outside===1?'':'s'} outside this view.`:'';
+  const existing=new Map([...list.querySelectorAll('.task')].map(row=>[row.dataset.task,row]));
+  const rows=visible.map(t=>{
+    const key=JSON.stringify([t,lineById(t.line)?.number,projectName(t.project)]);
+    let row=existing.get(t.id);
+    if(!row)row=taskRow(t);
+    else if(row.dataset.fingerprint!==key){const fresh=taskRow(t);replaceKeepingFocus(row,...fresh.childNodes);row.onclick=fresh.onclick}
+    row.dataset.fingerprint=key;return row;
+  });
+  if(!rows.length)rows.push(el('p',state.tasks.length?(!showAllTasks&&!limit?'No Lines available. Use Show all tasks to inspect retained tasks.':'No tasks match this filter.'):'No tracked tasks.','empty'));
+  // Move siblings around the focused row instead of detaching it during a reorder.
+  const pinned=focusedId?existing.get(focusedId):null;let next=null;
+  for(const row of [...rows].reverse()){if(row!==pinned&&row.nextSibling!==next||!row.isConnected)list.insertBefore(row,next);next=row}
+  for(const row of [...list.children])if(!rows.includes(row))row.remove();
+  if(focused&&!focused.isConnected){
+    const row=rows.find(row=>row.dataset.task===focusedId);
+    const target=[...(row?.querySelectorAll('[data-focus-key]')||[])].find(node=>node.dataset.focusKey===focused.dataset.focusKey)||row?.querySelector('.task-title')||$('tasksTitle');
+    target.focus({preventScroll:true});
+  }
+  $('inspector').scrollTop=scroll;
 }
+function selectedTaskIds(){const ids=new Set(state.lines.filter(l=>selected.has(l.id)).map(l=>l.task).filter(id=>state.tasks.some(t=>t.id===id)));if(taskFocus&&state.tasks.some(t=>t.id===taskFocus))ids.add(taskFocus);return ids}
+$('showAllTasks').onclick=()=>{showAllTasks=!showAllTasks;drawTasks();highlightAssociations()};
+$('taskFilter').onchange=$('taskSearch').oninput=()=>{drawTasks();highlightAssociations()};
+$('taskList').addEventListener('focusout',()=>{taskFingerprint=''});
+$('showSelectedTasks').onclick=()=>{showAllTasks=true;$('taskFilter').value='all';$('taskSearch').value='';drawTasks();highlightAssociations();$('taskList').querySelector('.task.selected .task-title')?.focus()};
 function highlightAssociations(){
   const chosen=state.lines.filter(l=>selected.has(l.id)),taskIds=new Set(chosen.map(l=>l.task).filter(Boolean));
   if(taskFocus)taskIds.add(taskFocus);
@@ -789,7 +864,7 @@ function inspect(){
   $('locate').disabled=chosen.length!==1||state.mode==='free';
   $('locateHint').textContent=state.mode==='free'?'Switch to Work or Quiet to locate a Line.':'Locate briefly highlights the selected physical Line.';
   const task=state.tasks.find(t=>t.id===(taskFocus||(chosen.length===1?chosen[0].task:null))),detail=$('taskDetail');
-  if(detail.contains(document.activeElement)&&document.activeElement.tagName==='SELECT')return;
+  if(task&&detail.contains(document.activeElement)&&document.activeElement.dataset.task===task.id)return;
   const fingerprint=JSON.stringify([chosen.length,task&&[task.id,task.title,task.status,task.project,task.manual,task.started],state.projects.map(p=>[p.id,p.name])]);
   if(fingerprint===detailFingerprint){
     // Keep the elapsed time and the override select in step with saved state without rebuilding the card.
@@ -798,12 +873,13 @@ function inspect(){
     return;
   }
   detailFingerprint=fingerprint;
+  if(detail.contains(document.activeElement))$('tasksTitle').focus({preventScroll:true});
   detail.replaceChildren();
   if(!task){detail.append(el('p',chosen.length>1?'Select one Line to inspect its task.':chosen.length?'No task on this Line.':'Select a Line or task for details.','small'));return}
   const head=el('div',undefined,'detail-head');head.append(el('h2',task.title),statusBadge(task.status));detail.append(head);
   for(const [key,value]of[['Project',projectName(task.project)],['Elapsed',elapsed(task.started)]]){const row=el('div',undefined,'kv'),node=el('span',value);if(key==='Elapsed')node.dataset.elapsed='';row.append(el('span',key),node);detail.append(row)}
   detail.append(el('label','Override project for this task','label field'));
-  const select=el('select',undefined,'full');select.setAttribute('aria-label','Task project override');selectOptions(select,'Use Codex assignment');select.value=task.manual||'';
+  const select=el('select',undefined,'full');select.dataset.task=task.id;select.setAttribute('aria-label','Task project override');selectOptions(select,'Use Codex assignment');select.value=task.manual||'';
   select.onchange=()=>action('/api/task',{id:task.id,project:select.value||null});
   // A rejected override must not linger once the select loses focus.
   select.onblur=()=>{detailFingerprint=''};detail.append(select);
@@ -825,8 +901,9 @@ function pendingText(){
   return 'After this comet: '+parts.join(' · ');
 }
 function render(){
+  const scroll=$('inspector').scrollTop,pageX=window.scrollX,pageY=window.scrollY;
   selected=new Set([...selected].filter(id=>lineById(id)));
-  if(taskFocus){const task=state.tasks.find(t=>t.id===taskFocus);if(!task)taskFocus=null;else if(lineById(task.line)){selected=new Set([task.line]);taskFocus=null}}
+  if(taskFocus){const task=state.tasks.find(t=>t.id===taskFocus);if(!task){taskFocus=null;selected.clear()}else selected=new Set(lineById(task.line)?[task.line]:[])}
   if(document.body.dataset.mode!==state.mode)document.body.dataset.mode=state.mode;
   if(document.body.dataset.style!==state.settings.style)document.body.dataset.style=state.settings.style;
   for(const id of ['classic','project']){const on=id===state.settings.style;$(id).classList.toggle('active',on);$(id).setAttribute('aria-pressed',String(on))}
@@ -844,6 +921,7 @@ function render(){
   $('connection').textContent='Live';$('connection').classList.remove('offline');
   readout();
   if(Date.now()>errorUntil)message(state.error||state.geometry_error||prismError||prismLabelError||'',!!(state.error||state.geometry_error||prismError||prismLabelError));
+  $('inspector').scrollTop=scroll;if(window.scrollX!==pageX||window.scrollY!==pageY)window.scrollTo(pageX,pageY);
 }
 let lastReadout='';
 function readout(){
@@ -858,7 +936,7 @@ function readout(){
   parts.forEach(([text,strong],i)=>{if(i)node.append(' · ');node.append(strong?el('b',text):text)});
 }
 async function refresh(){if(refreshing)return;refreshing=true;try{const r=await fetch('/api/state');const data=await r.json();if(!r.ok)throw Error(data.error);state=data;render()}catch(e){endAssembly();$('connection').textContent='Disconnected · retrying';$('connection').classList.add('offline');message(e.message,true)}finally{refreshing=false}}
-for(const id of ['classic','project'])$(id).onclick=()=>action('/api/settings',{style:id});for(const mode of ['work','free','quiet'])$(mode).onclick=()=>action('/api/mode',{mode});$('coverage').onchange=()=>action('/api/settings',{coverage:$('coverage').value});$('assign').onclick=()=>action('/api/assign',{lines:Object.fromEntries([...selected].map(id=>[id,{project:$('assignProject').value||null}]))});$('clear').onclick=()=>{selected.clear();taskFocus=null;$('selectionTitle').focus({preventScroll:true});drawWall();inspect();highlightAssociations()};$('swap').onclick=()=>action('/api/assign',{lines:Object.fromEntries(state.lines.filter(l=>selected.has(l.id)).map(l=>[l.id,{signature:1-l.signature}]))});$('locate').onclick=()=>{const id=[...selected][0],group=$('wall').querySelector(`[data-line="${id}"]`);if(group){group.classList.remove('locating');void group.getBBox();group.classList.add('locating');setTimeout(()=>group.classList.remove('locating'),1000)}action('/api/locate',{line:id})};$('rotate').onclick=()=>action('/api/settings',{rotation:(state.settings.rotation+90)%360});$('flipX').onclick=()=>action('/api/settings',{flip_x:1-state.settings.flip_x});$('flipY').onclick=()=>action('/api/settings',{flip_y:1-state.settings.flip_y});new ResizeObserver(sizeLineNumbers).observe($('wallHost'));refresh();setInterval(refresh,1000);
+for(const id of ['classic','project'])$(id).onclick=()=>action('/api/settings',{style:id});for(const mode of ['work','free','quiet'])$(mode).onclick=()=>action('/api/mode',{mode});$('coverage').onchange=()=>action('/api/settings',{coverage:$('coverage').value});$('assign').onclick=()=>action('/api/assign',{lines:Object.fromEntries([...selected].map(id=>[id,{project:$('assignProject').value||null}]))});$('clear').onclick=()=>{selected.clear();taskFocus=null;$('selectionTitle').focus({preventScroll:true});drawWall();inspect();drawTasks();highlightAssociations()};$('swap').onclick=()=>action('/api/assign',{lines:Object.fromEntries(state.lines.filter(l=>selected.has(l.id)).map(l=>[l.id,{signature:1-l.signature}]))});$('locate').onclick=()=>{const id=[...selected][0],group=$('wall').querySelector(`[data-line="${id}"]`);if(group){group.classList.remove('locating');void group.getBBox();group.classList.add('locating');setTimeout(()=>group.classList.remove('locating'),1000)}action('/api/locate',{line:id})};$('rotate').onclick=()=>action('/api/settings',{rotation:(state.settings.rotation+90)%360});$('flipX').onclick=()=>action('/api/settings',{flip_x:1-state.settings.flip_x});$('flipY').onclick=()=>action('/api/settings',{flip_y:1-state.settings.flip_y});new ResizeObserver(sizeLineNumbers).observe($('wallHost'));refresh();setInterval(refresh,1000);
 $('showNumbers').onclick=()=>{showAllNumbers=!showAllNumbers;try{showAllNumbers?localStorage.setItem(showAllNumbersKey,'1'):localStorage.removeItem(showAllNumbersKey)}catch{}syncNumberControl()};
 syncNumberControl();
 window.matchMedia?.('(prefers-reduced-motion: reduce)')?.addEventListener('change',()=>requestAnimationFrame(anchorPulses));
