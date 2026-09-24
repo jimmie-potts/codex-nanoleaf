@@ -176,6 +176,56 @@ class SelectionTest(unittest.TestCase):
         self.assertEqual(len(self.rows('SELECT id FROM sessions')),2)
         self.assertEqual(len(self.rows('SELECT DISTINCT project FROM task_info')),1)
 
+    def test_wall_projects_survive_retirement_recreation_restart_and_source_switch(self):
+        import wall_server
+        config={'line_groups':[[100,101],[102,103]],'line_positions':[[0,0],[10,0]]}
+        with contextlib.closing(b.connect_state(self.path)) as db,db:
+            db.execute("UPDATE projects SET roots='[\"/synthetic/project\"]' WHERE id='project'")
+            db.execute("INSERT INTO line_prefs (line_id,project,signature,device) VALUES ('100:101','project',1,'wall')")
+        saved=self.rows('SELECT * FROM projects')
+        reservations=self.rows('SELECT * FROM line_prefs')
+        value=envelope();value['snapshot']['sessions'][0]['activity']='active'
+        self.select(value)
+        key=self.s.identity_key(fixture()['sessions'][0]['identity'])
+        with contextlib.closing(b.connect_state(self.path)) as db,db:
+            db.execute("UPDATE task_info SET manual_project='project' WHERE session=?",(key,))
+        def view(device='wall'):
+            return wall_server.App(self.path,b,{**config,'device':device},launch=lambda _:None).state()
+        with patch.object(wall_server,'ensure_geometry',return_value=False):
+            first=view()
+            self.assertEqual(first['projects'][0]['active'],1)
+            self.assertEqual(first['tasks'][0]['project'],'project')
+            self.assertEqual(first['tasks'][0]['line'],'100:101')
+            other=view('second')
+            self.assertIsNone(other['tasks'][0]['line'])
+            self.assertEqual(other['projects'][0]['waiting'],1)
+            self.assertEqual(other['projects'][0]['assigned'],0)
+            # Retained unread is still current; only owner disappearance retires it.
+            value['snapshot']['revision']+=1
+            value['snapshot']['sessions'][0]['activity']='idle'
+            self.s.accept(self.path,b,value,now=lambda:1001)
+            self.assertEqual(view()['tasks'][0]['status'],'unread')
+            retired=copy.deepcopy(value);retired['snapshot']['revision']+=1
+            retired['snapshot']['sessions']=[]
+            self.s.accept(self.path,b,retired,now=lambda:1002)
+            for _ in range(2):
+                empty=view()  # Reopen the map against the same saved state.
+                self.assertEqual(empty['tasks'],[])
+                self.assertEqual(empty['projects'][0]['active'],0)
+                self.assertEqual(self.rows('SELECT * FROM projects'),saved)
+                self.assertEqual(self.rows('SELECT * FROM line_prefs'),reservations)
+            fresh=copy.deepcopy(value);fresh['snapshot']['revision']=retired['snapshot']['revision']+1
+            fresh['snapshot']['sessions'][0].pop('projectId',None)
+            self.s.accept(self.path,b,fresh,now=lambda:1003)
+            self.assertIsNone(view()['tasks'][0]['project'],'Retired task overrides do not return without new attribution')
+            with contextlib.closing(b.connect_state(self.path)) as db,db:
+                db.execute("UPDATE task_info SET manual_project='project' WHERE session=?",(key,))
+            self.assertEqual(view()['projects'][0]['active'],1)
+            self.s.select_source(self.path,b,'legacy',now=lambda:1005)
+            self.assertEqual(view()['projects'][0]['color'],'#112233')
+            self.assertEqual(self.rows('SELECT * FROM projects'),saved)
+            self.assertEqual(self.rows('SELECT * FROM line_prefs'),reservations)
+
     def test_inspection_missing_state_does_not_create_files(self):
         fresh=self.path/'fresh';fresh.mkdir()
         self.assertEqual(self.s.inspect(fresh)['source'],'legacy')

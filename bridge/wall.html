@@ -324,6 +324,7 @@ body[data-mode="quiet"] #wall.prism-scene, body[data-mode="free"] #wall.prism-sc
 <main>
   <aside id="projects">
     <div class="aside-head"><h2>Projects</h2><span class="hint" title="Shared Lines are available for overflow. Reserved Lines stay with their project.">Pick a color, assign Lines on the map</span></div>
+    <button type="button" id="showSavedProjects" aria-expanded="false" aria-controls="projectList">Show saved projects (0)</button>
     <div id="projectList"></div>
   </aside>
   <section class="canvas">
@@ -369,6 +370,7 @@ body[data-mode="quiet"] #wall.prism-scene, body[data-mode="free"] #wall.prism-sc
 <script>
 const token='__CSRF__', $=id=>document.getElementById(id), svgNS='http://www.w3.org/2000/svg';
 let state=null, selected=new Set(), projectFingerprint='', taskFingerprint='', taskFocus=null, wallFingerprint='', detailFingerprint='', errorUntil=0, refreshing=false;
+let showSavedProjects=false;
 const statusColors={working:'var(--wall-working)',question:'var(--wall-question)',blocked:'var(--wall-blocked)',unread:'var(--wall-unread)'};
 const modeNotes={work:['Work · indicators on','Task indicators pulse on the wall at 30% brightness. The map’s inward light flow follows task status.'],quiet:['Quiet · steady at 10%','Steady task colors without pulses or outward waves.'],free:['Free · lights released','The lights follow the Nanoleaf app. The map shows saved task assignments.']};
 const showAllNumbersKey='wall.numbers.showAll';
@@ -380,7 +382,7 @@ function message(text,error=false){$('notice').textContent=text;$('notice').styl
 async function action(path,payload){endAssembly();try{const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-Wall-Token':token},body:JSON.stringify(payload)});const data=await r.json();if(!r.ok)throw Error(data.error);errorUntil=0;await refresh()}catch(e){message(e.message,true)}}
 function projectName(id){return state.projects.find(p=>p.id===id)?.name||'No project'}
 function choose(id,multi=false){if(!lineById(id))return;if(!multi)selected.clear();if(multi&&selected.has(id))selected.delete(id);else selected.add(id);taskFocus=null;const owners=state.lines.filter(l=>selected.has(l.id)).map(l=>l.project||'');if(owners.length&&owners.every(p=>p===owners[0]))$('assignProject').value=owners[0];drawWall();inspect();highlightAssociations()}
-function selectOptions(select,sharedLabel){const value=select.value;select.replaceChildren();let opt=el('option',sharedLabel);opt.value='';select.append(opt);for(const p of state.projects){opt=el('option',p.name);opt.value=p.id;select.append(opt)}select.value=value}
+function selectOptions(select,sharedLabel){const fingerprint=JSON.stringify([sharedLabel,state.projects.map(p=>[p.id,p.name])]);if(select.dataset.options===fingerprint)return;select.dataset.options=fingerprint;const value=select.value;select.replaceChildren();let opt=el('option',sharedLabel);opt.value='';select.append(opt);for(const p of state.projects){opt=el('option',p.name);opt.value=p.id;select.append(opt)}select.value=value}
 function lineById(id){return state.lines.find(line=>line.id===id)}
 function lineTask(line){return state.tasks.find(task=>task.id===line.task)}
 function lineDescription(line){
@@ -410,25 +412,44 @@ function lineGroup(label,kind,lines,showShared=false){
   group.append(badges);return group;
 }
 function drawProjects(){
-  const fingerprint=JSON.stringify([state.projects,state.settings.style,state.lines.map(l=>[l.id,l.number,l.project,l.task]),state.tasks.map(t=>[t.id,t.project,t.title])]);
+  const focusedProject=document.activeElement.closest?.('#projectList [data-project]')?.dataset.project;
+  const fingerprint=JSON.stringify([showSavedProjects,focusedProject,state.projects,state.settings.style,state.lines.map(l=>[l.id,l.number,l.project,l.task]),state.tasks.map(t=>[t.id,t.project,t.title,t.status,t.line])]);
   if(fingerprint===projectFingerprint)return;
   projectFingerprint=fingerprint;const list=$('projectList'),rows=[];
   const existing=new Map([...list.querySelectorAll('.project[data-project]')].map(row=>[row.dataset.project,row]));
-  for(const p of state.projects){
+  const counts=new Map(state.projects.map(p=>[p.id,{total:0,active:0,unread:0,waiting:0}]));
+  for(const task of state.tasks){
+    const count=counts.get(task.project);if(!count)continue;
+    count.total++;if(['working','blocked','question'].includes(task.status))count.active++;
+    if(task.status==='unread')count.unread++;
+    if(task.line==null)count.waiting++;
+  }
+  const current=new Set([...counts].filter(([,count])=>count.total).map(([id])=>id));
+  const projects=state.projects.filter(p=>showSavedProjects||current.has(p.id)||p.id===focusedProject).sort((a,b)=>{
+    const x=counts.get(a.id),y=counts.get(b.id);
+    return Number(current.has(b.id))-Number(current.has(a.id))||y.active-x.active||y.unread-x.unread||a.name.localeCompare(b.name)||a.id.localeCompare(b.id);
+  });
+  $('showSavedProjects').textContent=(showSavedProjects?'Hide':'Show')+' saved projects ('+state.projects.length+')';
+  $('showSavedProjects').setAttribute('aria-expanded',String(showSavedProjects));
+  for(const p of projects){
     let row=existing.get(p.id);
-    if(!row){row=el('div',undefined,'project');row.dataset.project=p.id;row.append(el('input'),el('div'))}
+    if(!row){row=el('div',undefined,'project');row.dataset.project=p.id;const color=el('input');color.type='color';row.append(color,el('div'))}
     const [color,info]=row.children,content=el('div');
-    color.type='color';if(document.activeElement!==color)color.value=p.color;
+    if(document.activeElement!==color)color.value=p.color;
     color.setAttribute('aria-label',p.name+' color');color.dataset.focusKey=JSON.stringify(['color',p.id]);
     color.onchange=()=>action('/api/project',{id:p.id,color:color.value});
     color.onblur=()=>{projectFingerprint=''};
-    content.append(el('div',p.name,'project-name'),el('div',`${p.active} task${p.active===1?'':'s'}${p.waiting?' · '+p.waiting+' waiting':''}`,'project-stats'));
+    const count=counts.get(p.id);
+    content.append(el('div',p.name,'project-name'),el('div',`${count.total} task${count.total===1?'':'s'}${count.waiting?' · '+count.waiting+' waiting':''}`,'project-stats'));
     if(state.settings.style==='project')content.append(lineGroup('Reserved','reserved',state.lines.filter(l=>l.project===p.id)));
     content.append(lineGroup('In use','in-use',state.lines.filter(l=>lineTask(l)?.project===p.id),state.settings.style==='project'));
     for(const badge of content.querySelectorAll('.line-badge'))badge.dataset.focusKey=JSON.stringify(['project',p.id,badge.closest('.line-group').dataset.lineGroup,badge.dataset.lineId]);
-    replaceKeepingFocus(info,...content.childNodes);rows.push(row);
+    const hadBadgeFocus=info.contains(document.activeElement);
+    replaceKeepingFocus(info,...content.childNodes);
+    if(hadBadgeFocus&&!info.contains(document.activeElement))color.focus({preventScroll:true});
+    rows.push(row);
   }
-  if(!state.projects.length)rows.push(el('div','No projects found yet. Open a Codex project to populate this list.','empty'));
+  if(!state.projects.some(p=>current.has(p.id)))rows.unshift(el('div','No current project is known. Saved projects are available above.','empty'));
   if(state.settings.style==='project'){
     let row=list.querySelector('.shared-pool');
     if(!row){row=el('div',undefined,'project shared-pool');const mark=el('span','◇','shared-mark');mark.setAttribute('aria-hidden','true');row.append(mark,el('div'))}
@@ -440,11 +461,19 @@ function drawProjects(){
   }
   // Keep existing rows attached so an open native color picker survives polling.
   const focused=list.contains(document.activeElement)?document.activeElement:null;
-  for(let i=0;i<rows.length;i++)if(list.children[i]!==rows[i])list.insertBefore(rows[i],list.children[i]||null);
+  const pinned=focused?.closest('.project');
+  let next=null;
+  for(const row of [...rows].reverse()){
+    if(row!==pinned&&row.nextSibling!==next)list.insertBefore(row,next);
+    else if(!row.isConnected)list.insertBefore(row,next);
+    next=row;
+  }
   for(const row of [...list.children])if(!rows.includes(row))row.remove();
   if(focused?.isConnected&&document.activeElement!==focused)focused.focus({preventScroll:true});
   selectOptions($('assignProject'),'Shared pool');
 }
+$('showSavedProjects').onclick=()=>{showSavedProjects=!showSavedProjects;drawProjects();highlightAssociations()};
+$('projectList').addEventListener('focusout',()=>{projectFingerprint=''});
 /* Junctions: clusters of Line ends that nearly touch. The hub is the most connected one, nearest the others on ties. */
 function findJunctions(ends){
   const clusters=[];
