@@ -128,13 +128,13 @@ Use **Show saved projects** in the left column to find a project without current
 tasks or change its saved color.
 
 The inspector initially shows up to one task per Line on the selected device,
-with selected tasks first, followed by blocked, question, working, and unread
-tasks. The two-column desktop grid puts the current wall's 15 tasks above the
+ordered by status: blocked, question, working, then unread. Selecting a task
+highlights it without moving it. The two-column desktop grid puts the current wall's 15 tasks above the
 selection details so they can be seen without scrolling. Compact titles shorten
 to fit; select a task or hover its title to read it in full. Counts cover all retained tasks.
 Use **Show all tasks** to filter by status or waiting placement, or search by
 title, project, or task ID. **Show selected tasks** reveals a selection excluded
-by the current filter. Waiting tasks share this single list; the waiting count
+by the current filter or the compact limit. Waiting tasks share this single list; the waiting count
 summarizes them. Browsing does not mark tasks read or change their placement.
 The [task inspector specification](../openspec/specs/wall-task-inspector/spec.md)
 owns these controls and their polling, focus, and retirement behavior.
