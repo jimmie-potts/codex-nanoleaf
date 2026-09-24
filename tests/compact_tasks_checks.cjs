@@ -33,8 +33,15 @@ module.exports=async function(page,root){
     await row('task-13').locator('.line-badge').click({modifiers:['Control']});await refresh();
     assert.deepEqual(await rows(),order,'Line and multi-Line selection keep row positions');
     assert.deepEqual([await isSelected('task-12'),await isSelected('task-13')],[true,true]);
-    await page.evaluate(()=>{selected.clear();taskFocus=null;document.activeElement.blur();render()});await refresh();
+    await page.getByRole('button',{name:'Clear selection'}).click();await refresh();
     assert.deepEqual(await rows(),order,'Clearing selection keeps row positions');
+    assert.equal(await page.locator('#taskList .task.selected').count(),0,'Clearing selection removes row highlights');
+    const promoted=snapshot.tasks.find(t=>t.id==='task-10');
+    await row('task-10').locator('.task-title').click();promoted.status='blocked';await refresh();
+    assert.equal((await rows()).indexOf('task-10'),2,'Status changes still reorder a selected task by priority');
+    assert.equal(await isSelected('task-10'),true);
+    assert.match(await page.locator('#taskDetail').textContent(),/Task 10/);
+    promoted.status='unread';await page.getByRole('button',{name:'Clear selection'}).click();await refresh();
     const allLines=snapshot.lines,allGraph=snapshot.connector_layout;
     for(const count of [5,0,15]){
       snapshot.lines=allLines.slice(0,count);
