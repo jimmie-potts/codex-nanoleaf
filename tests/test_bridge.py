@@ -549,6 +549,78 @@ class BridgeTest(unittest.TestCase):
         state.write_text(json.dumps(value))
         self.assertEqual(read(),set())
 
+    def test_current_read_indicator_refreshes_and_overrides_legacy(self):
+        state=self.path/'desktop.json'
+        value={'electron-thread-read-state-v1':{'version':1,'unreadByIdentity':{
+            'local':{'account-a':['a','b'],'account-b':['b']},'remote':{'account-c':['c']}}},
+            'electron-persisted-atom-state':{'unread-thread-ids-by-host-v1':{'local':['old']}}}
+        state.write_text(json.dumps(value))
+        read=b.unread_reader({'desktop_state_path':str(state)})
+        original=state.read_bytes()
+        self.assertEqual(read(),{'a','b','c'})
+        self.assertEqual(read(),{'a','b','c'})
+        self.assertEqual(state.read_bytes(),original)
+        value['electron-thread-read-state-v1']['unreadByIdentity']={}
+        state.write_text(json.dumps(value))
+        self.assertEqual(read(),set())
+
+    def test_current_read_evidence_releases_occupied_lines(self):
+        state=self.path/'desktop.json'
+        state.write_text(json.dumps({'electron-thread-read-state-v1':{
+            'version':1,'unreadByIdentity':{'local':{'account':['old']}}}}))
+        read=b.unread_reader({'desktop_state_path':str(state)})
+        config=dict(self.config,line_groups=self.config['line_groups'][:1],
+                    line_positions=self.config['line_positions'][:1])
+        self.event('UserPromptSubmit',session='old',defer=True)
+        self.event('Stop',session='old',defer=True)
+        with contextlib.closing(b.connect_state(self.path)) as db,db:
+            b.dashboard(db,config,self.clock.now())
+        self.event('UserPromptSubmit',session='new',defer=True)
+        with contextlib.closing(b.connect_state(self.path)) as db,db:
+            b.reconcile_read_state(db,read(),self.clock.now())
+            b.dashboard(db,config,self.clock.now())
+            self.assertEqual(db.execute("SELECT session FROM slots WHERE device='wall'").fetchall(),[('old',)])
+            state.write_text(json.dumps({'electron-thread-read-state-v1':{
+                'version':1,'unreadByIdentity':{'local':{'account':[]}}}}))
+            b.reconcile_read_state(db,read(),self.clock.now()+b.READ_SETTLE_SECONDS)
+            b.dashboard(db,config,self.clock.now()+b.READ_SETTLE_SECONDS)
+            self.assertEqual(db.execute("SELECT status FROM sessions WHERE id='old'").fetchone(),('ended',))
+            self.assertEqual(db.execute("SELECT session FROM slots WHERE device='wall'").fetchall(),[('new',)])
+
+    def test_invalid_current_read_marker_never_uses_old_empty_indicator(self):
+        state=self.path/'desktop.json'
+        read=b.unread_reader({'desktop_state_path':str(state)})
+        self.assertIsNone(read())
+        invalid=[None,[],{}, {'version':2,'unreadByIdentity':{}},
+                 {'version':True,'unreadByIdentity':{}}, {'version':1,'unreadByIdentity':[]},
+                 {'version':1,'unreadByIdentity':{'local':[]}},
+                 *({'version':1,'unreadByIdentity':{'local':{'account':value}}}
+                   for value in (None,'a',{},['a',None],['a',1],['']))]
+        for marker in invalid:
+            with self.subTest(marker=marker):
+                state.write_text(json.dumps({'electron-thread-read-state-v1':{
+                    'version':1,'unreadByIdentity':{'local':{'account':['a']}}}}))
+                self.assertEqual(read(),{'a'})
+                state.write_text(json.dumps({'electron-thread-read-state-v1':marker,
+                    'electron-persisted-atom-state':{'unread-thread-ids-by-host-v1':{'local':[]}}}))
+                original=state.read_bytes()
+                self.assertIsNone(read())
+                self.assertIsNone(read())
+                self.assertEqual(state.read_bytes(),original)
+        for raw in ('{','[]','null'):
+            state.write_text(raw)
+            self.assertIsNone(read())
+        state.unlink()
+        self.assertIsNone(read())
+
+    def test_invalid_legacy_read_ids_are_unavailable(self):
+        state=self.path/'desktop.json'
+        for ids in ([''],['a',None],['a',1]):
+            with self.subTest(ids=ids):
+                state.write_text(json.dumps({'electron-persisted-atom-state':{
+                    'unread-thread-ids-by-host-v1':{'local':ids}}}))
+                self.assertIsNone(b.unread_reader({'desktop_state_path':str(state)})())
+
 
 if __name__=='__main__':
     unittest.main()

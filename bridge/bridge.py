@@ -246,8 +246,23 @@ def unread_reader(config):
             current = (stat.st_mtime_ns, stat.st_size)
             if current != stamp:
                 state = json.loads(path.read_text(encoding='utf-8-sig'))
-                ids = state['electron-persisted-atom-state']['unread-thread-ids-by-host-v1']['local']
-                if not isinstance(ids, list) or any(not isinstance(i, str) for i in ids):
+                if 'electron-thread-read-state-v1' in state:
+                    marker = state['electron-thread-read-state-v1']
+                    if (not isinstance(marker, dict) or type(marker.get('version')) is not int
+                            or marker['version'] != 1 or not isinstance(marker.get('unreadByIdentity'), dict)):
+                        return None
+                    ids = []
+                    for host in marker['unreadByIdentity'].values():
+                        if not isinstance(host, dict):
+                            return None
+                        for unread in host.values():
+                            if not isinstance(unread, list) or any(not isinstance(i, str) or not i for i in unread):
+                                return None
+                            ids.extend(unread)
+                else:
+                    # Older Desktop releases have only this unversioned local bucket.
+                    ids = state['electron-persisted-atom-state']['unread-thread-ids-by-host-v1']['local']
+                if not isinstance(ids, list) or any(not isinstance(i, str) or not i for i in ids):
                     return None
                 cached, stamp = set(ids), current
             return cached
