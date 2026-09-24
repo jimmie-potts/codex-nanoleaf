@@ -17,7 +17,10 @@ Use ordinary Ubuntu WSL with Linux Python 3.12 or newer, Python venv/pip support
 native Linux Node 24 and npm. Setup downloads the locked dependencies. User
 systemd operation must work in the ordinary WSL terminal; foreground commands
 are available when a service manager is unsuitable. Runtime availability follows
-WSL's lifetime. This project adds no Windows startup launcher or always-on host.
+WSL's lifetime. This project adds no Windows startup launcher or always-on host;
+[ADR 0011](decisions/0011-runtime-availability-follows-wsl.md) records that
+choice and defers hosting off WSL to the hub. Opening any WSL session, including
+a Codex Desktop task running in WSL, starts the distribution and its services.
 
 Before setup registers active hooks, stop this project's Windows worker, wall
 map, controller, MCP and tray. Disable its Startup entries and remove its old
