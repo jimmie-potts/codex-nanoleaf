@@ -121,8 +121,11 @@ owns that behavior. The
 [wall Line identification specification](../openspec/specs/wall-line-identification/spec.md)
 defines numbered project/task badges, Shared pool identification, selection,
 pending labels, and the explicit Locate boundary. After selecting Lines, choose
-a project and click **Assign selected**. Choose Shared pool to release a reservation. Project colors
-are editable in the left column and are saved immediately.
+a project and click **Assign selected**. Choose Shared pool to release a reservation.
+The [current projects specification](../openspec/specs/wall-current-projects/spec.md)
+owns project visibility, activity ordering, saved-project access, and color editing.
+Use **Show saved projects** in the left column to find a project without current
+tasks or change its saved color.
 
 | Layout | Task placement | Display |
 | --- | --- | --- |
