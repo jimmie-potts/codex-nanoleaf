@@ -11,3 +11,9 @@
 ## 3. Delivery gates
 
 - [ ] 3.1 Complete the owning Hub issue's separately authorized installed and visible-device acceptance, synchronize the affected spec and archive after successful current lookups, then obtain final independent reviews and matching CI before eligible delivery.
+
+## 4. Installed-trial presentation corrections
+
+- [x] 4.1 Demonstrate read/acknowledgment removing a shared wall row and make shared idle tasks retain their row and Line with steady blue; verify no wave/comet replay and unchanged legacy/orphan handling.
+- [x] 4.2 Add guarded device-local Evict through the wall's existing protected action path. Verify restart/reconnect persistence, fresh-turn/generation re-admission, stale-action rejection, other-device/peer isolation, and owner/conversation preservation.
+- [ ] 4.3 Update behavior documentation and browser journeys; run required Python, browser, MCP and workflow checks, then obtain renewed approval of the current UI candidate. Keep global eviction and original live acceptance limits explicit.

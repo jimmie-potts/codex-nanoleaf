@@ -229,6 +229,7 @@ def init(db):
     db.execute('CREATE TABLE IF NOT EXISTS shared_stale (session TEXT PRIMARY KEY)')
     db.execute('CREATE TABLE IF NOT EXISTS shared_suppressed_waves (session TEXT PRIMARY KEY, epoch REAL)')
     db.execute('CREATE TABLE IF NOT EXISTS shared_ack (id INTEGER PRIMARY KEY, payload TEXT, result TEXT)')
+    db.execute('CREATE TABLE IF NOT EXISTS shared_evictions (session TEXT, device TEXT, token TEXT NOT NULL, PRIMARY KEY (session,device))')
 
 
 def state(db):
@@ -244,6 +245,36 @@ def selected(db):
     return bool(row and row[0] == 'shared')
 
 
+def visible_tasks(db, device):
+    shared = selected(db)
+    statuses = "'working','question','blocked','unread','idle'" if shared else "'working','question','blocked','unread'"
+    excluded = 'AND NOT EXISTS (SELECT 1 FROM shared_evictions WHERE session=sessions.id AND device=?) ' if shared else ''
+    return db.execute('SELECT id,turn,status FROM sessions WHERE status IN (' + statuses + ') ' + excluded +
+                      "ORDER BY CASE status WHEN 'blocked' THEN 0 WHEN 'question' THEN 1 ELSE 2 END, updated, id",
+                      (device,) if shared else ()).fetchall()
+
+
+def eviction_token(current, session):
+    """A stale-view guard, not an authentication credential or lifecycle event."""
+    return hashlib.sha256(dumps([current['config']['ownerId'], current['generation'],
+                                 session['identity'], session.get('generation', 0), session['turn']]).encode()).hexdigest()
+
+
+def evict(db, device, payload):
+    if (set(payload) != {'id','evictionToken'} or not isinstance(payload['id'], str)
+            or not isinstance(payload['evictionToken'], str) or not selected(db)):
+        raise ValueError('Invalid eviction.')
+    current = state(db)
+    tasks = presented(current['envelope']['snapshot']) if current['envelope'] else {}
+    key = payload['id']
+    if (key not in tasks or payload['evictionToken'] != eviction_token(current, tasks[key][0])
+            or not db.execute('SELECT 1 FROM sessions WHERE id=?', (key,)).fetchone()):
+        raise ValueError('Task changed. Refresh before evicting.')
+    db.execute('INSERT OR REPLACE INTO shared_evictions VALUES (?,?,?)', (key,device,payload['evictionToken']))
+    for table in ('slots','comets'):
+        db.execute('DELETE FROM '+table+' WHERE session=? AND device=?', (key,device))
+
+
 def configure(directory, bridge, config):
     config = validate_config(config)
     with contextlib.closing(bridge.connect_state(directory)) as db, db:
@@ -253,6 +284,7 @@ def configure(directory, bridge, config):
             raise FeedError('acknowledgment-pending-use-explicit-retry')
         db.execute('UPDATE shared_input SET config=?,generation=generation+1,envelope=NULL,received=NULL,connection=\'unavailable\',error=NULL WHERE id=1', (dumps(config),))
         db.execute('DELETE FROM shared_ack')
+        db.execute('DELETE FROM shared_evictions')
 
 
 def source_config(directory, bridge):
@@ -363,6 +395,7 @@ def select_source(directory, bridge, source, fetch=fetch_snapshot, now=time.time
             db.execute('INSERT INTO shared_stale SELECT id FROM sessions')
             db.execute("UPDATE shared_input SET source='legacy',generation=generation+1,connection='unavailable',error=NULL WHERE id=1")
         db.execute('DELETE FROM shared_suppressed_waves')
+        db.execute('DELETE FROM shared_evictions')
         # Switching the task source resets every device's comets and display cache.
         db.execute('DELETE FROM display_v3')
         bridge.mark_dirty(db)
@@ -425,7 +458,8 @@ def _supporters(session, children, status, retained=False):
 def _forget_task(db, key):
     for table,column in (('sessions','id'),('activity','session'),('task_info','session'),
                          ('comets','session'),('slots','session'),('waits','session'),
-                         ('receipts','session'),('shared_stale','session'),('shared_suppressed_waves','session')):
+                         ('receipts','session'),('shared_stale','session'),('shared_suppressed_waves','session'),
+                         ('shared_evictions','session')):
         db.execute('DELETE FROM '+table+' WHERE '+column+'=?',(key,))
 
 
@@ -447,6 +481,8 @@ def _project(db, bridge, envelope, config, instant, resync=False, targets=(DEFAU
         status = semantic_status(session, config['consumerId'], children)
         if orphan and status not in ALERTS: continue
         live.add(key)
+        token = eviction_token(current, session)
+        db.execute('DELETE FROM shared_evictions WHERE session=? AND token!=?', (key,token))
         recreated=key in prior and session['generation']!=prior[key].get('generation',0)
         if recreated:
             _forget_task(db,key)
@@ -505,7 +541,8 @@ def _project(db, bridge, envelope, config, instant, resync=False, targets=(DEFAU
             old_notices = {n['id'] for n in prior[key]['notices']}
             if any(n['id'] not in old_notices and config['consumerId'] not in n['acknowledgedBy'] for n in session['notices']):
                 for device in targets:
-                    if bridge.control_state(db, device)['mode'] == 'work':
+                    if (bridge.control_state(db, device)['mode'] == 'work'
+                            and not db.execute('SELECT 1 FROM shared_evictions WHERE session=? AND device=?', (key,device)).fetchone()):
                         db.execute('INSERT OR IGNORE INTO comets (session,turn,queued,source,started,device) VALUES (?,?,?,NULL,NULL,?)', (key,turn,instant,device))
         project = 'shared-project-' + session['projectId'] if session.get('projectId') else None
         if project:
@@ -584,7 +621,7 @@ def inspect(directory, now=time.time):
 
 def render_config(db, config):
     device = config.get('device', DEFAULT_DEVICE)
-    config['_steady_slots'] = [slot for (slot,) in db.execute('SELECT slot FROM slots JOIN shared_stale ON slots.session=shared_stale.session WHERE slots.device=?', (device,))]
+    config['_steady_slots'] = [slot for (slot,) in db.execute("SELECT slot FROM slots JOIN sessions ON sessions.id=slots.session WHERE slots.device=? AND (sessions.status='idle' OR EXISTS (SELECT 1 FROM shared_stale WHERE shared_stale.session=slots.session))", (device,))]
     config['_wave_suppressed_slots'] = [slot for (slot,) in db.execute('SELECT slot FROM slots JOIN shared_suppressed_waves USING (session) JOIN activity USING (session) WHERE epoch=started AND slots.device=?', (device,))]
     row = db.execute("SELECT value FROM meta WHERE key='shared_wave_cutoff'").fetchone()
     if row: config['_wave_cutoff'] = max(config.get('_wave_cutoff',float('-inf')),float(row[0]))

@@ -662,6 +662,123 @@ class ChildSessionTest(SelectionTest):
         lines = {'100:101': 100, '102:103': 102, None: None}
         return {task['id']: (task['status'], lines[task['line']], task['statusEvidence']) for task in tasks}
 
+    def test_read_task_keeps_row_and_line_until_owner_removes_it(self):
+        self.select(self.value)
+        self.assertEqual(self.tasks(1000)[self.key][:2], ('unread', 100))
+        self.root['read'] = 'read'; self.advance(1001)
+        self.assertEqual(self.tasks(1001)[self.key][:2], ('idle', 100))
+        with contextlib.closing(b.connect_state(self.path)) as db, db:
+            snap = b.dashboard(db, self.LAYOUT, 1001)
+            config = copy.deepcopy(self.LAYOUT)
+            self.s.render_config(db, config)
+            for instant in (1001.2, 1002.6):
+                self.assertEqual(b.zone_color(config, snap, 0, 0, instant, [[0, 1], [1, 0]]), b.BASELINE)
+        self.assertEqual(self.rows('SELECT session FROM comets'), [])
+        self.value['snapshot']['sessions'] = []; self.value['snapshot']['revision'] += 1
+        self.s.accept(self.path, b, self.value, now=lambda:1003)
+        self.assertEqual(self.tasks(1003), {})
+        self.assertEqual(self.rows('SELECT session FROM slots'), [])
+
+    def wall_app(self, device='wall'):
+        import wall_server
+        return wall_server.App(self.path, b, config=dict(self.LAYOUT, device=device), launch=lambda _:None)
+
+    def test_eviction_is_device_local_and_survives_read_reconnect_and_restart(self):
+        self.select(self.value)
+        app = self.wall_app(); other = self.wall_app('panels')
+        self.tasks(1000)
+        with contextlib.closing(b.connect_state(self.path)) as db, db:
+            b.dashboard(db, dict(self.LAYOUT, device='panels'), 1000)
+            for device in ('wall', 'panels'):
+                db.execute('INSERT INTO comets (session,turn,queued,source,started,device) VALUES (?,?,?,?,?,?)',
+                           (self.key, self.root['turn']['id'], 1000, 0, 1000, device))
+        before = copy.deepcopy(self.s.source_config(self.path,b)['envelope'])
+        task = app.state()['tasks'][0]
+        payload = {'id':task['id'], 'evictionToken':task['evictionToken']}
+        with patch.object(self.s, 'request', side_effect=AssertionError('Evict must not write to the shared owner')):
+            app.update('/api/evict', payload)
+            app.update('/api/evict', payload)
+        self.assertEqual(app.state()['tasks'], [])
+        self.assertEqual(self.tasks(1000), {})
+        self.assertEqual(self.s.source_config(self.path,b)['envelope'], before)
+        self.assertEqual(self.rows('SELECT device FROM slots'), [('panels',)])
+        self.assertEqual(self.rows('SELECT device FROM comets'), [('panels',)])
+        self.assertEqual(len(other.state()['tasks']), 1)
+        self.root['read'] = 'read'; self.advance(1001)
+        generation = self.s.source_config(self.path,b)['generation']
+        self.s.failed(self.path,b,generation)
+        self.advance(1002, resync=True)
+        self.assertEqual(self.wall_app().state()['tasks'], [], 'Saved eviction survives a new App/database connection')
+        self.assertEqual(self.tasks(1002), {})
+        self.assertEqual(self.rows('SELECT id FROM sessions'), [(self.key,)])
+        self.root['turn'] = {'status':'known','id':'next-turn'}
+        self.root['activity'] = 'active'; self.root['notices'] = []; self.advance(1003)
+        self.assertEqual(self.tasks(1003)[self.key][:2], ('working', 100))
+        with self.assertRaises(ValueError): app.update('/api/evict', payload)
+        self.assertEqual(self.tasks(1003)[self.key][:2], ('working', 100))
+
+    def test_eviction_does_not_hide_a_recreated_generation_or_peer(self):
+        peer = copy.deepcopy(self.root); peer['identity']['sessionId']='peer'
+        self.value['snapshot']['sessions'].append(peer)
+        self.select(self.value); self.tasks(1000)
+        app = self.wall_app()
+        task = next(task for task in app.state()['tasks'] if task['id']==self.key)
+        payload = {'id':self.key, 'evictionToken':task['evictionToken']}
+        app.update('/api/evict',payload)
+        self.assertEqual(len(self.tasks(1000)),1)
+        self.root['generation']=self.value['snapshot']['revision']+1
+        self.advance(1001,resync=True)
+        self.assertEqual(len(self.tasks(1001)),2)
+        self.assertIn(self.key,self.tasks(1001))
+        self.assertEqual(self.rows('SELECT session FROM comets'),[])
+        with self.assertRaises(ValueError): app.update('/api/evict',payload)
+        self.assertEqual(len(self.tasks(1001)),2)
+
+    def test_eviction_http_requires_origin_token_and_current_task(self):
+        import http.client
+        import wall_server
+        self.select(self.value); app=self.wall_app()
+        task=app.state()['tasks'][0]
+        payload={'id':task['id'],'evictionToken':task['evictionToken']}
+        server=ThreadingHTTPServer(('127.0.0.1',0),wall_server.handler(app,'test-secret'));server.app=app
+        self.addCleanup(server.server_close);self.addCleanup(server.shutdown)
+        thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+        origin=f'http://127.0.0.1:{server.server_port}'
+        def post(body,headers):
+            connection=http.client.HTTPConnection('127.0.0.1',server.server_port,timeout=2)
+            try:
+                connection.request('POST','/api/evict',json.dumps(body),{'Content-Type':'application/json',**headers})
+                response=connection.getresponse();response.read();return response.status
+            finally: connection.close()
+        good={'Origin':origin,'X-Wall-Token':'test-secret'}
+        for headers in ({},dict(good,Origin='https://example.com'),dict(good,**{'X-Wall-Token':'bad'})):
+            self.assertEqual(post(payload,headers),403)
+            self.assertEqual(len(app.state()['tasks']),1)
+        self.assertEqual(post(dict(payload,evictionToken='old'),good),400)
+        self.assertEqual(post(dict(payload,device='panels'),good),400)
+        self.assertEqual(post(payload,good),200)
+        self.assertEqual(app.state()['tasks'],[])
+
+    def test_eviction_unknown_turn_and_source_selection_do_not_replay(self):
+        self.root['turn']={'status':'unknown'}
+        self.select(self.value);app=self.wall_app();task=app.state()['tasks'][0]
+        payload={'id':task['id'],'evictionToken':task['evictionToken']}
+        app.update('/api/evict',payload)
+        self.root['activity']='active';self.advance(1001)
+        self.root['activity']='idle';self.root['read']='read';self.advance(1002)
+        self.assertEqual(self.tasks(1002),{})
+        self.s.select_source(self.path,b,'legacy',now=lambda:1003)
+        self.assertNotIn('evictionToken',app.state()['tasks'][0])
+        with self.assertRaises(ValueError): app.update('/api/evict',payload)
+        self.s.select_source(self.path,b,'shared',fetch=lambda *_,**kwargs:self.value,now=lambda:1004)
+        with self.assertRaises(ValueError): app.update('/api/evict',payload)
+        self.assertIn(self.key,self.tasks(1004))
+        task=app.state()['tasks'][0]
+        app.update('/api/evict',{'id':task['id'],'evictionToken':task['evictionToken']})
+        self.value['snapshot']['sessions']=[];self.value['snapshot']['revision']+=1
+        self.s.accept(self.path,b,self.value,now=lambda:1005)
+        self.assertEqual(self.rows('SELECT session FROM shared_evictions'),[])
+
     def test_subagent_children_are_part_of_their_parent_task(self):
         sessions = self.value['snapshot']['sessions']
         sessions += [child_of(self.root, 'child-1'), child_of(self.root, 'child-2')]
@@ -676,12 +793,12 @@ class ChildSessionTest(SelectionTest):
         self.value['snapshot']['sessions'].append(child_of(self.root, 'child', attention=('approval',)))
         self.select(recount(self.value))
         self.assertEqual(self.tasks(1000), {self.key: ('blocked', 100, 'current')})
-        for attention, activity, expected in (((), 'active', 'working'), (('question',), 'idle', 'question'), ((), 'idle', None)):
+        for attention, activity, expected in (((), 'active', 'working'), (('question',), 'idle', 'question'), ((), 'idle', 'idle')):
             with self.subTest(expected=expected):
                 self.value['snapshot']['sessions'][1] = child_of(self.root, 'child', activity=activity, attention=attention)
                 self.advance(1001)
                 self.assertEqual(self.rows('SELECT id FROM sessions'), [(self.key,)])
-                self.assertEqual({k: v[0] for k, v in self.tasks(1001).items()}, {self.key: expected} if expected else {})
+                self.assertEqual({k: v[0] for k, v in self.tasks(1001).items()}, {self.key: expected})
 
     def test_current_child_evidence_is_not_frozen_by_an_uncertain_parent(self):
         self.root['activity'] = 'active'; self.select(recount(self.value))
@@ -731,10 +848,10 @@ class ChildSessionTest(SelectionTest):
         self.root['notices'][0]['acknowledgedBy'].append('nanoleaf')
         self.value['snapshot']['sessions'].append(orphan)
         self.select(recount(self.value))
-        self.assertEqual(self.tasks(1000), {orphan_key: ('blocked', 100, 'current')})
+        self.assertEqual(self.tasks(1000), {self.key: ('idle', 100, 'current'), orphan_key: ('blocked', 102, 'current')})
         self.value['snapshot']['sessions'][1] = child_of(missing, 'orphan', activity='active')
         self.advance(1001)
-        self.assertEqual(self.tasks(1001), {})
+        self.assertEqual(self.tasks(1001), {self.key: ('idle', 100, 'current')})
         self.assertEqual(self.rows('SELECT id FROM sessions'), [(self.key,)])
 
     def test_notice_lifecycle_follows_documented_count_and_allocation(self):
@@ -743,7 +860,7 @@ class ChildSessionTest(SelectionTest):
         # A genuine completion notice stays unread; the child's unknown-turn notice never counts.
         self.assertEqual(self.tasks(1000), {self.key: ('unread', 100, 'current')})
         self.root['read'] = 'read'; self.advance(1001)
-        self.assertEqual(self.tasks(1001), {})
+        self.assertEqual(self.tasks(1001), {self.key: ('idle', 100, 'current')})
         self.root['read'] = 'unknown'; self.advance(1002)
         self.assertEqual(self.tasks(1002), {self.key: ('unread', 100, 'current')})
         # A new turn: under clearOnNewTurn the owner acknowledges the still-unread notice for this consumer.
@@ -769,9 +886,9 @@ class ChildSessionTest(SelectionTest):
         self.assertEqual(self.tasks(1006), {self.key: ('unread', 100, 'current')})
         self.assertEqual(self.rows('SELECT started FROM activity'), epoch)
         self.assertEqual(self.rows('SELECT session FROM comets'), [])
-        # Explicit acknowledgment of the exact notice for this consumer releases the task and its Line.
+        # Explicit acknowledgment of the exact notice for this consumer clears the unread pulse while retaining the task and Line.
         self.root['notices'][1]['acknowledgedBy'].append('nanoleaf'); self.advance(1007)
-        self.assertEqual(self.tasks(1007), {})
+        self.assertEqual(self.tasks(1007), {self.key: ('idle', 100, 'current')})
 
     def test_resolved_child_alert_clears_under_an_uncertain_parent(self):
         self.root['activity'] = 'active'; self.select(recount(self.value))
@@ -835,7 +952,7 @@ class ChildSessionTest(SelectionTest):
         # task follows the parent's current evidence, as the owner's counts and Tidbyt do.
         self.value['snapshot']['sessions'][1] = child_of(self.root, 'child', activity='active', fresh=False)
         self.advance(1001)
-        self.assertEqual(self.tasks(1001), {})
+        self.assertEqual(self.tasks(1001), {self.key: ('idle', 100, 'current')})
         # The parent's own turns show normally under the silent subagent.
         self.root['turn'] = {'status': 'known', 'id': 'turn-2'}; self.root['activity'] = 'active'; self.advance(1002)
         self.assertEqual(self.tasks(1002), {self.key: ('working', 100, 'current')})
@@ -856,7 +973,7 @@ class ChildSessionTest(SelectionTest):
         self.root['freshness'] = 'uncertain'; self.root['restartUncertain'] = True; self.advance(1001)
         self.assertEqual(self.tasks(1001), {self.key: ('unread', 100, 'uncertain')})
         self.root['read'] = 'read'; self.advance(1002)
-        self.assertEqual(self.tasks(1002), {})
+        self.assertEqual(self.tasks(1002), {self.key: ('idle', 100, 'uncertain')})
 
     def test_silent_subagent_clears_when_it_returns_idle_under_an_uncertain_parent(self):
         self.root['notices'][0]['acknowledgedBy'].append('nanoleaf')
@@ -870,10 +987,10 @@ class ChildSessionTest(SelectionTest):
         self.assertEqual(self.tasks(1001), {self.key: ('working', 100, 'uncertain')})
         self.advance(1002)
         self.assertEqual(self.tasks(1002), {self.key: ('working', 100, 'uncertain')})
-        # The subagent's current evidence that it finished releases the task and its Line.
+        # The subagent's current evidence that it finished clears working while retaining the idle task and its Line.
         self.value['snapshot']['sessions'][1] = child_of(self.root, 'child')
         self.advance(1003)
-        self.assertEqual(self.tasks(1003), {})
+        self.assertEqual(self.tasks(1003), {self.key: ('idle', 100, 'uncertain')})
 
     def test_owner_recovery_clears_an_uncertain_child_approval(self):
         self.root['freshness'] = 'uncertain'; self.root['restartUncertain'] = True
@@ -898,7 +1015,7 @@ class ChildSessionTest(SelectionTest):
         unsure['unavailable'].append({'kind': 'evidence.unavailable', 'dimension': 'parent', 'reason': 'ambiguous'})
         self.value['snapshot']['sessions'][2] = unsure
         self.advance(1002)
-        self.assertEqual(self.tasks(1002), {self.s.identity_key(unsure['identity']): ('unread', 100, 'current')})
+        self.assertEqual(self.tasks(1002), {self.key: ('idle', 100, 'current'), self.s.identity_key(unsure['identity']): ('unread', 102, 'current')})
 
     def test_grouping_does_not_depend_on_snapshot_order(self):
         missing = copy.deepcopy(self.root); missing['identity']['sessionId'] = 'gone'
@@ -986,7 +1103,7 @@ class StaleReadEvidenceTest(SelectionTest):
         self.change(self.stale_unread(), 1002, lambda session: session.update(activity='active', read='read'))
         self.assertEqual(self.rows('SELECT status FROM sessions'), [('unread',)])
 
-    def test_a_cleared_stale_task_releases_its_line_to_a_waiting_task(self):
+    def test_a_read_stale_task_keeps_its_line_until_evicted(self):
         def line_holders(instant):
             with contextlib.closing(b.connect_state(self.path)) as db, db:
                 b.dashboard(db, self.LAYOUT, instant)
@@ -1000,4 +1117,9 @@ class StaleReadEvidenceTest(SelectionTest):
         self.s.accept(self.path, b, value, now=lambda: 1002)
         self.assertEqual(line_holders(1002), [(stale_key,)])
         self.change(value, 1003, lambda session: session.update(read='read'))
-        self.assertEqual(line_holders(1003), [(self.s.identity_key(waiting['identity']),)])
+        self.assertEqual(line_holders(1003), [(stale_key,)])
+        import wall_server
+        app=wall_server.App(self.path,b,config=self.LAYOUT,launch=lambda _:None)
+        task=next(task for task in app.state()['tasks'] if task['id']==stale_key)
+        app.update('/api/evict',{'id':stale_key,'evictionToken':task['evictionToken']})
+        self.assertEqual(line_holders(1004), [(self.s.identity_key(waiting['identity']),)])

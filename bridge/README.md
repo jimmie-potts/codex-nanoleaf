@@ -67,6 +67,8 @@ rather than adopting that level as the remembered brightness. The backup include
 snapshot and copies of the credentials, layout, and scene preference for recovery.
 
 
+The following read/Line-release policy describes legacy input; [shared input](../docs/shared-input.md#retained-idle-tasks-and-evict) retains idle tasks until owner removal or local eviction.
+
 Unused Lines stay blue while task indicators are showing. Each task keeps an assigned Line while it is active or
 has an unread completion. That Line stays in the task's status color as its
 brightness pulses. In Classic layout, both lighting zones of a physical Line receive the same animation.
@@ -593,11 +595,14 @@ PR; source checks do not establish installed or physical-light acceptance.
 The [shared input guide](../docs/shared-input.md) describes explicit legacy/shared selection,
 steady stale indicators, clear-on-new-turn notices and rollback. Its
 [specification](../openspec/specs/shared-session-consumer/spec.md) owns shared-mode additions;
-the legacy task, mode, allocation and scene rules above remain unchanged.
+the legacy task, mode, allocation and scene rules above remain unchanged. Shared
+idle tasks retain their wall row and assigned Line, and task details offer
+device-local **Evict task**; see the shared input guide for persistence and
+re-admission limits.
 An explicit shared-owner recovery can retire an uncertain unknown-ID approval;
 the next owner revision clears its frozen red status while the map still reports
 uncertain evidence. Owner read evidence or full acknowledgment likewise clears a
-stale unread task and frees its Line. This does not act on Codex permissions or installed lights.
+stale unread pulse while retaining the idle row and Line. This does not act on Codex permissions; the existing worker renders the state.
 Subagent sessions count as part of their parent task rather than as separate
 unread tasks. The guide lists how a retained notice clears.
 

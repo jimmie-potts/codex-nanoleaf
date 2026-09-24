@@ -182,21 +182,21 @@ def pixel_color(snapshot, target, instant, delays, wave_cutoff=float('-inf')):
         status, epoch = activity
         age = instant - epoch
         if source != target:
-            if status == 'unread' or epoch <= wave_cutoff:
+            if status in ('unread', 'idle') or epoch <= wave_cutoff:
                 continue
             age -= delays[source][target]
             if not 0 <= age < RADIATING_PULSES * PULSE_SECONDS:
                 continue
-        amplitude = pulse_amplitude(age)
+        amplitude = 1 if status == 'idle' else pulse_amplitude(age)
         # An assigned Line keeps its status hue even between flashes. Other
         # Lines receive that hue only while the initial wave passes them.
         if source == target or amplitude > 0.001:
-            candidates.append((PRIORITY[status], amplitude, status))
+            candidates.append((PRIORITY.get(status, 0), amplitude, status))
     if not candidates:
         return BASELINE
     _, amount, status = max(candidates)
     brightness = MIN_BRIGHTNESS + (1 - MIN_BRIGHTNESS) * amount
-    return tuple(round(color * brightness) for color in COLORS[status])
+    return tuple(round(color * brightness) for color in COLORS.get(status, BASELINE))
 
 
 def comet_color(config, snapshot, target, instant, delays, base):
@@ -227,7 +227,7 @@ def comet_color(config, snapshot, target, instant, delays, base):
 
 def introduction_ends(snapshot):
     return max((epoch + (RADIATING_PULSES - 0.5) * PULSE_SECONDS + TRAVEL_SECONDS
-                for activity in snapshot if activity and activity[0] != 'unread' for _, epoch in [activity]), default=0)
+                for activity in snapshot if activity and activity[0] not in ('unread', 'idle') for _, epoch in [activity]), default=0)
 
 
 def unread_reader(config):
@@ -303,7 +303,7 @@ def zone_color(config, snapshot, index, half, instant, delays):
     snapshot = [None if i in suppressed and i != index else item for i,item in enumerate(snapshot)]
     activity = snapshot[index]
     steady = index in config.get('_steady_slots', ())
-    base = (COLORS[activity[0]] if activity else BASELINE) if quiet or steady else pixel_color(
+    base = (COLORS.get(activity[0], BASELINE) if activity else BASELINE) if quiet or steady else pixel_color(
         snapshot, index, instant, delays, config.get('_wave_cutoff', float('-inf')))
     signature = None
     # Project/status halves need a two-zone Line; one-zone triangles always show status.
@@ -317,12 +317,12 @@ def zone_color(config, snapshot, index, half, instant, delays):
         if not quiet and not steady and config.get('_coverage') == 'whole':
             candidates = []
             for source, item in enumerate(snapshot):
-                if not item or item[0] == 'unread' or item[1] <= config.get('_wave_cutoff', float('-inf')): continue
+                if not item or item[0] in ('unread', 'idle') or item[1] <= config.get('_wave_cutoff', float('-inf')): continue
                 age = instant - item[1] - (delays[source][index] if source != index else 0)
                 if not 0 <= age < PULSE_SECONDS: continue
                 amount = pulse_amplitude(age)
                 if amount <= .001: continue
-                if activity and PRIORITY[activity[0]] > PRIORITY[item[0]]: continue
+                if activity and PRIORITY.get(activity[0], 0) > PRIORITY[item[0]]: continue
                 candidates.append((PRIORITY[item[0]], amount, item[0]))
             if candidates:
                 _, amount, status = max(candidates)
@@ -701,8 +701,7 @@ def transition(db, event, now, targets=(devices.DEFAULT,)):
 
 
 def dashboard(db, config, instant):
-    rows = db.execute("SELECT id,turn,status FROM sessions WHERE status IN ('working','question','blocked','unread') "
-                      "ORDER BY CASE status WHEN 'blocked' THEN 0 WHEN 'question' THEN 1 ELSE 2 END, updated, id").fetchall()
+    rows = shared_input.visible_tasks(db, devices.device_of(config))
     active = {row[0] for row in rows}
     db.execute('DELETE FROM slots WHERE session NOT IN (SELECT id FROM sessions)')
     count = len(config['line_groups'])
