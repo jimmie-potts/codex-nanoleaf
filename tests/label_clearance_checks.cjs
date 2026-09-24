@@ -1,5 +1,6 @@
 'use strict';
 const assert=require('node:assert/strict');
+const options=require('./wall_options.cjs');
 
 // Issue #26: labels are a browser-local identification layer. This module
 // measures rendered DOM geometry independently of the placement solver.
@@ -61,7 +62,7 @@ module.exports=async function(page){
   try{
     await first.dispatchEvent('pointerdown',{pointerType:'touch',isPrimary:true});await first.dispatchEvent('click',{pointerType:'touch'});
     assert.equal(await tag.isVisible(),true,'Touch selection keeps the number visible after the gesture.');
-    await page.locator('#showNumbers').click();
+    await options.open(page);await page.locator('#showNumbers').click();
     assert.equal(await page.locator('#showNumbers').getAttribute('aria-pressed'),'true');
     assert.equal(await page.evaluate(()=>localStorage.getItem('wall.numbers.showAll')),'1','Show-all preference stays browser-local.');
     assert.equal(await page.locator('.number-tag:visible').count(),15,'Show-all reveals all saved numbers.');
@@ -118,9 +119,9 @@ module.exports=async function(page){
       });
       assert.equal(measured.labels,15);assert.deepEqual(measured.failures,[],`${width}px rotation ${rotation} flip ${flipX}/${flipY}`);
       const key=[width,rotation,flipX,flipY].join(':');stable.set(key,measured.transforms);
-      await page.locator('#showNumbers').click();await first.focus();await page.evaluate(value=>prism.setHighlights([value]),id);await settle();
+      await options.open(page);await page.locator('#showNumbers').click();await first.focus();await page.evaluate(value=>prism.setHighlights([value]),id);await settle();
       assert.deepEqual(await page.locator('.number-tag').evaluateAll(nodes=>Object.fromEntries(nodes.map(node=>[node.dataset.lineId,node.getAttribute('transform')]))),stable.get(key),'Visibility reasons do not move labels.');
-      await page.evaluate(()=>prism.setHighlights([]));await page.locator('#selectionTitle').focus();await page.locator('#showNumbers').click();
+      await page.evaluate(()=>prism.setHighlights([]));await page.locator('#selectionTitle').focus();await options.open(page);await page.locator('#showNumbers').click();
     }
   }finally{await page.unroute('**/api/state',route);await page.evaluate(()=>{try{localStorage.removeItem('wall.numbers.showAll')}catch{}});await refresh()}
   console.log('Label clearance: 720 DOM labels across 48 canvas/transform cases passed independent hit, text, body, ring, connector, and edge checks.');

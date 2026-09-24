@@ -103,17 +103,18 @@ cores, and diffuse light around the crystal. It uses local system fonts and
 updates task state once a second. In Work, each Line carrying a task sends light
 from both connectors toward a brief center spark on a shared two-second cycle.
 Idle Lines stay steady. Quiet lowers the glow and stops travel; Free dims and
-desaturates the wall. The toolbar readout names the mode, Lines, tasks, alerts,
-and pending edits.
+desaturates the wall. The toolbar readout names the mode, pending edits and the
+blocked and question alerts; the wall heading counts Lines and the Tasks heading
+counts tasks.
 
 The tubes meet the flat faces of hexagonal connectors. Opening assembly ejects
 tubes from the most-connected hub, rotates the hub with its structure, and then
 extends outward. Arriving connectors grow from the Line tips and unfold six
 permanent inner-border sections. The finished artwork uses the same components
-as the moving structure. **Replay assembly** repeats the two-second sequence.
-The **Playback** menu keeps opening and map-entry preferences separately in the
-browser. Interaction completes assembly before performing the action. Reduced
-motion skips assembly and traveling light, and a geometry change or connection
+as the moving structure. **Replay assembly** repeats the two-second sequence,
+and the **Play on opening** and **Play on view entry** checkboxes keep those
+preferences separately in the browser. Interaction completes assembly before
+performing the action. Reduced motion skips assembly and traveling light, and a geometry change or connection
 failure ends assembly immediately. A future view can call
 `wallAssembly.play('entry')`, which honors the entry preference. The
 [wall assembly specification](../openspec/specs/wall-assembly-animation/spec.md)
@@ -127,12 +128,26 @@ owns project visibility, activity ordering, saved-project access, and color edit
 Use **Show saved projects** in the left column to find a project without current
 tasks or change its saved color.
 
+**Options** above the wall holds the secondary map controls in three labelled
+groups: Numbers (**Show all numbers**), Orientation (**Rotate**, **Flip H** and
+**Flip V**) and Assembly (**Replay assembly** and the two playback preferences).
+Enter or Space opens it, Escape closes it and returns focus to Options, and a
+press elsewhere closes it. Opening the menu or toggling a browser-local
+preference sends no request; Rotate and Flip keep saving through the existing
+settings request. The mode, connection state, pending edits and alerts stay
+visible without opening it, and the selection card carries the only selection
+hint. The
+[wall map hierarchy specification](../openspec/specs/wall-map-hierarchy/spec.md)
+owns the default screen and this menu.
+
 The inspector initially shows up to one task per Line on the selected device,
 ordered by status: blocked, question, working, then unread. Selecting a task
 highlights it without moving it. The two-column desktop grid puts the current
 wall's 15 tasks above the selection details so they can be seen without
 scrolling. Compact titles shorten to fit; select a task or hover its title to
-read it in full. Counts cover all retained tasks. Use **Show all tasks** to
+read it in full. The Tasks heading carries the retained total; the lines below
+give the status breakdown, the waiting count and how many rows are shown. Use
+**Show all tasks** to
 filter by status or waiting placement, or search by title, project, or task ID.
 **Show selected tasks** reveals a selection excluded by the current filter or
 the compact limit. Waiting tasks share this single list; the waiting count
@@ -547,8 +562,8 @@ status colors, selection, and polling. Invalid connector data retains the last
 valid Prism shape; without one, the standard Line map remains available with a
 notice. Neutral luminous numbers appear for selected, highlighted, hovered or
 keyboard-focused Lines. Each reason independently keeps its number visible.
-Touch selection retains its number. **Show all numbers** reveals every number;
-**Hide idle numbers** restores conditional visibility. This display preference is
+Touch selection retains its number. **Show all numbers**, in the Options menu,
+reveals every number; **Hide idle numbers** restores conditional visibility. This display preference is
 off by default and stays in this browser. It does not send a bridge request.
 
 `prism-labels.js` places all numbers together against final screen geometry,

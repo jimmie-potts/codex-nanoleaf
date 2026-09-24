@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict');
+const options = require('./wall_options.cjs');
 
 /*
  * Prism assembly acceptance contract.
@@ -47,11 +48,13 @@ module.exports = async function(page, root) {
   };
   const setPref = async (id, on) => {
     if (await page.locator('#' + id).isChecked() === on) return;
-    if (!await page.locator('.assembly-prefs').evaluate(node => node.open)) await page.locator('.assembly-prefs > summary').click();
+    await options.open(page);
     await page.locator('#' + id).click();
     assert.equal(await page.locator('#' + id).isChecked(), on, `${id} toggles with a pointer click`);
     await page.keyboard.press('Escape');
   };
+  // Replay lives in the Options menu; close it again so raw pointer checks reach the wall.
+  const replay = async () => {await options.open(page); await page.locator('#replay').click(); await options.close(page)};
   const finalGeometry = () => page.evaluate(() => ({
     progress: wallAssembly.snapshot().progress,
     roots: [...document.querySelectorAll('#wall [data-root]')].map(node => node.getAttribute('transform')),
@@ -145,7 +148,7 @@ module.exports = async function(page, root) {
   });
 
   await check('Replay lasts two seconds and begins one fresh flow epoch at completion', async () => {
-    await page.locator('#replay').click();
+    await replay();
     await page.waitForFunction(() => wallAssembly.snapshot().playing);
     const start = await page.evaluate(() => performance.now());
     await untilIdle();
@@ -170,7 +173,7 @@ module.exports = async function(page, root) {
     await page.reload(); await page.waitForSelector('#wall.prism-scene .wall-line[data-line]'); await page.waitForTimeout(250);
     assert.equal((await snapshot()).playing, false, 'Opening disabled lands immediately on the final wall');
     assert.equal((await snapshot()).progress, 1);
-    await page.locator('#replay').click();
+    await replay();
     assert.equal((await snapshot()).playing, true, 'Replay remains available when opening playback is disabled');
     await untilIdle();
 
@@ -211,7 +214,7 @@ module.exports = async function(page, root) {
   await check('Quiet settles steady and reduced motion skips every assembly path', async () => {
     await page.evaluate(() => action('/api/mode', {mode: 'quiet'}));
     await page.waitForFunction(() => state.mode === 'quiet');
-    await page.locator('#replay').click();
+    await replay();
     assert.equal((await snapshot()).playing, true, 'Quiet may show the mechanical assembly');
     await untilIdle();
     const quiet = await snapshot();
@@ -222,7 +225,7 @@ module.exports = async function(page, root) {
     await page.waitForFunction(() => state.mode === 'work');
     await page.emulateMedia({reducedMotion: 'reduce'});
     try {
-      await page.locator('#replay').click(); await settle();
+      await replay(); await settle();
       const reduced = await snapshot();
       assert.equal(reduced.reducedMotion, true);
       assert.equal(reduced.playing, false, 'Reduced motion skips Replay');
@@ -238,7 +241,7 @@ module.exports = async function(page, root) {
 
   await check('pointer and keyboard input finish assembly first and still execute the intended selection', async () => {
     const ids = await page.locator('#wall .wall-line[data-line]').evaluateAll(nodes => nodes.map(node => node.dataset.line));
-    await page.locator('#replay').click(); await waitProgress(.05, .35);
+    await replay(); await waitProgress(.05, .35);
     const pointerTarget = page.locator(`#wall .wall-line[data-line="${ids[3]}"]`);
     const box = await pointerTarget.boundingBox();
     assert.ok(box && box.width > 0 && box.height > 0, 'The static hit layer has a pointer target during assembly');
@@ -252,16 +255,16 @@ module.exports = async function(page, root) {
     assert.equal(await page.locator(`#wall .wall-line[data-line="${ids[3]}"]`).getAttribute('aria-pressed'), 'true', 'The held click still selects its intended Line');
     await page.locator('#clear').click();
 
-    await page.locator('#replay').click(); await waitProgress(.05, .35);
+    await replay(); await waitProgress(.05, .35);
     await page.locator(`#wall .wall-line[data-line="${ids[4]}"]`).focus();
     await page.keyboard.press('Enter');
     assert.equal((await snapshot()).playing, false, 'Keyboard activation commits assembly');
     assert.equal(await page.locator(`#wall .wall-line[data-line="${ids[4]}"]`).getAttribute('aria-pressed'), 'true', 'Enter still selects its intended Line');
     await page.locator('#clear').click();
 
-    await page.locator('#replay').click(); await page.waitForTimeout(120);
+    await replay(); await page.waitForTimeout(120);
     const before = (await snapshot()).progress;
-    await page.locator('#replay').click(); await page.locator('#replay').click(); await page.waitForTimeout(120);
+    await replay(); await replay(); await page.waitForTimeout(120);
     assert.ok((await snapshot()).progress >= before, 'Repeated Replay never restarts or queues the active sequence');
     await untilIdle(); await page.waitForTimeout(350);
     assert.equal((await snapshot()).playing, false, 'No queued replay begins later');
@@ -272,7 +275,7 @@ module.exports = async function(page, root) {
     const renamed = structuredClone(original);
     renamed.tasks[0].title = 'Renamed during Prism assembly';
     const renamedRoute = request => request.fulfill({json: renamed});
-    await page.locator('#replay').click(); await page.waitForTimeout(100);
+    await replay(); await page.waitForTimeout(100);
     await page.route('**/api/state', renamedRoute);
     try {
       await refresh();
@@ -284,7 +287,7 @@ module.exports = async function(page, root) {
 
     const rotated = structuredClone(original); rotated.settings.rotation = (original.settings.rotation + 90) % 360;
     const rotatedRoute = request => request.fulfill({json: rotated});
-    await page.locator('#replay').click(); await page.route('**/api/state', rotatedRoute);
+    await replay(); await page.route('**/api/state', rotatedRoute);
     try {
       await refresh(); await settle();
       assert.equal((await snapshot()).playing, false, 'A geometry change commits assembly immediately');
@@ -292,7 +295,7 @@ module.exports = async function(page, root) {
     } finally { await page.unroute('**/api/state', rotatedRoute); await refresh(); }
 
     const failing = request => request.fulfill({status: 503, json: {error: 'Local map status unavailable. Retrying shortly.'}});
-    await page.locator('#replay').click(); await page.route('**/api/state', failing);
+    await replay(); await page.route('**/api/state', failing);
     try {
       await refresh(); await settle();
       assert.equal((await snapshot()).playing, false, 'A connection failure commits assembly');
@@ -348,7 +351,7 @@ module.exports = async function(page, root) {
     const record = request => { if (request.method() !== 'GET') writes.push(request.url()); };
     page.on('request', record);
     try {
-      await page.locator('#replay').click(); await page.waitForTimeout(180);
+      await replay(); await page.waitForTimeout(180);
       await page.evaluate(() => prism.finish('finish'));
       await setPref('assemblyOnEntry', false); await setPref('assemblyOnEntry', true);
       assert.deepEqual(writes, [], 'Passive Prism behavior does not cross the controller write boundary');

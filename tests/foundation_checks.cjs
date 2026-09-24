@@ -80,6 +80,7 @@ module.exports = async function(page, root) {
 
   });
   await check('AC7: number tags never overlap; Rotate and Flip stay on one row at 390px', async () => {
+  await require('./wall_options.cjs').open(page);
   if (await page.locator('#showNumbers').getAttribute('aria-pressed') !== 'true') await page.locator('#showNumbers').click();
   for (const width of [1440, 800, 390]) {
     await page.setViewportSize({width, height: width === 1440 ? 1000 : 844}); await settle();
@@ -95,6 +96,7 @@ module.exports = async function(page, root) {
   }
   const tops = await Promise.all(['#rotate', '#flipX', '#flipY'].map(async id => Math.round((await rect(id)).top)));
   assert.equal(new Set(tops).size, 1, 'Rotate, Flip H, and Flip V share one row at 390px');
+  await require('./wall_options.cjs').close(page);
 
   });
   await check('AC9: a rejected project override never lingers in the inspector select', async () => {

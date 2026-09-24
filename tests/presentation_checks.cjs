@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict');
+const options = require('./wall_options.cjs');
 
 /*
  * Prism presentation acceptance contract.
@@ -79,6 +80,7 @@ module.exports = async function(page, root) {
       activeAnimations: document.getElementById('wall').getAnimations({subtree: true}).filter(animation => animation.playState === 'running').length,
     };
   });
+  const replay = async () => {await options.open(page); await page.locator('#replay').click(); await options.close(page)};
   const firstBedOpacity = () => page.evaluate(() => {
     const edge = document.querySelector('#wall [data-edge]');
     return Math.max(...[...edge.querySelectorAll('[data-bed]')].map(node => +getComputedStyle(node).opacity));
@@ -225,7 +227,7 @@ module.exports = async function(page, root) {
     await setMode('work');
     await page.emulateMedia({reducedMotion: 'reduce'});
     try {
-      await page.locator('#replay').click(); await settle();
+      await replay(); await settle();
       const reduced = await wallMotion();
       assert.equal(reduced.snapshot.reducedMotion, true);
       assert.equal(reduced.snapshot.progress, 1, 'Replay lands immediately at the final structure');
@@ -303,9 +305,9 @@ module.exports = async function(page, root) {
       const ids = await page.locator('#wall .wall-line[data-line]').evaluateAll(nodes => nodes.map(node => node.dataset.line));
       await page.locator(`#wall .wall-line[data-line="${ids[2]}"]`).click();
       await page.locator(`#wall .wall-line[data-line="${ids[3]}"]`).click({modifiers: ['Control']});
-      await page.locator('#replay').click();
+      await replay();
       await page.evaluate(() => prism.finish('finish'));
-      if (!await page.locator('.assembly-prefs').evaluate(node => node.open)) await page.locator('.assembly-prefs > summary').click();
+      await options.open(page);
       await page.locator('#assemblyOnEntry').click(); await page.locator('#assemblyOnEntry').click();
       await page.keyboard.press('Escape');
       await page.waitForTimeout(250);
