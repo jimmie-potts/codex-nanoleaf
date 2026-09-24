@@ -184,8 +184,16 @@ class ProjectTest(unittest.TestCase):
                 self.assertEqual(response.status,200)
                 self.assertEqual(response.headers.get('Cache-Control'),'no-store')
                 snapshot=json.load(response)
+            # A display client may draw any preview locally; the worker receipt remains
+            # the last accepted device output and is not replaced by client-side frames.
+            on_screen_preview={'frames':[{'color':'#ff00ff','durationMs':500}]}
+            self.assertTrue(on_screen_preview['frames'])
+            with urlopen(url+'/api/rendering') as response:
+                after_preview=json.load(response)
         self.assertEqual(snapshot['outcome'],'last-sent')
         self.assertEqual(snapshot['lastSuccessful'],receipt)
+        self.assertEqual(after_preview['lastSuccessful'],receipt)
+        self.assertEqual(after_preview['outcome'],'last-sent')
         self.assertNotIn('PRIVATE_TEST_TOKEN',json.dumps(snapshot))
         self.assertEqual((self.query('SELECT * FROM line_prefs'),self.query('SELECT * FROM sessions'),
                           self.query('SELECT * FROM comets'),self.query('SELECT * FROM receipts')),before)
