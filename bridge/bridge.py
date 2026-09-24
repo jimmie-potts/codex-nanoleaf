@@ -886,7 +886,7 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
         # The caller's feed state survives a failed Lines pass, so a Lines outage does not turn
         # every later feed read into a resync that drops the other devices' comets and waves.
         feed = {} if feed is None else feed
-        poller = feed.setdefault('poller', shared_input.Poller(directory, projection)) if primary else None
+        poller = feed.setdefault('poller', shared_input.Poller(directory, projection, metadata=metadata)) if primary else None
         while True:
             if not primary and device not in registered_devices(directory):
                 return  # The device was removed; its instance stops without another request.

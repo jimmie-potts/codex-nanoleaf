@@ -80,6 +80,11 @@ def default_color(project_id):
     return '#'+''.join(f'{round(c*255):02x}' for c in colorsys.hsv_to_rgb(hue/360,.62,.95))
 
 
+def fallback_title(provider,session):
+    suffix=''.join(re.findall(r'[0-9a-fA-F]',session))[-8:] or session[-8:]
+    return {'codex':'Codex','claude':'Claude'}.get(provider,provider.title())+' '+suffix.lower()
+
+
 def record_event(db,event,instant):
     session=event.get('session_id')
     row=db.execute('SELECT turn FROM sessions WHERE id=?',(session,)).fetchone()
@@ -133,7 +138,7 @@ class Metadata:
                 self.stamps[path]=stamp
             except (OSError,ValueError,TypeError): pass
 
-    def sync(self,db):
+    def sync_catalog(self,db):
         before=db.total_changes
         for pid,p in self.data.get('local-projects',{}).items():
             if not isinstance(p,dict) or not isinstance(p.get('name'),str): continue
@@ -144,21 +149,28 @@ class Metadata:
             if old!=(p['name'],encoded):
                 db.execute('INSERT INTO projects VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,roots=excluded.roots',
                            (pid,p['name'],default_color(pid),encoded))
+        return db.total_changes!=before
+
+    def lookup(self,db,session,title='',cwd='',project=None):
         projects={p:(name,json.loads(roots)) for p,name,roots in db.execute('SELECT id,name,roots FROM projects')}
-        assignments=self.data.get('thread-project-assignments',{})
-        hints=self.data.get('thread-workspace-root-hints',{})
+        title=self.titles.get(session,title)
+        assignment=self.data.get('thread-project-assignments',{}).get(session,{})
+        explicit=assignment.get('projectId') if isinstance(assignment,dict) else None
+        if isinstance(explicit,str) and explicit in projects: project=explicit
+        else:
+            candidate=normalize(self.data.get('thread-workspace-root-hints',{}).get(session) or cwd)
+            matches=[(len(root),pid) for pid,(_,roots) in projects.items() for r in roots
+                     for root in [normalize(r)] if root and (candidate==root or candidate.startswith(root+'/'))]
+            if matches: project=max(matches)[1]
+        return title,project
+
+    def sync(self,db):
+        before=db.total_changes
+        self.sync_catalog(db)
         for session,turn in db.execute('SELECT id,turn FROM sessions').fetchall():
             previous=db.execute('SELECT title,cwd,project,manual_project,turn,started FROM task_info WHERE session=?',(session,)).fetchone()
             title,cwd,project,manual,old_turn,started=previous or ('','',None,None,turn,None)
-            title=self.titles.get(session,title)
-            assignment=assignments.get(session,{})
-            explicit=assignment.get('projectId') if isinstance(assignment,dict) else None
-            if isinstance(explicit,str) and explicit in projects: project=explicit
-            else:
-                candidate=normalize(hints.get(session) or cwd)
-                matches=[(len(root),pid) for pid,(_,roots) in projects.items() for r in roots
-                         for root in [normalize(r)] if root and (candidate==root or candidate.startswith(root+'/'))]
-                if matches: project=max(matches)[1]
+            title,project=self.lookup(db,session,title,cwd,project)
             value=(title,cwd,project,manual,turn,started if old_turn==turn else None)
             if value!=previous:
                 db.execute('INSERT OR REPLACE INTO task_info VALUES (?,?,?,?,?,?,?)',(session,*value))

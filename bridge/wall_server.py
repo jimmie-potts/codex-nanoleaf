@@ -63,7 +63,7 @@ class App:
                         uncertain={sid for (sid,) in db.execute('SELECT session FROM shared_stale')}
                 for sid,turn,status in db.execute("SELECT id,turn,status FROM sessions WHERE status IN ('working','question','blocked','unread')"):
                     title,cwd,manual,started=details.get(sid,('', '',None,None)); slot=slots.get(sid)
-                    tasks.append({'id':sid,'title':title or 'Task '+sid[:8],'project':memberships.get(sid),'status':status,'started':started,
+                    tasks.append({'id':sid,'title':title or wall.fallback_title('codex',sid),'project':memberships.get(sid),'status':status,'started':started,
                                   'line':elements[slot]['id'] if slot is not None and slot<len(prefs) else None,'manual':manual,
                                   **({'statusEvidence':'uncertain' if sid in uncertain else 'current'} if shared else {})})
                     if slot is not None and slot<len(snap): snap[slot]=(status,epochs.get(sid,time.time()-10))

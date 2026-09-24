@@ -283,6 +283,16 @@ def _targets(bridge, directory):
     return registered(directory) if registered else [DEFAULT_DEVICE]
 
 
+def _metadata(directory, bridge):
+    # Read configuration only; device-aware load_config can perform network I/O.
+    try:
+        config=json.loads((Path(directory)/'config.json').read_text(encoding='utf-8-sig'))
+        if not isinstance(config,dict): config={}
+    except (OSError,ValueError):
+        config={}
+    return bridge.wall.Metadata(directory,config)
+
+
 def select_source(directory, bridge, source, fetch=fetch_snapshot, now=time.time):
     if source not in ('legacy','shared'): raise FeedError('invalid-source')
     if source == 'legacy':
@@ -295,6 +305,8 @@ def select_source(directory, bridge, source, fetch=fetch_snapshot, now=time.time
     if before['source'] == source: return
     envelope = preflight(directory, bridge, fetch)[1] if source == 'shared' else None
     instant = now()
+    metadata = _metadata(directory,bridge) if source == 'shared' else None
+    if metadata: metadata.refresh()
     with contextlib.closing(bridge.connect_state(directory)) as db, db:
         db.execute('BEGIN IMMEDIATE')
         current = state(db)
@@ -314,7 +326,7 @@ def select_source(directory, bridge, source, fetch=fetch_snapshot, now=time.time
             _restore_tables(db, transferred)
             db.execute('UPDATE shared_input SET backup=?,source=\'shared\',generation=generation+1,envelope=NULL,connection=\'unavailable\' WHERE id=1', (dumps(saved),))
             db.execute('DELETE FROM shared_stale')
-            _project(db, bridge, envelope, config, instant, resync=True, targets=_targets(bridge, directory))
+            _project(db, bridge, envelope, config, instant, resync=True, targets=_targets(bridge, directory), metadata=metadata)
         else:
             prefs = _bound_preferences(db, config)
             _restore_tables(db, current['backup'])
@@ -390,7 +402,7 @@ def _supporters(session, children, status, retained=False):
     return [session]
 
 
-def _project(db, bridge, envelope, config, instant, resync=False, targets=(DEFAULT_DEVICE,)):
+def _project(db, bridge, envelope, config, instant, resync=False, targets=(DEFAULT_DEVICE,), metadata=None):
     current = state(db)
     previous = current['envelope']
     snapshot = envelope['snapshot']
@@ -401,6 +413,7 @@ def _project(db, bridge, envelope, config, instant, resync=False, targets=(DEFAU
               or envelope['admissionRejected'] != previous['admissionRejected'])
     if resync:
         db.execute("INSERT OR REPLACE INTO meta VALUES ('shared_wave_cutoff',?)", (str(instant),))
+    presentation_changed = metadata.sync_catalog(db) if metadata else False
     live = set()
     prior_tasks = presented(previous['snapshot']) if previous else {}
     for key, (session, children, orphan) in presented(snapshot).items():
@@ -465,29 +478,36 @@ def _project(db, bridge, envelope, config, instant, resync=False, targets=(DEFAU
         project = 'shared-project-' + session['projectId'] if session.get('projectId') else None
         if project:
             db.execute('INSERT OR IGNORE INTO projects VALUES (?,?,?,?)', (project,session['projectId'],bridge.wall.default_color(project),'[]'))
-        existing = db.execute('SELECT project,manual_project,turn,started FROM task_info WHERE session=?', (key,)).fetchone()
-        # Chosen shared project wins over an inherited association; manual preference survives.
-        inherited = existing[0] if existing and not project else project
-        manual = existing[1] if existing else None
-        started = existing[3] if existing and existing[2] == turn else (instant if not resync and turn else None)
-        db.execute('INSERT OR REPLACE INTO task_info VALUES (?,?,?,?,?,?,?)',
-                   (key,session.get('label',''),'',inherited,manual,turn,started))
+        existing = db.execute('SELECT title,cwd,project,manual_project,turn,started FROM task_info WHERE session=?', (key,)).fetchone()
+        identity=session['identity']
+        local_title,local_project=('',None)
+        if metadata and identity['provider']=='codex':
+            local_title,local_project=metadata.lookup(db,identity['sessionId'])
+        title=session.get('label') or local_title or bridge.wall.fallback_title(identity['provider'],identity['sessionId'])
+        manual = existing[3] if existing else None
+        started = existing[5] if existing and existing[4] == turn else (instant if not resync and turn else None)
+        details=(title,'',project or local_project,manual,turn,started)
+        if existing != details:
+            db.execute('INSERT OR REPLACE INTO task_info VALUES (?,?,?,?,?,?,?)', (key,*details))
+            presentation_changed=True
     for (key,) in db.execute('SELECT id FROM sessions').fetchall():
         if key not in live:
             for table, column in (('sessions','id'),('activity','session'),('task_info','session'),('comets','session'),('slots','session'),('shared_stale','session'),('shared_suppressed_waves','session')):
                 db.execute('DELETE FROM ' + table + ' WHERE ' + column + '=?', (key,))
     db.execute("UPDATE shared_input SET envelope=?,received=?,connection='current',error=NULL WHERE id=1", (dumps(envelope),instant))
-    if previous != envelope: bridge.mark_dirty(db)
+    if previous != envelope or presentation_changed: bridge.mark_dirty(db)
 
 
-def accept(directory, bridge, envelope, now=time.time, generation=None, resync=False):
+def accept(directory, bridge, envelope, now=time.time, generation=None, resync=False, metadata=None):
+    metadata = metadata if metadata is not None else _metadata(directory,bridge)
+    metadata.refresh()
     with contextlib.closing(bridge.connect_state(directory)) as db, db:
         db.execute('BEGIN IMMEDIATE'); current = state(db)
         if current['source'] != 'shared' or generation is not None and current['generation'] != generation:
             return False
         minimum = current['envelope']['snapshot']['revision'] if current['envelope'] else 0
         envelope = check_envelope(envelope, current['config'], minimum)
-        _project(db,bridge,envelope,current['config'],now(),resync,targets=_targets(bridge,directory))
+        _project(db,bridge,envelope,current['config'],now(),resync,targets=_targets(bridge,directory),metadata=metadata)
         return True
 
 
@@ -541,7 +561,8 @@ def render_config(db, config):
 
 class Poller:
     """One bounded request at a time, owned by the existing worker lock."""
-    def __init__(self, directory, bridge):
+    def __init__(self, directory, bridge, metadata=None):
+        self.metadata=metadata if metadata is not None else _metadata(directory,bridge)
         self.directory=directory; self.bridge=bridge; self.next_at=0; self.first=True; self.generation=None
 
     def tick(self, instant):
@@ -557,7 +578,7 @@ class Poller:
         try:
             minimum=current['envelope']['snapshot']['revision'] if current['envelope'] else 0
             envelope=fetch_snapshot(current['config'],minimum_revision=minimum)
-            accept(self.directory,self.bridge,envelope,now=lambda:instant,generation=self.generation,resync=self.first)
+            accept(self.directory,self.bridge,envelope,now=lambda:instant,generation=self.generation,resync=self.first,metadata=self.metadata)
             self.first=False
         except FeedError as error:
             failed(self.directory,self.bridge,self.generation,str(error))

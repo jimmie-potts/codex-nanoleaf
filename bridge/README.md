@@ -182,6 +182,18 @@ owns that behavior and the readout. Use the inspector's
 project override for unresolved tasks; it changes only the bridge's assignment.
 Choose "Use Codex assignment" to remove the override.
 
+Shared Codex tasks use local titles and projects from the same configured metadata
+reader. A hub label takes precedence over the local title. Project allocation uses
+a manual override first, then the hub project, then the local Codex assignment or
+workspace-root match. Other providers do not inherit Codex metadata. Lookup only
+enriches tasks still present in the shared feed and never restores retired tasks.
+Local metadata stays on this installation.
+
+When a title is unavailable, both input modes show the provider and the last eight
+hexadecimal characters of the raw session ID, such as **Codex 5b1e07c2** or
+**Claude 4227761b**. The [task metadata specification](../openspec/specs/shared-task-metadata/spec.md)
+defines these rules.
+
 Project matching uses Codex's explicit project assignment first, then workspace
 root hints and the hook's `cwd`. Windows drive paths, `/mnt/c` paths, and WSL UNC
 paths are normalized for matching. The metadata reader keeps its last valid values

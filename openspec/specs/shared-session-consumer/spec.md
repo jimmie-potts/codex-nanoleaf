@@ -47,6 +47,7 @@ The consumer SHALL validate the released versioned snapshot contract and expecte
 #### Scenario: Multiple identities
 - **WHEN** concurrent sessions share a project or raw session ID but differ in full source identity
 - **THEN** they remain distinct and only explicit bindings connect them to retained local presentation identities
+- **AND** Codex sessions may resolve local title and project metadata by provider and raw session ID without merging identities or creating lifecycle state
 
 ### Requirement: Shared presentation and notices
 The consumer SHALL map semantic activity and attention into the existing allocation, split halves, reservations, two-second pulses, single outward waves, comets and mode/scene rules. Nanoleaf SHALL use the shared consumer clear-on-new-turn policy. Acknowledgment, qualified read evidence and work success SHALL remain distinct. A session with an evidenced parent SHALL be presented as part of its nearest top-level ancestor's task, contributing its attention and owner-counted fresh activity but not its notices. A group whose topmost member in the snapshot has a missing parent, or whose parents form a cycle, SHALL be presented only while it has blocked or question attention, keyed by that member or by the cycle's smallest key. This covers #29 notice, rendering and retained-behavior criteria and #74 subagent presentation.
