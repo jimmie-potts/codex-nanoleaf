@@ -265,6 +265,11 @@ an observed unread task disappears from that indicator, its Line returns to stea
 blue, or the scene returns if it was the last indicator. For a newly completed response that never becomes unread, the bridge allows
 five seconds for the desktop to save its status before treating it as already viewed.
 Missing, malformed, or unavailable read status leaves the notification active.
+The reader accepts the version 1 `electron-thread-read-state-v1` marker and
+combines its unread lists across host and identity buckets. When that marker is
+absent, it accepts the older `unread-thread-ids-by-host-v1.local` field under
+`electron-persisted-atom-state`. A present but invalid or unsupported current
+marker is unavailable; it does not fall back to an older saved list.
 
 This follows the app's unread marker, not eye tracking. The saved-state field is
 an implementation detail verified on this PC and may change in a future desktop
