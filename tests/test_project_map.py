@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import threading
 import unittest
+from unittest.mock import patch
 from urllib.request import Request,urlopen
 from urllib.error import HTTPError
 from http.server import ThreadingHTTPServer
@@ -161,12 +162,99 @@ class ProjectTest(unittest.TestCase):
         with self.assertRaises(ValueError):app.update('/api/assign',{'lines':{'unknown':{'project':'a'}}})
         encoded=json.dumps(app.state());self.assertNotIn('PRIVATE_TEST_TOKEN',encoded);self.assertNotIn('PRIVATE CONTENT',encoded)
 
+    def test_rendering_endpoint_is_readonly_and_restart_safe(self):
+        app=self.projects()
+        receipt={'apiVersion':'1.0','deviceId':'wall','lineGroups':[[100,101]],'mode':'work',
+                 'brightness':30,'loop':True,'effect':{'write':{'animData':'1 100 1 0'}},
+                 'animationEpochMs':1_000_000,'acceptedAtMs':1_000_650}
+        with contextlib.closing(b.connect_state(self.directory)) as db,db:
+            db.execute('INSERT OR REPLACE INTO meta VALUES (?,?)',('rendering_receipt',json.dumps(receipt)))
+            db.execute("INSERT INTO line_prefs (line_id,project,signature,device) VALUES ('100:101','a',1,'wall')")
+        before=(self.query('SELECT * FROM line_prefs'),self.query('SELECT * FROM sessions'),
+                self.query('SELECT * FROM comets'),self.query('SELECT * FROM receipts'))
+        server=ThreadingHTTPServer(('127.0.0.1',0),wall_server.handler(app,'test-secret'));server.app=app
+        thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+        self.addCleanup(server.server_close);self.addCleanup(server.shutdown)
+        url=f'http://127.0.0.1:{server.server_port}'
+        with patch.object(app.metadata,'refresh',side_effect=AssertionError('metadata refresh')), \
+             patch.object(wall_server,'ensure_geometry',side_effect=AssertionError('geometry acquisition')), \
+             patch.object(b,'light_request',side_effect=AssertionError('controller request')), \
+             patch.object(app,'launch',side_effect=AssertionError('worker launch')):
+            with urlopen(url+'/api/rendering') as response:
+                self.assertEqual(response.status,200)
+                self.assertEqual(response.headers.get('Cache-Control'),'no-store')
+                snapshot=json.load(response)
+            request=Request(url+'/api/rendering',data=b'{"preview":"local-only"}',
+                            headers={'Origin':url,'X-Wall-Token':'test-secret',
+                                     'Content-Type':'application/json'})
+            with self.assertRaises(HTTPError) as rejected:urlopen(request)
+            self.assertEqual(rejected.exception.code,400);rejected.exception.close()
+        self.assertEqual(snapshot['outcome'],'last-sent')
+        self.assertEqual(snapshot['lastSuccessful'],receipt)
+        self.assertEqual(self.query("SELECT value FROM meta WHERE key='rendering_receipt'"),
+                         [(json.dumps(receipt),)])
+        self.assertNotIn('PRIVATE_TEST_TOKEN',json.dumps(snapshot))
+        self.assertEqual((self.query('SELECT * FROM line_prefs'),self.query('SELECT * FROM sessions'),
+                          self.query('SELECT * FROM comets'),self.query('SELECT * FROM receipts')),before)
+        restarted=wall_server.App(self.directory,b,config=self.config,launch=lambda _:None)
+        self.assertEqual(restarted.rendering()['lastSuccessful'],receipt)
+
+    def test_rendering_endpoint_reports_pending_failed_free_and_unknown(self):
+        app=self.projects()
+        receipt={'apiVersion':'1.0','deviceId':'wall','effect':{'write':{'animData':'frames'}}}
+        with contextlib.closing(b.connect_state(self.directory)) as db,db:
+            db.execute('INSERT OR REPLACE INTO meta VALUES (?,?)',('rendering_receipt',json.dumps(receipt)))
+        self.assertEqual(app.rendering()['outcome'],'last-sent')
+        with contextlib.closing(b.connect_state(self.directory)) as db,db:
+            db.execute("INSERT OR REPLACE INTO meta VALUES ('dirty','1')")
+        self.assertEqual(app.rendering()['outcome'],'pending')
+        with contextlib.closing(b.connect_state(self.directory)) as db,db:
+            db.execute("DELETE FROM meta WHERE key='dirty'")
+            db.execute("INSERT OR REPLACE INTO meta VALUES ('control_error','Light update failed; retrying.')")
+        self.assertEqual(app.rendering()['outcome'],'failed')
+        with contextlib.closing(b.connect_state(self.directory)) as db,db:
+            db.execute("DELETE FROM meta WHERE key='control_error'")
+            db.execute("INSERT OR REPLACE INTO meta VALUES ('mode','free')")
+        self.assertEqual(app.rendering()['outcome'],'externally-controlled')
+        with contextlib.closing(b.connect_state(self.directory)) as db,db:
+            db.execute("DELETE FROM meta WHERE key='rendering_receipt'")
+        self.assertEqual(app.rendering()['outcome'],'externally-controlled')
+        with contextlib.closing(b.connect_state(self.directory)) as db,db:
+            db.execute("DELETE FROM meta WHERE key='mode'")
+        self.assertEqual(app.rendering()['outcome'],'unknown')
+
+    def test_partial_effect_acceptance_keeps_prior_receipt_and_reports_failure(self):
+        app=self.projects()
+        receipt={'apiVersion':'1.0','deviceId':'wall','effect':{'write':{'animData':'previous'}}}
+        with contextlib.closing(b.connect_state(self.directory)) as db,db:
+            db.execute('INSERT OR REPLACE INTO meta VALUES (?,?)',('rendering_receipt',json.dumps(receipt)))
+        calls=[]
+        config={**self.config,'_mode':'work','_now':lambda:2000.0}
+        def request(cfg,method,endpoint,payload=None):
+            calls.append(endpoint)
+            if endpoint=='/state': raise OSError('Brightness update failed after effect acceptance')
+        config['_controller_request']=request
+
+        with self.assertRaises(OSError):
+            with contextlib.closing(b.connect_state(self.directory)) as db,db:
+                b.update_display(db,config,[('working',1999.0)]+[None]*14,2000.0,False)
+
+        self.assertEqual(calls,['/effects','/state'])
+        self.assertEqual(json.loads(self.query("SELECT value FROM meta WHERE key='rendering_receipt'")[0][0]),receipt)
+        with contextlib.closing(b.connect_state(self.directory)) as db,db:
+            db.execute("INSERT OR REPLACE INTO meta VALUES ('control_error','Brightness update failed after effect acceptance')")
+        snapshot=app.rendering()
+        self.assertEqual(snapshot['outcome'],'failed')
+        self.assertEqual(snapshot['lastSuccessful'],receipt)
+        self.assertTrue(snapshot['failedAttempt'])
+
     def test_http_origin_host_and_token_checks(self):
         app=self.projects();server=ThreadingHTTPServer(('127.0.0.1',0),wall_server.handler(app,'test-secret'));server.app=app
         thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
         self.addCleanup(server.server_close);self.addCleanup(server.shutdown)
         url=f'http://127.0.0.1:{server.server_port}'
         with urlopen(url+'/api/state') as response:self.assertEqual(response.status,200)
+        with urlopen(url+'/api/rendering') as response:self.assertEqual(response.status,200)
         for headers in ({},{'Origin':'https://example.com','X-Wall-Token':'test-secret'},{'Origin':url,'X-Wall-Token':'wrong'}):
             request=Request(url+'/api/settings',data=b'{"style":"project"}',headers={'Content-Type':'application/json',**headers})
             with self.assertRaises(HTTPError) as error:urlopen(request)
@@ -175,6 +263,8 @@ class ProjectTest(unittest.TestCase):
         with urlopen(request) as response:self.assertEqual(response.status,200)
         with self.assertRaises(HTTPError) as error:urlopen(Request(url+'/api/state',headers={'Host':'example.com'}))
         error.exception.close()
+        with self.assertRaises(HTTPError) as error:urlopen(Request(url+'/api/rendering',headers={'Host':'example.com'}))
+        self.assertEqual(error.exception.code,403);error.exception.close()
 
     def test_pending_half_edit_preserves_pending_owner(self):
         app=self.projects();self.task('a','a');self.event('Stop','a');self.prepare()

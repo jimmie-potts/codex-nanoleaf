@@ -350,9 +350,22 @@ def effect_payload(config, snapshot, instant, loop):
 
 def render(config, snapshot, instant, loop):
     request = config.get('_controller_request', light_request)
-    request(config, 'PUT', '/effects', effect_payload(config, snapshot, instant, loop))
+    now = config.get('_now', time.time)
+    effect = effect_payload(config, snapshot, instant, loop)
+    send_started = now()
+    request(config, 'PUT', '/effects', effect)
+    effect_accepted = now()
+    brightness = indicator_brightness(config)
     request(config, 'PUT', '/state', {'on': {'value': True},
-                                           'brightness': {'value': indicator_brightness(config), 'duration': 0}})
+                                           'brightness': {'value': brightness, 'duration': 0}})
+    return {'apiVersion': '1.0', 'deviceId': devices.device_of(config),
+            'lineGroups': [list(pair) for pair in config['line_groups']],
+            'mode': config.get('_mode', 'work'), 'brightness': brightness,
+            'loop': effect['write']['loop'], 'effect': effect,
+            'animationEpochMs': round(instant * 1000),
+            'sendStartedAtMs': round(send_started * 1000),
+            'effectAcceptedAtMs': round(effect_accepted * 1000),
+            'acceptedAtMs': round(now() * 1000)}
 
 
 def indicator_brightness(config):
@@ -431,10 +444,10 @@ class SceneRestorer:
     def send(self, config, snapshot, instant, loop):
         if any(snapshot) or config.get('_comet') or config.get('_locate'):
             self.save(owned=True)
-            self.draw(config, snapshot, instant, loop)
+            output = self.draw(config, snapshot, instant, loop)
             self.save(quiet_scene=None, quiet_brightness=None)
             self.selected = '*Dynamic*'
-            return
+            return output
         quiet = config.get('_mode') == 'quiet'
         override = config.get('_brightness')
         if self.selected == '*ExtControl*' and config.get('_mode') == 'free':
@@ -474,8 +487,10 @@ class SceneRestorer:
             self.selected = scene['name']
         else:
             # The first scene has not been chosen yet, or it was deleted.
-            self.draw(config, snapshot, instant, loop)
+            output = self.draw(config, snapshot, instant, loop)
             self.selected = '*Static*'
+            self.save(owned=quiet)
+            return output
         self.save(owned=quiet)
 
 
@@ -718,7 +733,15 @@ def update_display(db, config, snapshot, instant, loop, send=None):
                           config.get('_steady_slots'), config.get('_wave_suppressed_slots'), config.get('_wave_cutoff')])
     previous = db.execute('SELECT snapshot,looping FROM display_v3 WHERE device=?', (device,)).fetchone()
     if not loop or previous != (encoded, 1):
-        (send or render)(config, snapshot, instant, loop)
+        output = (send or render)(config, snapshot, instant, loop)
+        receipt_key = devices.meta_key('rendering_receipt', device)
+        if isinstance(output, dict):
+            db.execute('INSERT OR REPLACE INTO meta VALUES (?, ?)',
+                       (receipt_key, json.dumps(output, separators=(',', ':'), allow_nan=False)))
+        else:
+            db.execute('INSERT OR REPLACE INTO meta VALUES (?, ?)',
+                       (receipt_key, json.dumps({'apiVersion': '1.0', 'deviceId': device,
+                                                 'outcome': 'unknown'}, separators=(',', ':'))))
         db.execute('INSERT OR REPLACE INTO display_v3 (snapshot, looping, rendered, device) VALUES (?, ?, ?, ?)',
                    (encoded, int(loop), instant, device))
 
@@ -822,6 +845,7 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
                 if controller_state.held(db, control_state(db)['revision']) and not shared_input.selected(db):
                     return
         config = load_config(directory, device)
+        config['_now'] = now
         read_unread = read_unread or unread_reader(config)
         scenes = scene_factory(directory, config) if scene_factory else None
         metadata = wall.Metadata(directory, config)
