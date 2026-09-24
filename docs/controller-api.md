@@ -8,30 +8,29 @@ The [protected controller specification](../openspec/specs/protected-controller-
 
 [Fresh Linux setup](linux-install.md) provisions the controller dependencies and credentials. Run the generated controller user service, or `~/.local/share/codex-nanoleaf/nanoleaf controller-serve --port 41231` in the foreground. Use the selected custom port when setup overrides the default. Its state and worker stay in Linux. MCP calls this listener directly; no Windows helper is involved. Enrolling [NL22 Light Panels](linux-install.md#add-nl22-light-panels) neither issues nor changes machine credentials, and the controller and MCP keep addressing `wall` only. [ADR 0007](decisions/0007-linux-runtime-ownership.md) records this ownership. Linux installed acceptance belongs to [#55](https://github.com/jimmie-potts/codex-nanoleaf/issues/55).
 
-## Legacy Windows dependency and activation
+## Dependency and activation
 
-Legacy hooks, map, tray and worker startup use the standard library. The listener lazily imports the unchanged shared Python consumer and needs the pinned packages in `requirements-controller.txt`. A disabled machine API does not require those packages.
+Hooks, map and worker startup use the standard library. The listener lazily imports the unchanged shared Python consumer and needs the pinned packages in `requirements-controller.txt`, which the Linux installer provisions in the installation's virtual environment. A disabled machine API does not require those packages.
 
-These are operator commands for a separately authorized Windows installation. Source checkout tests do not run them against personal state. Use the Windows Python runtime already used by the installed bridge:
+These are operator commands for the separately authorized Linux installation. Source checkout tests do not run them against personal state. Use the installed launcher:
 
-```powershell
-& $python -m pip install -r .\requirements-controller.txt
-& $python .\bridge.py controller-configure --controller-id local-controller --device-id wall --source-id local-source
-& $python .\bridge.py controller-token --principal local-hub
-& $python .\bridge.py controller-serve
+```bash
+nanoleaf controller-configure --controller-id local-controller --device-id wall --source-id local-source
+nanoleaf controller-token --principal local-hub
+nanoleaf controller-serve --port 41231
 ```
 
 The token command prints a new opaque credential once. Keep it in the native client's private configuration, separate from its endpoint and target ID. Add `--read-only` when issuing a read credential. Reissuing a principal replaces its previous credential and cancels its unsent work. Up to 32 principals are retained. IDs use 1 through 128 ASCII letters, digits, dots, underscores or hyphens. Existing IDs cannot be redirected through these commands.
 
-`controller-server.json` records the loopback port while the listener runs. `controller-serve --port <port>` selects a fixed loopback port; the default selects an available port. This is an explicit foreground server, not a new automatic sign-in service. Its lifetime is separate from the tray and wall map. A supported upgrade restarts it only if it was already running, preserving a validated explicit port or the default available-port policy. It rebuilds these arguments for this installation and rejects unrecognized listener arguments before stopping processes. A later owner can start it again through the same Windows command.
+`controller-server.json` records the loopback port while the listener runs. `controller-serve --port <port>` selects a fixed loopback port; the default selects an available port. The generated user service runs it with the installation's fixed port. Its lifetime is separate from the wall map.
 
-```powershell
-& $python .\bridge.py controller-status
-& $python .\bridge.py controller-revoke --principal local-hub
-& $python .\bridge.py controller-disable
+```bash
+nanoleaf controller-status
+nanoleaf controller-revoke --principal local-hub
+nanoleaf controller-disable
 ```
 
-Revocation blocks old credentials before replay lookup and cancels unsent work. Disable stops the listener and cancels pending machine work without deleting legacy tasks or preferences. To restart a disabled listener, explicitly run `controller-serve`. Legacy Windows-installed WSL commands forward to Windows before opening configuration/state. They fail without touching state if the Windows runtime is unavailable. Never run a Linux process against the live Windows SQLite database.
+Revocation blocks old credentials before replay lookup and cancels unsent work. Disable stops the listener and cancels pending machine work without deleting tasks or preferences. To restart a disabled listener, explicitly run `controller-serve` or restart the user service. Installed commands open only the installation's own Linux state.
 
 ## Routes and authentication
 
@@ -60,7 +59,7 @@ The capability declaration marks `power` supported, `brightness` supported from 
 | `brightness.set` | Work, Quiet, Free | One write, then the override governs every brightness the worker writes in the current mode: Work indicators and comets, Quiet steady colors, the blue fallback and the remembered scene when it is restored while idle. |
 | `scene.activate` | Free only | One selection write through the worker, no polling afterwards. In Work or Quiet it fails typed as `unsupported-capability` before any device write, with a replayable receipt. |
 
-Power and brightness overrides persist until the next explicit mode command, including the same mode, from the tray, CLI, wall map or a native client. That command clears both overrides and reapplies the mode's policy: Work indicators at 30% and the remembered scene at its remembered brightness, Quiet at 10%, Free's existing one-time handoff, and lights on. In Work and Quiet, overrides never change the remembered scene brightness; the scene state records the level the bridge wrote so a later observation does not adopt it as a preference. In Free the bridge does not own the lights, so a brightness set there is an external change and becomes the remembered brightness at the next Work or Quiet observation.
+Power and brightness overrides persist until the next explicit mode command, including the same mode, from the CLI, wall map or a native client. That command clears both overrides and reapplies the mode's policy: Work indicators at 30% and the remembered scene at its remembered brightness, Quiet at 10%, Free's existing one-time handoff, and lights on. In Work and Quiet, overrides never change the remembered scene brightness; the scene state records the level the bridge wrote so a later observation does not adopt it as a preference. In Free the bridge does not own the lights, so a brightness set there is an external change and becomes the remembered brightness at the next Work or Quiet observation.
 
 Scene identities are discovered by the worker's existing scene observation in Work and Quiet and stored as opaque IDs, an HMAC of the name under a private ledger secret that no snapshot publishes; the shared snapshot never carries scene names. The [integration extension](integration-api.md) lists the same IDs with the user's Nanoleaf app names. A scene that disappears from the device fails typed as `unsupported-capability`. Snapshots report desired power and brightness as known only while an override is active; observation, external control and service evidence are unchanged and remain unknown without worker evidence.
 
@@ -84,11 +83,11 @@ Before import, the bridge verifies the archive checksum, the manifest against th
 
 | Consumer | Supported verification |
 | --- | --- |
-| Nanoleaf optional API | Python 3.12/3.14 on Linux in Depot CI, pinned jsonschema 4.19.2, all 220 shared cases plus owning HTTP/queue/worker tests. Windows runs are local; hosted Windows evidence predates the Depot migration |
+| Nanoleaf optional API | Python 3.12/3.14 on Linux in Depot CI, pinned jsonschema 4.19.2, all 220 shared cases plus owning HTTP/queue/worker tests. Hosted Windows evidence predates the Depot migration and the Windows retirement |
 | Existing bridge | Standard-library startup without controller dependencies; full legacy regression and browser suites |
 | Real native client / installed bridge / physical device | Separate acceptance; source tests do not establish these results |
 
-Run `python -m pip install -r requirements-controller.txt`, `python scripts/check.py`, `npm run test:browser`, `npm run check:workflow` and `npm run test:workflow` in an isolated source checkout. Windows source tooling has a temporary-state fixture in `tests/test_controller_install.ps1`. The normal installer backs up the Windows database, including private machine credentials and request history. Rollback stops this installation's listener and restores backed-up program files; keep the current database to preserve newer task records. Older code ignores the new controller tables. Do not use fresh setup/reset for upgrade or rollback.
+Run `python -m pip install -r requirements-controller.txt`, `python scripts/check.py`, `npm run test:browser`, `npm run check:workflow` and `npm run test:workflow` in an isolated source checkout. Linux installer fixtures in `tests/test_linux_runtime.py` verify packaging. The installation's database holds private machine credentials and request history; keep it private. Rollback stops this installation's listener and restores the previous runtime copy; keep the current database to preserve newer task records. Older code ignores the new controller tables. Do not use fresh setup/reset for upgrade or rollback.
 
 ## Machine integration settings
 

@@ -201,8 +201,7 @@ def serialized(devices):
 def write_json(path, value):
     temporary = path.with_suffix(path.suffix + '.tmp')
     temporary.write_text(json.dumps(value, indent=2) + '\n', encoding='utf-8')
-    if os.name != 'nt':
-        temporary.chmod(0o600)
+    temporary.chmod(0o600)
     temporary.replace(path)
 
 

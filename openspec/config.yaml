@@ -3,9 +3,8 @@ context: |
   Shared monitoring follows docs/hub-integration.md and canonical hub contracts.
   Nanoleaf retains one installation owner and its single light worker. Shared
   input requires explicit source selection; installed collector migration is separate.
-  Codex Nanoleaf supports fresh Linux installation and legacy Windows deployment.
-  It uses Python, a local browser map and an optional Node MCP host; PowerShell
-  belongs to the legacy Windows installation. GitHub issues in jimmie-potts/codex-nanoleaf own scope,
+  Codex Nanoleaf runs as a Linux installation with Python services, a local
+  browser map and an optional Node MCP host. GitHub issues in jimmie-potts/codex-nanoleaf own scope,
   acceptance criteria, dependencies, status, and delivery target. Read AGENTS.md,
   docs/sdlc.md, and docs/development.md before acting. Use this worktree's local
   OpenSpec root. Run CLI commands through npm run openspec -- <arguments>.

@@ -4,12 +4,12 @@ The optional MCP host exposes `nanoleaf_status` and `nanoleaf_mode_set` through 
 
 Source delivery does not install, provision credentials, launch Codex or touch lights. [Issue #34](https://github.com/jimmie-potts/codex-nanoleaf/issues/34) owns separately authorized installation, client permission checks and physical acceptance. The commands below are instructions for that handoff.
 
-The [2026-09-08 acceptance record](hardware-validation.md) covers the tested
-Windows and WSL clients, physical observations, restoration and cleanup.
+The [2026-09-08 acceptance record](hardware-validation.md) covers the retired
+Windows-era clients, physical observations, restoration and cleanup.
 
 ## Prepare the source host
 
-Use Node 24 in the same environment as Codex. The host is a separate optional package, so legacy Python bridge startup gains no Node requirement. From the checkout:
+Use Node 24 in the same environment as Codex. The host is a separate optional package, so Python bridge startup gains no Node requirement. From the checkout:
 
 ```text
 npm --prefix mcp ci --ignore-scripts
@@ -24,21 +24,11 @@ The private vendored MCP archive is version `1.0.0`, source `06c9c504a107cc04093
 
 [Linux setup](linux-install.md) provisions the existing host, private credentials and a user service. The controller and MCP host both run in Linux. The generated configuration and [Linux example](../mcp/examples/linux.json) use `windows-http`, the existing compatibility name for direct HTTP on either OS. They do not launch Windows executables. The private client bearer is stored in `mcp-client-token` under the selected state directory. [ADR 0007](decisions/0007-linux-runtime-ownership.md) records the decision; [#55](https://github.com/jimmie-potts/codex-nanoleaf/issues/55) owns Linux client and physical acceptance.
 
-## Legacy Windows and WSL-to-Windows routes
+## Run the host
 
-Copy the matching example in `mcp/examples` to a private location outside the checkout. Replace all placeholder paths and target IDs. Set `enabled` to true only when explicitly activating the host.
+The Linux installer generates the configuration and a user service; the [Linux example](../mcp/examples/linux.json) shows the same fields for a manual configuration copied to a private location outside the checkout. The transport is `loopback-http`; an installed configuration that still names `windows-http` is accepted as the same transport. Set `enabled` to true only when explicitly activating the host.
 
-On Windows, `windows-http` calls the controller's configured `127.0.0.1` port directly. On WSL, `wsl-helper` starts the explicitly configured Windows Python executable using the Windows path to this checkout's `mcp/windows-controller-http.py`. Keep that helper at a durable trusted Windows-accessible path. Neither route opens SQLite. The helper has no bridge imports and does not need the installed bridge's private directory.
-
-Use a fixed controller port selected through the existing [controller API instructions](controller-api.md). The source MCP host does not start or enable that controller. Its only route is `/mcp`, bound to numeric loopback. It does not change firewall rules, expose a LAN endpoint or start at sign-in.
-
-For Windows PowerShell:
-
-```powershell
-npm --prefix mcp start -- --config 'C:\PRIVATE\nanoleaf-mcp.json'
-```
-
-For WSL:
+Use a fixed controller port selected through the [controller API instructions](controller-api.md). The source MCP host does not start or enable that controller. Its only route is `/mcp`, bound to numeric loopback. It does not change firewall rules, expose a LAN endpoint or start at sign-in. To run it in the foreground instead of the user service:
 
 ```bash
 npm --prefix mcp start -- --config /PRIVATE/nanoleaf-mcp.json
@@ -82,4 +72,4 @@ Stop the foreground MCP process, then remove only its Codex entry with `codex mc
 
 ## Source validation
 
-Run `npm run test:mcp`, the Python suite, browser regressions and workflow checks from the repository root. MCP tests use real protocol requests on 2025-11-25 and 2025-06-18 with synthetic credentials and fake controllers. Windows and WSL forwarding fixtures remain source tests. Record their exact runtime/platform results separately from installed-client and physical evidence in the PR and #34 handoff.
+Run `npm run test:mcp`, the Python suite, browser regressions and workflow checks from the repository root. MCP tests use real protocol requests on 2025-11-25 and 2025-06-18 with synthetic credentials and fake controllers. Record their exact runtime results separately from installed-client and physical evidence in the PR.

@@ -1,4 +1,4 @@
-"""Standard-library controller ledger in the existing Windows-owned database."""
+"""Standard-library controller ledger in the installation's existing database."""
 import contextlib
 import hashlib
 import hmac

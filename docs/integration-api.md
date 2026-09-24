@@ -143,8 +143,7 @@ The existing controller thread, socket, transaction-deadline and body limits app
 ## Runtime, versioning and rollback
 
 [ADR 0008](decisions/0008-integration-settings-extension.md) records ownership.
-Linux uses its private native SQLite and direct loopback listener. Legacy Windows
-uses its Windows-owned SQLite and existing Windows/WSL forwarding. A development
+The installation uses its private Linux SQLite and direct loopback listener. A development
 checkout never opens installed state. Additional devices require qualified
 capabilities and per-device ownership in #41/#44; no combined layout is implied.
 
@@ -158,7 +157,6 @@ new tasks. Cancelled/expired tickets cannot become new work on later upgrade.
 
 Run `python3 scripts/check.py` with native Node 24 on PATH for cross-language
 fixtures, plus `npm run test:browser`, `npm run check:workflow` and
-`npm run test:workflow`. Depot CI runs the Python checks with Node 24 on Linux
-only; run them locally on Windows for Windows-affecting changes. Windows
-installer fixtures verify module packaging; forwarding fixtures retain native-OS
-routing. These are source checks, not installed-client or physical proof.
+`npm run test:workflow`. Depot CI runs the Python checks with Node 24 on Linux.
+Linux installer fixtures verify module packaging. These are source checks, not
+installed-client or physical proof.

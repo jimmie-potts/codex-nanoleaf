@@ -4,6 +4,6 @@
   "controllerPort": 41231,
   "controllerId": "local-controller",
   "deviceId": "wall",
-  "transport": "windows-http",
+  "transport": "loopback-http",
   "credentialsFile": "/PRIVATE/codex-nanoleaf/mcp-credentials.json"
 }

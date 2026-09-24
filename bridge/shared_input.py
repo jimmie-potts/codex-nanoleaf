@@ -117,7 +117,7 @@ def private_read(path, maximum):
         with os.fdopen(fd, 'rb') as file:
             info = os.fstat(file.fileno())
             if (not stat.S_ISREG(info.st_mode) or info.st_size > maximum
-                    or (os.name != 'nt' and (info.st_mode & 0o077 or info.st_uid != os.getuid()))):
+                    or info.st_mode & 0o077 or info.st_uid != os.getuid()):
                 raise FeedError('private-file-unavailable')
             raw = file.read(maximum + 1)
             if len(raw) > maximum:
@@ -297,8 +297,6 @@ def select_source(directory, bridge, source, fetch=fetch_snapshot, now=time.time
     if source not in ('legacy','shared'): raise FeedError('invalid-source')
     if source == 'legacy':
         home = bridge.os.environ.get('CODEX_HOME', str(Path.home() / '.codex'))
-        if bridge.os.name == 'nt':
-            home = bridge.windows_path(home)
         if not bridge.has_legacy_hooks(home):
             raise FeedError('Legacy hooks are missing; run hooks register --codex-home <path> before selecting legacy.')
     before = source_config(directory, bridge)

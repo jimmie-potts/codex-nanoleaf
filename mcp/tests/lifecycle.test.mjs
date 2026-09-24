@@ -22,7 +22,7 @@ test('occupied MCP port exits with an actionable error', async t => {
     await writeFile(credentialsFile, JSON.stringify({ principals: [] }));
     await writeFile(config, JSON.stringify({ enabled: true, port: occupied.address().port,
         controllerPort: 41231, controllerId: 'local-controller', deviceId: 'wall',
-        transport: 'windows-http', credentialsFile }));
+        transport: 'loopback-http', credentialsFile }));
     const child = spawn(process.execPath, [fileURLToPath(new URL('../dist/main.js', import.meta.url)), '--config', config],
         { stdio: ['ignore', 'pipe', 'pipe'] });
     t.after(() => child.kill());

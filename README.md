@@ -8,7 +8,7 @@ Turn Nanoleaf Lines into status indicators for Codex Desktop tasks. A local wall
 - Project layout uses a steady project half and a task-status half, with Shared overflow.
 - The wall map supports multi-selection, color picking, half swapping, Locate, and rotation, in a neon HUD style that pulses active Lines on screen in Work and dims the wall in Free.
 
-The integration supports a fresh Linux installation with separate Python services and a Node MCP host. Hooks, the map, controller, and worker coordinate through private Linux SQLite. The existing worker remains the sole light writer, with one instance per registered device. Legacy Windows installations retain their Windows Python forwarding. Tests and the demo run without lights or credentials.
+The integration runs as a Linux installation with separate Python services and a Node MCP host. Hooks, the map, controller, and worker coordinate through private Linux SQLite. The existing worker remains the sole light writer, with one instance per registered device. Tests and the demo run without lights or credentials.
 
 ## Development
 
@@ -23,7 +23,7 @@ python3 scripts/check.py
 python3 scripts/demo.py
 ```
 
-On Windows, use `python` instead of `python3`. Open the URL printed by the demo, normally `http://127.0.0.1:8765`. Its project names and tasks are synthetic; changes affect only the temporary demo state.
+Open the URL printed by the demo, normally `http://127.0.0.1:8765`. Its project names and tasks are synthetic; changes affect only the temporary demo state.
 
 For browser checks, use Node.js 22 or newer:
 
@@ -35,7 +35,7 @@ npm run test:browser
 
 On a fresh Linux machine, Playwright may also need its browser system dependencies. The CI workflow uses `npx playwright install --with-deps chromium`. `PYTHON` can select a Python executable; `NANOLEAF_BROWSER_EXECUTABLE` can select an existing Chromium-based browser.
 
-[Depot CI](docs/development.md#hosted-ci) runs workflow checks, the Python suite with Python 3.12 and 3.14, browser checks, and MCP source checks on Linux. Depot CI has no Windows sandboxes, so Windows checks run locally.
+[Depot CI](docs/development.md#hosted-ci) runs workflow checks, the Python suite with Python 3.12 and 3.14, browser checks, and MCP source checks on Linux.
 
 After `npm ci`, run `npm run check:workflow` to validate OpenSpec work and
 `npm run test:workflow` to exercise the validation commands. OpenSpec 1.12.0 is
@@ -54,11 +54,7 @@ documented in [the bridge guide](bridge/README.md) until migrated through review
 
 For a fresh Linux or WSL installation, follow [the Linux setup guide](docs/linux-install.md). It uses Python 3.12 or newer with venv support and native Node 24/npm, generates three user systemd services, and prints the wall URL at `http://127.0.0.1:8765`. It imports no old project data. The operator stops this project's Windows owner before activating Linux hooks or services.
 
-The following instructions apply to legacy Windows installations.
-
-For an existing installation, run `bridge/install-modes.ps1` in Windows PowerShell. It backs up the program and private state, then restarts only this installation's worker, map server, and tray. A source checkout does not change the running installation.
-
-For fresh setup, follow [the integration guide](bridge/README.md). This version retains the original machine's private controller IP as the setup default and expects Codex's bundled Windows Python runtime. It is a personal integration, not a general-purpose installer. See [development and deployment](docs/development.md) for the WSL workflow and limitations.
+The Windows runtime, tray and PowerShell installer were retired from source in [ADR 0012](docs/decisions/0012-retire-windows-runtime.md); [the acceptance record](docs/hardware-validation.md) keeps the history.
 
 ## Codex
 
@@ -75,7 +71,7 @@ Codex work uses a separate branch and worktree for each deliverable.
 
 | Location | Purpose |
 | --- | --- |
-| `bridge/` | Deployable Python bridge, local map, and Windows scripts |
+| `bridge/` | Deployable Python bridge, local map, and Linux installer |
 | `tests/` | Isolated regression tests and browser checks |
 | `tests/fixtures/` | Geometry fixture with substituted panel IDs |
 | `scripts/` | Test runner and device-free demo |
@@ -91,7 +87,7 @@ Credentials, hook configuration, live databases, task metadata, scene preference
 the [shared session consumer](docs/shared-input.md) and a future unified overview. Shared monitoring remains separate from the Linux runtime port. Source changes
 do not update the current installation. GitHub issues own the migration prerequisites.
 
-The optional [local MCP host](docs/local-mcp.md) supports Windows and WSL through the protected controller. Source delivery and separately authorized installed-client/light acceptance remain distinct.
+The optional [local MCP host](docs/local-mcp.md) reaches the protected controller over loopback HTTP. Source delivery and separately authorized installed-client/light acceptance remain distinct.
 
 ## Cross-project work guide
 

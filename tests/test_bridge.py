@@ -436,8 +436,8 @@ class BridgeTest(unittest.TestCase):
 
     def test_merge_preserves_other_hooks_and_uninstall(self):
         original={'description':'keep','hooks':{'Stop':[{'hooks':[{'type':'command','command':'echo existing'}]}]}}
-        merged=b.merge_hooks(original,'python3 bridge.py hook',windows_command='windows')
-        self.assertEqual(b.merge_hooks(merged,'python3 bridge.py hook',windows_command='windows'),merged)
+        merged=b.merge_hooks(original,'python3 bridge.py hook')
+        self.assertEqual(b.merge_hooks(merged,'python3 bridge.py hook'),merged)
         self.assertEqual(b.merge_hooks(merged,'',remove=True),original)
 
     def test_unread_completion_pulses_blue_until_desktop_flag_clears(self):

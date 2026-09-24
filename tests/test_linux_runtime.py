@@ -107,10 +107,9 @@ class MapCommandTest(unittest.TestCase):
         self.assertEqual(wall_server.map_url(self.directory), f'http://127.0.0.1:{port}')
         with patch.object(sys, 'argv', self.command('map', '--no-open')[1:]), \
                 patch.dict(sys.modules, {'bridge': b}), \
-                patch.object(wall_server.webbrowser, 'open') as browser, \
                 contextlib.redirect_stdout(io.StringIO()) as output:
             b.main()
-        browser.assert_not_called()
+        self.assertFalse(hasattr(wall_server, 'webbrowser'), 'the map never opens a browser')
         self.assertEqual(output.getvalue().strip(), f'http://127.0.0.1:{port}')
         duplicate = subprocess.run(self.command('serve', '--port', str(port)),
                                    capture_output=True, text=True, timeout=5)
@@ -373,7 +372,7 @@ class LinuxInstallTest(unittest.TestCase):
             config = json.loads((directory / 'mcp-config.json').read_text())
             principal = json.loads(Path(config['credentialsFile']).read_text())['principals'][0]
             client = (directory / 'mcp-client-token').read_text().strip()
-            self.assertEqual(config['transport'], 'windows-http')
+            self.assertEqual(config['transport'], 'loopback-http')
             self.assertEqual((config['port'], config['controllerPort']), (41230, 41231))
             self.assertEqual(principal['tokenSha256'], hashlib.sha256(client.encode()).hexdigest())
             self.assertNotEqual(client, principal['upstreamToken'])

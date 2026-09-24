@@ -14,7 +14,6 @@ import threading
 import time
 from urllib.parse import urlsplit
 import urllib.request
-import webbrowser
 import devices
 import project_map as wall
 
@@ -303,9 +302,7 @@ def command(args,directory,b):
     if args.mode=='serve': return serve(directory,b,port)
     url=map_url(directory,port)
     if not url:
-        kwargs={'stdin':subprocess.DEVNULL,'stdout':subprocess.DEVNULL,'stderr':subprocess.DEVNULL,'close_fds':True}
-        if os.name=='nt': kwargs['creationflags']=subprocess.DETACHED_PROCESS|subprocess.CREATE_NEW_PROCESS_GROUP
-        else: kwargs['start_new_session']=True
+        kwargs={'stdin':subprocess.DEVNULL,'stdout':subprocess.DEVNULL,'stderr':subprocess.DEVNULL,'close_fds':True,'start_new_session':True}
         process=subprocess.Popen([sys.executable,str(Path(b.__file__).resolve()),'serve','--state-dir',str(directory),
                                   '--port',str(port)],**kwargs)
         deadline=time.time()+10
@@ -313,5 +310,4 @@ def command(args,directory,b):
             time.sleep(.2); url=map_url(directory,port)
             if not url and process.poll() is not None: break
     if not url: raise RuntimeError(f'Wall map did not start on port {port}. Check its configuration and whether the port is already in use.')
-    if os.name == 'nt' and not getattr(args, 'no_open', False): webbrowser.open(url)
     print(url)

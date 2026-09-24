@@ -33,7 +33,7 @@ body:
     id: acceptance
     attributes:
       label: Observable acceptance and planned evidence
-      description: List observable scenarios and the automated check or manual observation for each, including any Windows or device verification. Choose the delivery target, source-only or including installation and its verification. Installation requires an explicit request and an identified installation owner.
+      description: List observable scenarios and the automated check or manual observation for each, including any device verification. Choose the delivery target, source-only or including installation and its verification. Installation requires an explicit request and an identified installation owner.
       value: "Delivery target: source-only"
     validations:
       required: true
