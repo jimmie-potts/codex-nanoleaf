@@ -116,6 +116,9 @@ module.exports=async function(page,root){
       snapshot.tasks=all.slice(0,count);snapshot.lines.forEach(l=>l.task=null);await refresh();
       assert.equal(await page.locator('#taskList .task').count(),count);
       assert.equal(await page.locator('#taskCount').textContent(),String(count));
+      assert.equal(await page.locator('#taskStatusCounts').textContent(),`0 blocked · 0 question · 0 working · ${count} unread`,'Empty and eight-unread snapshots have truthful per-status counts');
+      assert.equal(await page.locator('#waiting').textContent(),`${count} waiting for a Line`,'All tasks in these small fixtures are waiting');
+      assert.equal(await page.locator('#taskSummary').textContent(),`Showing ${count} of ${count} tasks`);
       await page.screenshot({path:path.join(root,`test-results/compact-tasks-${count}.png`),fullPage:true});
     }
     assert.deepEqual(writes,[],'List controls and selection must remain read-only');
