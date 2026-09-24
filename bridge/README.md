@@ -140,6 +140,17 @@ summarizes them. Browsing does not mark tasks read or change their placement.
 The [task inspector specification](../openspec/specs/wall-task-inspector/spec.md)
 owns these controls and their polling, focus, and retirement behavior.
 
+Select a Codex Desktop task to find **Open in Codex** in its detail card. Legacy
+tasks get the link only when their UUID is in the configured Desktop title index;
+shared tasks need a Codex Desktop root-session UUID. Folded subagents link to
+their parent. CLI, Claude Code, unknown and malformed IDs have no link. The
+server builds the local `codex://threads/<uuid>` URL; the browser may ask for
+permission to open Codex. This internal Desktop URL format can change in a later
+Codex release. Selecting a task here does not mark it read. Opening it in Codex
+lets Codex mark it read, which the existing unread reader then follows. The link
+sends no map action, acknowledgment, Locate or device request, and the map never
+writes Codex data.
+
 | Layout | Task placement | Display |
 | --- | --- | --- |
 | Classic, the upgrade default | Automatic across all Lines | Whole-Line status colors |
