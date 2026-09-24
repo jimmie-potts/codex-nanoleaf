@@ -5,7 +5,7 @@
 
 ## 2. Source evidence and documentation
 
-- [ ] 2.1 Run the Python suite, browser checks, workflow checks and owning Hub consumer harness against this source; retain exact candidate evidence including healthy-empty and unavailable feeds.
+- [x] 2.1 Run the Python suite, browser checks, workflow checks and owning Hub consumer harness against this source; retain exact candidate evidence including healthy-empty and unavailable feeds.
 - [x] 2.2 Update shared-input and development guides with version requirements, installation order, rollback limits and separate source/installed acceptance; verify documented commands.
 
 ## 3. Delivery gates
