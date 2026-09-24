@@ -5,6 +5,7 @@ module.exports=async function(page,root){
   snapshot.tasks=Array.from({length:72},(_,i)=>({id:'task-'+String(i).padStart(2,'0'),title:'Task '+i,project:null,status:i<2?'blocked':i<5?'question':i<9?'working':'unread',line:i<15?snapshot.lines[i].id:null,started:1000}));
   snapshot.lines.forEach((line,i)=>{line.task=snapshot.tasks[i]?.id||null;line.project=null});
   snapshot.pending=null;
+  snapshot.settings={...snapshot.settings,style:'project'}; // the override control exists only in Project layout
   const route=request=>request.fulfill({json:snapshot});
   const refresh=()=>page.evaluate(async()=>{while(refreshing)await new Promise(resolve=>setTimeout(resolve,10));await refresh()});
   const rows=()=>page.locator('#taskList .task').evaluateAll(ns=>ns.map(n=>n.dataset.task));
@@ -33,7 +34,7 @@ module.exports=async function(page,root){
     await row('task-13').locator('.line-badge').click({modifiers:['Control']});await refresh();
     assert.deepEqual(await rows(),order,'Line and multi-Line selection keep row positions');
     assert.deepEqual([await isSelected('task-12'),await isSelected('task-13')],[true,true]);
-    await page.getByRole('button',{name:'Clear selection'}).click();await refresh();
+    await page.keyboard.press('Escape');await refresh();
     assert.deepEqual(await rows(),order,'Clearing selection keeps row positions');
     assert.equal(await page.locator('#taskList .task.selected').count(),0,'Clearing selection removes row highlights');
     const promoted=snapshot.tasks.find(t=>t.id==='task-10');
@@ -41,7 +42,7 @@ module.exports=async function(page,root){
     assert.equal((await rows()).indexOf('task-10'),2,'Status changes still reorder a selected task by priority');
     assert.equal(await isSelected('task-10'),true);
     assert.match(await page.locator('#taskDetail').textContent(),/Task 10/);
-    promoted.status='unread';await page.getByRole('button',{name:'Clear selection'}).click();await refresh();
+    promoted.status='unread';await page.keyboard.press('Escape');await refresh();
     const allLines=snapshot.lines,allGraph=snapshot.connector_layout;
     for(const count of [5,0,15]){
       snapshot.lines=allLines.slice(0,count);

@@ -60,10 +60,10 @@ module.exports = async function(page, root) {
   assert.notEqual(deselected, selectionColor, 'A focused but deselected Line shows no selection ring');
   await page.evaluate(() => action('/api/settings', {style: 'classic'}));
   await page.waitForFunction(() => state.settings.style === 'classic');
-  assert.equal(await page.locator('#coverage').isDisabled(), true);
-  assert.ok(parseFloat(await page.locator('#coverage').evaluate(node => getComputedStyle(node).opacity)) < 1, 'A disabled coverage select looks disabled');
+  assert.equal(await page.locator('#coverage').evaluate(node => node.closest('#coverageOption').hidden), true, 'Coverage is hidden in Classic');
   await page.evaluate(() => action('/api/settings', {style: 'project'}));
   await page.waitForFunction(() => state.settings.style === 'project');
+  assert.equal(await page.locator('#coverage').evaluate(node => node.closest('#coverageOption').hidden), false, 'Coverage is available in Project');
 
   });
   await check('AC5: the mode reaches the wall', async () => {
@@ -74,9 +74,10 @@ module.exports = async function(page, root) {
   assert.equal(await page.locator('#wall').evaluate(node => getComputedStyle(node).filter), 'none', 'Work shows the wall at full strength');
 
   });
-  await check('AC6: one toolbar row holding Layout, Mode, and Animation coverage', async () => {
+  await check('AC6: one toolbar row holding Mode; Layout and Animation coverage sit in Options', async () => {
   assert.ok((await rect('header')).height <= 60, 'Header is a single toolbar row at 1440px');
-  assert.equal(await page.locator('header #coverage').count(), 1, 'Animation coverage sits in the toolbar');
+  assert.equal(await page.locator('header #coverage, header #classic, header #project').count(), 0, 'Layout and coverage have left the toolbar');
+  assert.equal(await page.locator('#wallOptions #coverage').count(), 1, 'Animation coverage sits in Options');
 
   });
   await check('AC7: number tags never overlap; Rotate and Flip stay on one row at 390px', async () => {

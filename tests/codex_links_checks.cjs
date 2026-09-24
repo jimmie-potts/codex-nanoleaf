@@ -4,6 +4,7 @@ module.exports=async function(page,root){
   const snapshot=await page.evaluate(()=>structuredClone(state));
   const task=snapshot.tasks[0],url='codex://threads/019a1234-5678-7123-8123-123456789abc';
   task.codexUrl=url;
+  snapshot.settings={...snapshot.settings,style:'project'}; // the override control exists only in Project layout
   const route=request=>request.fulfill({json:snapshot});
   const refresh=()=>page.evaluate(async()=>{while(refreshing)await new Promise(resolve=>setTimeout(resolve,10));await refresh()});
   const viewport=page.viewportSize(),requests=[];
