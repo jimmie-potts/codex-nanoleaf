@@ -112,7 +112,7 @@ class Metadata:
         else:
             self.path=None
         self.index=Path(config['title_index_path']) if config.get('title_index_path') else self.path.with_name('session_index.jsonl') if self.path else None
-        self.stamps={}; self.data={}; self.titles={}
+        self.stamps={}; self.data={}; self.titles={}; self.index_ids=set()
 
     def refresh(self):
         for path in (self.path,self.index):
@@ -135,8 +135,12 @@ class Metadata:
                                     titles[item['id']]=item['thread_name']
                             except (ValueError,TypeError): continue
                     self.titles.update(titles)
+                    self.index_ids=set(titles)
                 self.stamps[path]=stamp
-            except (OSError,ValueError,TypeError): pass
+            except (OSError,ValueError,TypeError):
+                if path==self.index:
+                    self.index_ids.clear()
+                    self.stamps.pop(path,None)
 
     def sync_catalog(self,db):
         before=db.total_changes

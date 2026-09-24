@@ -113,7 +113,7 @@
   button.active, button[aria-pressed="true"] { background: var(--btn-active-bg); color: var(--btn-active-ink); border-color: var(--btn-active-edge); box-shadow: var(--btn-glow); }
   select { color: var(--text); background: var(--panel-solid); border: 1px solid var(--btn-edge); border-radius: var(--radius); padding: 6px 10px; }
   select:disabled { opacity: .45; }
-  :is(button, select, input, [tabindex]):focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  :is(a, button, select, input, [tabindex]):focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 }
 
 @layer layout {
@@ -207,6 +207,7 @@
   #assign:hover { filter: brightness(1.08); }
   #locateHint { margin-top: 8px; }
   .detail-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+  .codex-link { display: inline-block; margin-top: 8px; padding: 4px 0; color: var(--focus); text-underline-offset: 3px; }
   .kv { display: grid; grid-template-columns: 70px 1fr; gap: 8px; font-size: 12px; margin: 8px 0; }
   .kv span:first-child { color: var(--muted); }
 
@@ -395,7 +396,7 @@ body[data-mode="quiet"] #wall.prism-scene, body[data-mode="free"] #wall.prism-sc
     </div>
   </aside>
 </main>
-<footer><span>Local to this PC · Opening a task here does not mark it read</span><span>Refreshes once a second</span></footer>
+<footer><span>Selecting here does not mark a task read. Opening in Codex lets Codex mark it read.</span><span>Local to this PC · Refreshes once a second</span></footer>
 </div>
 <script src="/assets/prism.js"></script>
 <script src="/assets/prism-adapters.js"></script>
@@ -865,7 +866,7 @@ function inspect(){
   $('locateHint').textContent=state.mode==='free'?'Switch to Work or Quiet to locate a Line.':'Locate briefly highlights the selected physical Line.';
   const task=state.tasks.find(t=>t.id===(taskFocus||(chosen.length===1?chosen[0].task:null))),detail=$('taskDetail');
   if(task&&detail.contains(document.activeElement)&&document.activeElement.dataset.task===task.id)return;
-  const fingerprint=JSON.stringify([chosen.length,task&&[task.id,task.title,task.status,task.project,task.manual,task.started],state.projects.map(p=>[p.id,p.name])]);
+  const fingerprint=JSON.stringify([chosen.length,task&&[task.id,task.title,task.status,task.project,task.manual,task.started,task.codexUrl],state.projects.map(p=>[p.id,p.name])]);
   if(fingerprint===detailFingerprint){
     // Keep the elapsed time and the override select in step with saved state without rebuilding the card.
     const clock=detail.querySelector('[data-elapsed]');if(clock&&task)clock.textContent=elapsed(task.started);
@@ -878,6 +879,7 @@ function inspect(){
   if(!task){detail.append(el('p',chosen.length>1?'Select one Line to inspect its task.':chosen.length?'No task on this Line.':'Select a Line or task for details.','small'));return}
   const head=el('div',undefined,'detail-head');head.append(el('h2',task.title),statusBadge(task.status));detail.append(head);
   for(const [key,value]of[['Project',projectName(task.project)],['Elapsed',elapsed(task.started)]]){const row=el('div',undefined,'kv'),node=el('span',value);if(key==='Elapsed')node.dataset.elapsed='';row.append(el('span',key),node);detail.append(row)}
+  if(task.codexUrl){const link=el('a','Open in Codex','codex-link');link.href=task.codexUrl;detail.append(link)}
   detail.append(el('label','Override project for this task','label field'));
   const select=el('select',undefined,'full');select.dataset.task=task.id;select.setAttribute('aria-label','Task project override');selectOptions(select,'Use Codex assignment');select.value=task.manual||'';
   select.onchange=()=>action('/api/task',{id:task.id,project:select.value||null});

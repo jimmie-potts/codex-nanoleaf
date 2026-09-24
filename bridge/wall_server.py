@@ -19,6 +19,13 @@ import devices
 import project_map as wall
 
 
+def codex_thread_url(session):
+    """Only a plain UUID can become a local Desktop navigation target."""
+    if isinstance(session,str) and re.fullmatch(r'[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}',session):
+        return 'codex://threads/'+session
+    return None
+
+
 class App:
     def __init__(self,directory,b,config=None,launch=None):
         self.directory=directory; self.b=b; self.config=config or b.load_config(directory)
@@ -54,8 +61,14 @@ class App:
                 details={s:(title,cwd,manual,started) for s,title,cwd,manual,started in db.execute('SELECT session,title,cwd,manual_project,started FROM task_info')}
                 tasks=[]; snap=[None]*len(prefs)
                 epochs={s:epoch for s,epoch in db.execute('SELECT session,started FROM activity')}
-                uncertain=set()
+                uncertain=set(); codex_urls={}
                 if shared:
+                    envelope=self.b.shared_input.state(db)['envelope']
+                    if envelope:
+                        for key,(root,_,_) in self.b.shared_input.presented(envelope['snapshot']).items():
+                            identity=root['identity']
+                            if identity['provider']=='codex' and identity['client']=='desktop':
+                                codex_urls[key]=codex_thread_url(identity['sessionId'])
                     received,connection=db.execute('SELECT received,connection FROM shared_input WHERE id=1').fetchone()
                     if connection!='current' or received is None or time.time()-received>4:
                         uncertain={sid for (sid,) in db.execute('SELECT id FROM sessions')}
@@ -63,8 +76,10 @@ class App:
                         uncertain={sid for (sid,) in db.execute('SELECT session FROM shared_stale')}
                 for sid,turn,status in db.execute("SELECT id,turn,status FROM sessions WHERE status IN ('working','question','blocked','unread')"):
                     title,cwd,manual,started=details.get(sid,('', '',None,None)); slot=slots.get(sid)
+                    codex_url=codex_urls.get(sid) if shared else codex_thread_url(sid) if sid in self.metadata.index_ids else None
                     tasks.append({'id':sid,'title':title or wall.fallback_title('codex',sid),'project':memberships.get(sid),'status':status,'started':started,
                                   'line':elements[slot]['id'] if slot is not None and slot<len(prefs) else None,'manual':manual,
+                                  **({'codexUrl':codex_url} if codex_url else {}),
                                   **({'statusEvidence':'uncertain' if sid in uncertain else 'current'} if shared else {})})
                     if slot is not None and slot<len(snap): snap[slot]=(status,epochs.get(sid,time.time()-10))
                 for pid,name,color in db.execute('SELECT id,name,color FROM projects ORDER BY name COLLATE NOCASE'):
