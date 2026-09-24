@@ -285,6 +285,12 @@ def _targets(bridge, directory):
 
 def select_source(directory, bridge, source, fetch=fetch_snapshot, now=time.time):
     if source not in ('legacy','shared'): raise FeedError('invalid-source')
+    if source == 'legacy':
+        home = bridge.os.environ.get('CODEX_HOME', str(Path.home() / '.codex'))
+        if bridge.os.name == 'nt':
+            home = bridge.windows_path(home)
+        if not bridge.has_legacy_hooks(home):
+            raise FeedError('Legacy hooks are missing; run hooks register --codex-home <path> before selecting legacy.')
     before = source_config(directory, bridge)
     if before['source'] == source: return
     envelope = preflight(directory, bridge, fetch)[1] if source == 'shared' else None
@@ -621,7 +627,13 @@ def command(argv, bridge):
             if not args.session or not args.notice:raise FeedError('notice-required')
             result=acknowledge(directory,bridge,args.session,args.notice,retry=args.retry)
         print(dumps(result))
-    except (FeedError,ImportError,OSError,sqlite3.Error,UnicodeError):
+    except FeedError as error:
+        if str(error).startswith('Legacy hooks are missing; run hooks register'):
+            print(dumps({'error':'legacy-hooks-missing','message':'Run hooks register --codex-home <path> before selecting legacy.'}))
+            raise SystemExit(1)
+        print(dumps({'error':'shared-input-operation-failed'}))
+        raise SystemExit(1)
+    except (ImportError,OSError,sqlite3.Error,UnicodeError):
         # Fixed output, including configuration paths and dependency failures.
         print(dumps({'error':'shared-input-operation-failed'}))
         raise SystemExit(1)

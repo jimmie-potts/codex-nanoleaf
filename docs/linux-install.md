@@ -72,6 +72,22 @@ the option for separate clients. These commands require tasks executing in WSL;
 review and trust the new hooks in the client. Registration alone does not prove
 that the installed client's sandbox can run them or launch the worker.
 
+For a shared-input cutover, select shared input first, then remove the legacy
+Nanoleaf hooks separately from the WSL CLI and Windows Desktop homes:
+
+```sh
+nanoleaf shared-select shared
+nanoleaf hooks remove --codex-home "$HOME/.codex"
+nanoleaf hooks remove --codex-home /mnt/c/Users/ACCOUNT/.codex
+```
+
+Hook removal changes only entries carrying this integration's marker and keeps
+a private backup. It refuses while legacy input is selected. To roll back,
+register the hooks in each Codex home first, then run
+`nanoleaf shared-select legacy`. Legacy selection refuses when the configured
+Codex home lacks the marked hook and directs the operator to `hooks register`.
+These commands do not change device mode, tasks, or physical device state.
+
 The existing metadata readers accept explicit mounted paths:
 
 ```text
