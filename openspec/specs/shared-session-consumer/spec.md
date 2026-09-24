@@ -23,14 +23,14 @@ The installation SHALL default to legacy input and persist an explicit legacy/sh
 - **THEN** selection is refused without changing source state and the diagnostic names `hooks register`
 
 ### Requirement: Explicit legacy hook lifecycle
-The CLI SHALL provide hook removal and registration commands that take a Codex home explicitly and change only handlers marked `nanoleaf-codex-status-v1`. Removal SHALL create a private backup, preserve every other hook entry, and SHALL NOT change device modes, tasks or device state. Repeating either operation SHALL be safe. Removal SHALL be refused while shared input is selected. Malformed hook JSON SHALL be left untouched.
+The CLI SHALL provide hook removal and registration commands that take a Codex home explicitly and change only handlers marked `nanoleaf-codex-status-v1`. Removal SHALL create a private backup, preserve every other hook entry, and SHALL NOT change device modes, tasks or device state. Repeating either operation SHALL be safe. Removal SHALL be refused while legacy input is selected. Malformed hook JSON SHALL be left untouched.
 
 #### Scenario: Remove and restore marked hooks
-- **WHEN** an operator removes and then registers legacy hooks for a Codex home
+- **WHEN** an operator removes legacy hooks after selecting shared input and then registers them for rollback
 - **THEN** only marked handlers are removed and restored, unrelated entries remain unchanged, a backup exists, and repeating either operation leaves the configuration valid and equivalent
 
-#### Scenario: Refuse removal during shared input
-- **WHEN** the operator removes hooks while shared input is selected
+#### Scenario: Refuse removal during legacy input
+- **WHEN** the operator removes hooks while legacy input is selected
 - **THEN** the command refuses without modifying the Codex home or Nanoleaf state
 
 #### Scenario: Malformed hook configuration

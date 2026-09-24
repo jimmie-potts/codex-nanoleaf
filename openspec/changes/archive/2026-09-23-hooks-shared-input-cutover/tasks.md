@@ -1,7 +1,7 @@
 ## 1. Hook lifecycle commands
 
 - [x] 1.1 Add temporary-home tests for marked-only removal, byte preservation of unrelated entries, backup creation, idempotent remove/register, and malformed JSON remaining untouched; run them red before implementation and green after.
-- [x] 1.2 Implement explicit-home `hooks remove` and `hooks register`, preserving user state and refusing removal in shared mode; verify both guarded and successful command paths with temporary homes.
+- [x] 1.2 Implement explicit-home `hooks remove` and `hooks register`, preserving user state and refusing removal in legacy mode; verify both guarded and successful command paths with temporary homes.
 
 ## 2. Shared-input transition and guidance
 

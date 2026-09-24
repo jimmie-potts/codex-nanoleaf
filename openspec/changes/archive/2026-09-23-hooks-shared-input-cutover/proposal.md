@@ -5,7 +5,7 @@ After selecting shared input, legacy Codex hooks remain registered and perform a
 ## What Changes
 
 - Add explicit Codex-home commands to remove and restore only the Nanoleaf-marked hooks, with a private backup and no mode, task, or device changes.
-- Require registered legacy hooks before selecting legacy shared input and refuse hook removal while shared input is selected.
+- Require registered legacy hooks before selecting legacy input and refuse hook removal while legacy input is selected.
 - Document the supported cutover and rollback order.
 
 ## Capabilities

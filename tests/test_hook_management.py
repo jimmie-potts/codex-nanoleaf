@@ -139,17 +139,40 @@ class HookManagementTests(unittest.TestCase):
                 shared_input.select_source(self.home, Bridge(), 'legacy')
         self.assertIn('hooks register', str(raised.exception))
 
-    def test_removal_refusal_in_shared_mode_preserves_home(self):
+    def test_removal_refusal_in_legacy_mode_preserves_home(self):
         before = self.hooks.read_bytes()
-        (self.home / 'status.sqlite').touch()
-        import shared_input
+        import contextlib
         from unittest.mock import patch
+        with contextlib.closing(bridge.connect_state(self.home)):
+            pass
+        state = (self.home / 'status.sqlite').read_bytes()
         with patch.object(bridge, 'data_dir', return_value=self.home), \
-             patch.object(shared_input, 'inspect', return_value={'source': 'shared'}), \
              self.assertRaises(SystemExit):
             bridge.hooks_command(['remove', '--codex-home', str(self.home)])
         self.assertEqual(self.hooks.read_bytes(), before)
+        self.assertEqual((self.home / 'status.sqlite').read_bytes(), state)
         self.assertEqual(list(self.home.glob('hooks.nanoleaf-backup-*.json')), [])
+
+    def test_removal_in_shared_mode_preserves_runtime_state(self):
+        import contextlib
+        from unittest.mock import patch
+        with contextlib.closing(bridge.connect_state(self.home)) as db, db:
+            db.execute("UPDATE shared_input SET source='shared' WHERE id=1")
+        state = (self.home / 'status.sqlite').read_bytes()
+        with patch.object(bridge, 'data_dir', return_value=self.home):
+            bridge.hooks_command(['remove', '--codex-home', str(self.home)])
+        self.assertFalse(bridge.has_legacy_hooks(self.home))
+        self.assertEqual((self.home / 'status.sqlite').read_bytes(), state)
+        self.assertEqual(len(list(self.home.glob('hooks.nanoleaf-backup-*.json'))), 1)
+
+    def test_removal_without_runtime_state_refuses_default_legacy_source(self):
+        from unittest.mock import patch
+        before = self.hooks.read_bytes()
+        with patch.object(bridge, 'data_dir', return_value=self.home), \
+             self.assertRaises(SystemExit):
+            bridge.hooks_command(['remove', '--codex-home', str(self.home)])
+        self.assertEqual(self.hooks.read_bytes(), before)
+        self.assertFalse((self.home / 'status.sqlite').exists())
 
 
 if __name__ == '__main__':

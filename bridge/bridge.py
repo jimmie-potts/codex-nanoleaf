@@ -1158,10 +1158,8 @@ def hooks_command(argv):
     args = parser.parse_args(argv)
     if args.operation == 'remove':
         directory = data_dir()
-        if (directory / 'status.sqlite').exists():
-            import shared_input
-            if shared_input.inspect(directory)['source'] == 'shared':
-                parser.error('Cannot remove legacy hooks while shared input is selected.')
+        if shared_input.inspect(directory)['source'] != 'shared':
+            parser.error('Cannot remove legacy hooks while legacy input is selected.')
     try:
         changed = manage_hooks(args.codex_home, args.operation, Path(__file__).resolve())
     except (OSError, ValueError, UnicodeError, json.JSONDecodeError):

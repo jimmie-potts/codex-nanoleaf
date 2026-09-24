@@ -108,6 +108,10 @@ class SelectionTest(unittest.TestCase):
         import shared_input as s
         self.s=s; self.temp=tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
         self.path=Path(self.temp.name); self.instant=1000.0
+        self.codex_home = self.path / 'codex-home'
+        codex_environment = patch.dict(b.os.environ, {'CODEX_HOME': str(self.codex_home)})
+        codex_environment.start(); self.addCleanup(codex_environment.stop)
+        b.manage_hooks(self.codex_home, 'register', script=Path(b.__file__))
         self.config={'version':1,'ownerId':'owner','consumerId':'nanoleaf',
                      'endpoint':'http://127.0.0.1:12345/api/monitor/v1','tokenFile':str(self.path/'token'),
                      'clearOnNewTurn':True,'qualifiedSources':[{'provider':'codex','client':'desktop','hostId':'host','sourceId':'source'}],
