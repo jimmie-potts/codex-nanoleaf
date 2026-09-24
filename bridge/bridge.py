@@ -1074,6 +1074,8 @@ def manage_hooks(codex_home, operation, script):
     codex_home = Path(codex_home)
     hooks_file = codex_home / 'hooks.json'
     original_bytes = hooks_file.read_bytes() if hooks_file.exists() else None
+    if original_bytes is not None:
+        json_spans(original_bytes.decode('utf-8-sig'))
     original = json.loads(original_bytes.decode('utf-8-sig')) if original_bytes is not None else {}
     if type(original) is not dict or type(original.get('hooks', {})) is not dict:
         raise ValueError('invalid hooks.json structure')

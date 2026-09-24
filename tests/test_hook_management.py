@@ -120,6 +120,13 @@ class HookManagementTests(unittest.TestCase):
         self.assertEqual(self.hooks.read_bytes(), duplicate)
         self.assertEqual(list(self.home.glob('hooks.nanoleaf-backup-*.json')), [])
 
+    def test_duplicate_keys_are_rejected_even_when_removal_would_be_a_noop(self):
+        duplicate = b'{"hooks":{},"hooks":{}}'
+        self.hooks.write_bytes(duplicate)
+        with self.assertRaisesRegex(ValueError, 'duplicate JSON object key'):
+            bridge.manage_hooks(self.home, 'remove', script=Path('/opt/nanoleaf/bridge.py'))
+        self.assertEqual(self.hooks.read_bytes(), duplicate)
+
     def test_shared_selection_refusal_is_content_free_and_names_registration(self):
         import shared_input
         from unittest.mock import patch
