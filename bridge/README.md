@@ -594,3 +594,5 @@ controller. It has separate versioned requests and configuration receipts; share
 controller v1 mode commands remain unchanged. Pure reads exclude local titles and
 paths. The existing worker applies edits on the installation's native database.
 Source delivery does not enable the listener, switch task input or change an installation.
+
+Desktop tasks removed by the shared owner release their local task state and Lines. Snapshot 1.1 generation changes also reset a recreated task after missed removal; see [shared input](../docs/shared-input.md#ended-desktop-tasks) for version requirements, preserved project settings and installation order. Native mode selection remains independent.

@@ -15,6 +15,21 @@ class SharedContractTest(unittest.TestCase):
             with self.subTest(case=case['id']):
                 self.assertEqual(shared_input.validate_snapshot(case['input'])['ok'], case['valid'])
 
+    def test_generation_validation_preserves_closed_contract(self):
+        import shared_input as s
+        value=fixture()
+        self.assertTrue(s.validate_snapshot(value)['ok'])
+        for invalid in (None, True, -1, value['revision']+1, 1.5, 9007199254740992):
+            candidate=copy.deepcopy(value);candidate['sessions'][0]['generation']=invalid
+            self.assertFalse(s.validate_snapshot(candidate)['ok'],invalid)
+        for mutation in ('missing','private','future'):
+            candidate=copy.deepcopy(value)
+            if mutation=='missing': del candidate['sessions'][0]['generation']
+            if mutation=='private': candidate['sessions'][0]['prompt']='PRIVATE_CANARY'
+            if mutation=='future': candidate['apiVersion']='1.2'
+            self.assertFalse(s.validate_snapshot(candidate)['ok'],mutation)
+        self.assertEqual(value,fixture(),'validation does not mutate its input')
+
 import tempfile
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -22,7 +37,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 def fixture():
     corpus = json.loads((ROOT / 'bridge/vendor/agent-state-1.0.0/package/fixtures/snapshots-v1.json').read_text())
-    return copy.deepcopy(corpus['cases'][0]['input'])
+    snapshot = copy.deepcopy(corpus['cases'][0]['input'])
+    snapshot['apiVersion'] = '1.1'
+    for session in snapshot['sessions']: session['generation'] = 0
+    return snapshot
 
 
 def envelope(snapshot=None):
@@ -64,7 +82,7 @@ class TransportTest(unittest.TestCase):
     def test_authenticated_snapshot(self):
         result = self.s.fetch_snapshot(self.config)
         self.assertEqual(result, envelope())
-        self.assertEqual(self.requests, [('/api/monitor/v1/sessions', 'Bearer ' + 'a'*43)])
+        self.assertEqual(self.requests, [('/api/monitor/v1/sessions?snapshotVersion=1.1', 'Bearer ' + 'a'*43)])
 
     def test_invalid_feed_is_content_free(self):
         for mutation in ('owner', 'private', 'revision', 'redirect'):
@@ -276,6 +294,52 @@ class SelectionTest(unittest.TestCase):
         fresh=self.path/'fresh';fresh.mkdir()
         self.assertEqual(self.s.inspect(fresh)['source'],'legacy')
         self.assertEqual(list(fresh.iterdir()),[])
+
+class RetirementTest(unittest.TestCase):
+    setUp=SelectionTest.setUp
+    select=SelectionTest.select
+    rows=SelectionTest.rows
+
+    def test_missed_retirement_resets_only_recreated_task_after_restart(self):
+        value=envelope();session=value['snapshot']['sessions'][0]
+        session['activity']='active';session['generation']=1
+        peer=copy.deepcopy(session);peer['identity']['sessionId']='peer'
+        value['snapshot']['sessions'].append(peer)
+        self.select(value)
+        key=self.s.identity_key(session['identity']);other=self.s.identity_key(peer['identity'])
+        with contextlib.closing(b.connect_state(self.path)) as db,db:
+            db.execute("UPDATE task_info SET manual_project='project'")
+            db.execute('INSERT INTO slots (session,slot) VALUES (?,1)',(other,))
+            db.execute('INSERT INTO receipts VALUES (?,?,?,?)',(key,'turn',1000,0))
+            db.execute('INSERT INTO waits VALUES (?,?,?,?,?)',(key,'turn','old','input','Ask'))
+            db.execute('INSERT INTO comets (session,turn,queued,source,started,device) VALUES (?,?,?,NULL,NULL,?)',(key,'old',1000,'wall'))
+        projects=self.rows('SELECT * FROM projects')
+        peers=self.rows("SELECT * FROM task_info WHERE session='"+other+"'")
+        peer_epoch=self.rows("SELECT * FROM activity WHERE session='"+other+"'")
+        # Every operation opens the saved database; no in-memory generation cache survives.
+        fresh=copy.deepcopy(value);fresh['snapshot']['revision']=4
+        fresh['snapshot']['sessions'][0]['generation']=4
+        self.s.accept(self.path,b,fresh,now=lambda:1020)
+        self.assertEqual(self.rows("SELECT manual_project FROM task_info WHERE session='"+key+"'"),[(None,)])
+        self.assertEqual(self.rows('SELECT * FROM projects'),projects)
+        self.assertEqual(self.rows("SELECT * FROM task_info WHERE session='"+other+"'"),peers)
+        self.assertEqual(self.rows("SELECT * FROM activity WHERE session='"+other+"'"),peer_epoch)
+        self.assertEqual(self.rows('SELECT session,slot FROM slots'),[(other,1)])
+        for table in ('waits','receipts','comets'):
+            self.assertEqual(self.rows('SELECT * FROM '+table),[])
+        self.assertNotEqual(self.rows("SELECT started FROM activity WHERE session='"+key+"'"),[(1000.0,)])
+        self.s.accept(self.path,b,fresh,now=lambda:1021)
+        self.assertEqual(self.rows('SELECT session,slot FROM slots'),[(other,1)])
+        with contextlib.closing(b.connect_state(self.path)) as db:
+            generation=self.s.state(db)['generation']
+        self.s.failed(self.path,b,generation)
+        self.assertEqual(len(self.rows('SELECT * FROM sessions')),2,'unavailable is not retirement')
+        empty=copy.deepcopy(fresh);empty['snapshot']['revision']=5;empty['snapshot']['sessions']=[]
+        self.s.accept(self.path,b,empty,now=lambda:1022)
+        for table in ('sessions','slots','activity','task_info','comets','waits','receipts'):
+            self.assertEqual(self.rows('SELECT * FROM '+table),[])
+        self.assertEqual(self.rows('SELECT * FROM projects'),projects)
+
 
 class RecoveryTest(SelectionTest):
     def test_owner_recovery_clears_stale_red_without_clearing_other_state(self):

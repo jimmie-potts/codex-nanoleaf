@@ -18,9 +18,9 @@ Use the selected installation's Python runtime with the dependencies in
 [the immutable release](https://github.com/jimmie-potts/agent-device-hub/releases/tag/agent-state-v1.0.0),
 archive SHA-256 `ae589d311e282c3356579c85507a3aa973ab7990e06e062143aeb08d8d2dcc99`.
 Its unchanged Python validator, schemas and fixtures are extracted alongside the
-archive. Legacy input does not import the optional validator dependency.
+archive. The consumer checks snapshot 1.1 generations, validates the remaining fields as the unchanged closed 1.0 shape, then preserves generations in its private saved envelope. Every live session must provide a safe integer generation between zero and the snapshot revision. Legacy input does not import the optional validator dependency.
 
-The initial host is Pixoo's `/api/monitor/v1` on numeric loopback. Provision the
+This reader requires a host that supports `GET /api/monitor/v1/sessions?snapshotVersion=1.1`, such as standalone Hub 0.3.0. Install the compatible owner before upgrading this consumer. Earlier Pixoo embedded owners and snapshot 1.0-only hosts cannot supply the required generation; preflight reports unavailable without fallback. Provision the
 Nanoleaf consumer **when initializing the shared host** with:
 
 ```json
@@ -275,3 +275,13 @@ construction. The checked receipt in `docs/performance/gh29-shared-consumer.json
 identifies source hashes. It is consumer overhead evidence, not the full-hook
 baseline, final Hub #30 integrated performance qualification, Windows timing,
 installed-client acceptance or optical evidence. Those gates retain their owners.
+
+## Ended Desktop tasks
+
+[Hub #218](https://github.com/jimmie-potts/agent-device-hub/issues/218) owns prompt Desktop retirement. A current snapshot that removes a task releases its Lines through the existing allocator. A changed generation has the same reset effect even if this consumer missed the empty interval or restarted. The old manual task project, waits, receipts, assignment and task effects are forgotten; fresh work receives default task presentation. Project definitions, colors, reservations, unrelated tasks, settings, modes and scenes remain intact. Retirement does not acknowledge notices or report work success.
+
+A disconnected or invalid feed retains its last valid projection with unavailable health. It cannot establish removal. A healthy empty reconnect returns to existing idle behavior, without replaying missed effects or switching native Work/Quiet/Free mode. Optional presence-driven mode selection belongs to Nanoleaf #110.
+
+The saved envelope needs no database schema change. An older saved snapshot has generation zero, matching the compatible owner's import of existing records. Generation comparisons require continuity of the selected owner and its revision history. Rolling back this reader loses missed-retirement protection. An older owner cannot read the newer Hub durable format; owner rollback needs a separately authorized compatible handoff, not an in-place binary downgrade.
+
+Source tests use synthetic state and fake transports. Installation and visible Line release remain separate acceptance on the owning Hub issue.

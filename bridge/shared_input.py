@@ -11,7 +11,27 @@ def validate_snapshot(value):
     if location not in sys.path:
         sys.path.insert(0, location)
     from agent_state import validate_snapshot as validate
-    return validate(value)
+    if type(value) is not dict or value.get('apiVersion') != '1.1':
+        return validate(value)
+    revision=value.get('revision');sessions=value.get('sessions')
+    if (type(revision) is not int or not 0 <= revision <= 9007199254740991
+            or type(sessions) is not list or len(sessions)>128):
+        return {'ok':False,'code':'invalid-snapshot'}
+    generations=[];legacy=[]
+    for session in sessions:
+        if (type(session) is not dict or type(session.get('generation')) is not int
+                or not 0 <= session['generation'] <= revision):
+            return {'ok':False,'code':'invalid-snapshot'}
+        generations.append(session['generation'])
+        legacy.append({key:item for key,item in session.items() if key!='generation'})
+    # All other fields have the closed 1.0 shape. Its pinned validator returns
+    # a detached copy; only the independently checked generation is restored.
+    checked=validate(dict(value,apiVersion='1.0',sessions=legacy))
+    if checked['ok']:
+        checked['value']['apiVersion']='1.1'
+        for session,generation in zip(checked['value']['sessions'],generations):
+            session['generation']=generation
+    return checked
 
 import contextlib
 import hashlib
@@ -184,7 +204,7 @@ def check_envelope(value, config, minimum_revision=0):
             or type(value['nextRequestId']) is not str or not 1 <= len(value['nextRequestId']) <= 100):
         raise FeedError('invalid-feed')
     checked = validate_snapshot(value['snapshot'])
-    if not checked['ok'] or checked['value']['revision'] < minimum_revision:
+    if not checked['ok'] or checked['value']['apiVersion']!='1.1' or checked['value']['revision'] < minimum_revision:
         raise FeedError('invalid-feed')
     sources = {dumps(source) for source in config['qualifiedSources']}
     if any(dumps({k: session['identity'][k] for k in SOURCE}) not in sources for session in checked['value']['sessions']):
@@ -194,7 +214,7 @@ def check_envelope(value, config, minimum_revision=0):
 
 def fetch_snapshot(config, minimum_revision=0):
     config = validate_config(config)
-    return check_envelope(request(config, '/sessions'), config, minimum_revision)
+    return check_envelope(request(config, '/sessions?snapshotVersion=1.1'), config, minimum_revision)
 
 import devices
 
@@ -402,6 +422,13 @@ def _supporters(session, children, status, retained=False):
     return [session]
 
 
+def _forget_task(db, key):
+    for table,column in (('sessions','id'),('activity','session'),('task_info','session'),
+                         ('comets','session'),('slots','session'),('waits','session'),
+                         ('receipts','session'),('shared_stale','session'),('shared_suppressed_waves','session')):
+        db.execute('DELETE FROM '+table+' WHERE '+column+'=?',(key,))
+
+
 def _project(db, bridge, envelope, config, instant, resync=False, targets=(DEFAULT_DEVICE,), metadata=None):
     current = state(db)
     previous = current['envelope']
@@ -420,6 +447,11 @@ def _project(db, bridge, envelope, config, instant, resync=False, targets=(DEFAU
         status = semantic_status(session, config['consumerId'], children)
         if orphan and status not in ALERTS: continue
         live.add(key)
+        recreated=key in prior and session['generation']!=prior[key].get('generation',0)
+        if recreated:
+            _forget_task(db,key)
+            prior.pop(key);prior_tasks.pop(key,None)
+        task_resync=resync or recreated
         old = db.execute('SELECT turn,status FROM sessions WHERE id=?', (key,)).fetchone()
         old_activity = db.execute('SELECT turn,status,started FROM activity WHERE session=?', (key,)).fetchone()
         turn = session['turn'].get('id', '')
@@ -458,7 +490,7 @@ def _project(db, bridge, envelope, config, instant, resync=False, targets=(DEFAU
                 # A retained matching phase survives cutover and resync. New resync states
                 # use an expired wave epoch; ordinary current transitions get one wave.
                 epoch = (old_activity[2] if old_activity and old_activity[:2] == (turn,status)
-                         else instant - 10 if resync or stale or was_stale else instant)
+                         else instant - 10 if task_resync or stale or was_stale else instant)
                 db.execute('INSERT OR REPLACE INTO activity VALUES (?,?,?,?)', (key,turn,status,epoch))
             else: db.execute('DELETE FROM activity WHERE session=?', (key,))
             if (old and old[0] != turn) or session['activity'] in ('active','interrupted'):
@@ -467,7 +499,7 @@ def _project(db, bridge, envelope, config, instant, resync=False, targets=(DEFAU
                 db.execute('DELETE FROM comets WHERE session=? AND started IS NULL', (key,))
         if stale or was_stale:
             db.execute('INSERT OR REPLACE INTO shared_suppressed_waves SELECT session,started FROM activity WHERE session=?', (key,))
-        if stale or resync or was_stale:
+        if stale or task_resync or was_stale:
             db.execute('DELETE FROM comets WHERE session=?', (key,))
         elif changed and status == 'unread' and key in prior:
             old_notices = {n['id'] for n in prior[key]['notices']}
@@ -485,15 +517,14 @@ def _project(db, bridge, envelope, config, instant, resync=False, targets=(DEFAU
             local_title,local_project=metadata.lookup(db,identity['sessionId'])
         title=session.get('label') or local_title or bridge.wall.fallback_title(identity['provider'],identity['sessionId'])
         manual = existing[3] if existing else None
-        started = existing[5] if existing and existing[4] == turn else (instant if not resync and turn else None)
+        started = existing[5] if existing and existing[4] == turn else (instant if not task_resync and turn else None)
         details=(title,'',project or local_project,manual,turn,started)
         if existing != details:
             db.execute('INSERT OR REPLACE INTO task_info VALUES (?,?,?,?,?,?,?)', (key,*details))
             presentation_changed=True
     for (key,) in db.execute('SELECT id FROM sessions').fetchall():
         if key not in live:
-            for table, column in (('sessions','id'),('activity','session'),('task_info','session'),('comets','session'),('slots','session'),('shared_stale','session'),('shared_suppressed_waves','session')):
-                db.execute('DELETE FROM ' + table + ' WHERE ' + column + '=?', (key,))
+            _forget_task(db,key)
     db.execute("UPDATE shared_input SET envelope=?,received=?,connection='current',error=NULL WHERE id=1", (dumps(envelope),instant))
     if previous != envelope or presentation_changed: bridge.mark_dirty(db)
 
