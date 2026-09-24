@@ -117,4 +117,3 @@ class SharedMetadataTest(unittest.TestCase):
         self.assertEqual(self.rows("SELECT manual_project FROM task_info WHERE session='legacy'"),[('project',)])
         self.select(self.value)
         self.assertEqual(self.detail(),('Real task title','local','project'))
-

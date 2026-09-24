@@ -11,4 +11,3 @@ The consumer SHALL validate the released versioned snapshot contract and expecte
 - **WHEN** concurrent sessions share a project or raw session ID but differ in full source identity
 - **THEN** they remain distinct and only explicit bindings connect them to retained local presentation identities
 - **AND** Codex sessions may resolve local title and project metadata by provider and raw session ID without merging identities or creating lifecycle state
-
