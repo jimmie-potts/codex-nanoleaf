@@ -8,6 +8,6 @@
 ## 2. Acceptance
 
 - [x] 2.1 Run Python, browser and both workflow checks; retain their results outside the candidate commit.
-- [ ] 2.2 Open a real Desktop thread from an isolated candidate map in a Windows browser and record the observed thread separately from installation/device evidence (#108 AC1/AC5).
+- [x] 2.2 Open a real Desktop thread from an isolated candidate map in a Windows browser and record the observed thread separately from installation/device evidence (#108 AC1/AC5).
 
 Human UI approval and independent review remain delivery gates in the PR. Synchronization/archive requires the applicable implementation and acceptance evidence above.
