@@ -110,6 +110,13 @@ class ProjectTest(unittest.TestCase):
         cfg2,snap2=self.prepare();self.assertEqual(before,self.query('SELECT * FROM activity'));self.assertEqual(snap,snap2)
         self.assertNotEqual(cfg['_signatures'],cfg2['_signatures'])
 
+    def test_legacy_untitled_tasks_use_distinct_session_suffixes(self):
+        app=self.projects()
+        for suffix in ('5b1e07c2','4227761b'):
+            self.event('UserPromptSubmit','019a1234-0000-7000-8000-0000'+suffix)
+        self.assertEqual(sorted(task['title'] for task in app.state()['tasks']),
+                         ['Codex 4227761b','Codex 5b1e07c2'])
+
     def test_metadata_paths_titles_and_manual_override(self):
         app=self.projects();self.event('UserPromptSubmit','a',cwd='/mnt/c/repo/b/subdir')
         metadata=w.Metadata(self.directory,self.config);metadata.titles={'a':'Actual task title'}

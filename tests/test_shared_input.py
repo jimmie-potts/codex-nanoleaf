@@ -406,7 +406,7 @@ class RecoveryTest(SelectionTest):
         self.assertEqual(self.rows('SELECT id FROM sessions'),[('legacy',)])
         self.assertEqual(self.s.inspect(self.path)['source'],'legacy')
 
-    def test_worker_polls_in_free_without_reading_local_metadata(self):
+    def test_worker_polls_and_refreshes_metadata_in_free_without_legacy_unread_reads(self):
         value=envelope();value['snapshot']['sessions'][0]['activity']='active';self.select(value)
         b.write_json(self.path/'config.json',{'ip':'192.0.2.1','token':'fake'})
         b.write_json(self.path/'layout.json',{'line_groups':[[100,101]],'line_positions':[[0,0]]})
@@ -417,9 +417,10 @@ class RecoveryTest(SelectionTest):
             calls.append(1)
             if len(calls)==2:raise KeyboardInterrupt()
             return value
-        with patch.object(self.s,'fetch_snapshot',side_effect=fetch), patch.object(b.wall.Metadata,'refresh',side_effect=AssertionError('local metadata read')), self.assertRaises(KeyboardInterrupt):
+        with patch.object(self.s,'fetch_snapshot',side_effect=fetch), patch.object(b.wall.Metadata,'refresh') as refresh, self.assertRaises(KeyboardInterrupt):
             b.run_worker(self.path,send=lambda *a: self.fail('Free light write'),scene_factory=None,read_unread=lambda:self.fail('legacy unread read'))
         self.assertEqual(len(calls),2)
+        refresh.assert_called_once()
 
 class CommandTest(SelectionTest):
     def test_status_is_pure_and_configure_does_not_select(self):
