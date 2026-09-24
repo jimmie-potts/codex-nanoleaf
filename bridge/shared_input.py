@@ -430,7 +430,10 @@ def _project(db, bridge, envelope, config, instant, resync=False, targets=(DEFAU
             member in members and members[member]['freshness'] == 'current' and member not in still for member in prior_support)
         child_alert = (bool(old) and status in ALERTS and RANK[status] > RANK.get(old[1], 0)
                        and any(item is not session for item in supporters))
-        if stale and old and not (owner_cleared_block or evidence_cleared or child_alert):
+        # Owner read evidence, or this consumer's acknowledgment of every notice, clears a
+        # retained unread task even while its lifecycle evidence is stale.
+        unread_cleared = bool(old) and old[1] == 'unread' and status == 'idle'
+        if stale and old and not (owner_cleared_block or evidence_cleared or child_alert or unread_cleared):
             turn, status = old
         was_stale = bool(db.execute('SELECT 1 FROM shared_stale WHERE session=?', (key,)).fetchone())
         if stale: db.execute('INSERT OR IGNORE INTO shared_stale VALUES (?)', (key,))

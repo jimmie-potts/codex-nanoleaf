@@ -84,6 +84,17 @@ class App:
             if changed: self.launch(self.directory)
             return result
 
+    def rendering(self):
+        """Read the output receipt without metadata refresh, device I/O, or migrations."""
+        path=(self.directory/'status.sqlite').resolve().as_uri()+'?mode=ro'
+        with contextlib.closing(sqlite3.connect(path,uri=True,timeout=.2)) as db:
+            db.execute('BEGIN')
+            device=devices.device_of(self.config)
+            control=self.b.control_state(db,device)
+            return wall.rendering_snapshot(db,self.config,control['mode'],
+                                           control['revision']!=control['applied'],
+                                           control['error'],time.time())
+
     def update(self,route,payload):
         if not isinstance(payload,dict): raise ValueError('Expected an object.')
         with self.lock,contextlib.closing(self.b.connect_state(self.directory)) as db,db:
@@ -151,6 +162,7 @@ def handler(app,token,instance=None):
                 assets={'/assets/prism.js':'prism.js','/assets/prism-adapters.js':'prism-adapters.js','/assets/prism-labels.js':'prism-labels.js'}
                 if path in assets:
                     return self.respond(200,Path(__file__).with_name(assets[path]).read_bytes(),'text/javascript')
+                if path=='/api/rendering': return self.respond(200,app.rendering())
                 if path=='/api/state': return self.respond(200,app.state())
                 if path=='/health': return self.respond(200,{'service':'codex-nanoleaf-map', 'instance':instance})
                 self.respond(404,{'error':'Not found.'})
