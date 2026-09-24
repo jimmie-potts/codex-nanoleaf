@@ -884,7 +884,7 @@ function inspect(){
   const select=el('select',undefined,'full');select.dataset.task=task.id;select.setAttribute('aria-label','Task project override');selectOptions(select,'Use Codex assignment');select.value=task.manual||'';
   select.onchange=()=>action('/api/task',{id:task.id,project:select.value||null});
   // A rejected override must not linger once the select loses focus.
-  select.onblur=()=>{detailFingerprint=''};detail.append(select);
+  select.onblur=()=>{select.value=state.tasks.find(t=>t.id===task.id)?.manual||''};detail.append(select);
 }
 function pendingText(){
   const p=state.pending,parts=[];

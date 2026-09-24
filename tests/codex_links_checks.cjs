@@ -19,8 +19,12 @@ module.exports=async function(page,root){
     assert.equal(await link.getAttribute('target'),null);
     assert.equal(await page.locator('#taskList a').count(),0,'Task rows gain no navigation control');
     await page.getByLabel('Task project override').focus();
+    await page.getByLabel('Task project override').evaluate(n=>{n.value='b'});
     await page.keyboard.press('Shift+Tab');
     assert.equal(await link.evaluate(n=>n===document.activeElement),true,'The link is in the normal keyboard order');
+    await refresh();
+    assert.equal(await link.evaluate(n=>n===document.activeElement),true,'Unchanged polling preserves link focus after leaving the override');
+    assert.equal(await page.getByLabel('Task project override').inputValue(),task.manual||'','An unaccepted override resets to the saved value after blur');
     page.on('request',record);
     // Exercise native activation. This headless Linux runner cannot verify the Windows protocol handler.
     await page.keyboard.press('Enter');
@@ -28,9 +32,9 @@ module.exports=async function(page,root){
     page.off('request',record);
     assert.ok(requests.every(([method,target])=>method==='GET'&&(target===url||new URL(target).pathname==='/api/state')),'Activation allows only the Codex navigation and normal state polling: '+JSON.stringify(requests));
     assert.equal(await link.getAttribute('href'),url);
-    await link.evaluate(n=>n.blur());
     delete task.codexUrl;await refresh();
     assert.equal(await link.count(),0,'Polling removes a link whose eligibility disappears');
+    assert.equal(await page.locator('#tasksTitle').evaluate(n=>n===document.activeElement),true,'Removing the focused link restores focus to a surviving control');
     task.codexUrl=url;await refresh();
     assert.equal(await link.getAttribute('href'),url,'Polling adds eligibility without reselection');
     task.codexUrl=url.replace('789abc','789def');await refresh();
