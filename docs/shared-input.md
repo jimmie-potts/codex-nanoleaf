@@ -146,7 +146,11 @@ commands, including custom Linux installations.
 Rollback restores retained legacy tasks and current bound presentation choices,
 while preserving current modes, scenes, project colors and Line reservations.
 It cancels old celebrations and holds restored colors steady until new local
-hook evidence arrives. Events deliberately ignored during shared mode cannot
+hook evidence arrives. Current Desktop read evidence can settle restored unread
+completions and release their Lines: missing completion receipts are rebuilt
+from the retained turn and completion time, with the normal settle delay and
+without replaying celebrations. Missing read evidence leaves them unread.
+Events deliberately ignored during shared mode cannot
 be reconstructed as legacy events. Do not restore an old whole database or run
 fresh setup. There is no automatic fallback when the shared host disappears.
 

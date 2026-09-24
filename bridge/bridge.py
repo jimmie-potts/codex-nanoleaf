@@ -274,6 +274,9 @@ def unread_reader(config):
 def reconcile_read_state(db, unread, instant):
     if unread is None:
         return
+    # Rollback retains unread tasks but drops their old completion receipts.
+    # Rebuild only missing receipts, preserving completion time and settle delay.
+    db.execute("INSERT OR IGNORE INTO receipts SELECT id,turn,updated,0 FROM sessions WHERE status='unread'")
     # Include completed tasks already known to the integration when it upgrades.
     for session, turn, completed in db.execute("SELECT id,turn,updated FROM sessions WHERE status='ended'").fetchall():
         if session in unread:

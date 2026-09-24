@@ -173,6 +173,27 @@ class SelectionTest(unittest.TestCase):
         self.assertEqual(self.s.inspect(self.path)['source'],'legacy')
         self.assertEqual(self.rows('SELECT * FROM comets'),[])
 
+    def test_rollback_completion_can_be_read_and_release_its_line(self):
+        b.handle_event(self.path,{'session_id':'legacy','turn_id':'turn','hook_event_name':'Stop'},
+                       launch=lambda _:None,now=lambda:self.instant)
+        self.select()
+        self.s.select_source(self.path,b,'legacy',now=lambda:1005)
+        self.assertEqual(self.rows('SELECT status FROM sessions'),[('unread',)])
+        self.assertEqual(self.rows('SELECT * FROM receipts'),[])
+        b.handle_event(self.path,{'session_id':'next','turn_id':'new','hook_event_name':'UserPromptSubmit'},
+                       launch=lambda _:None,now=lambda:1006)
+        config={'line_groups':[[100,101]],'line_positions':[[0,0]]}
+        with contextlib.closing(b.connect_state(self.path)) as db,db:
+            b.reconcile_read_state(db,None,1060)
+            b.dashboard(db,config,1060)
+            self.assertEqual(db.execute('SELECT session FROM slots').fetchall(),[('legacy',)])
+            b.reconcile_read_state(db,set(),1061)
+            b.dashboard(db,config,1061)
+            self.assertEqual(db.execute("SELECT status FROM sessions WHERE id='legacy'").fetchone(),('ended',))
+            self.assertEqual(db.execute('SELECT session FROM slots').fetchall(),[('next',)])
+            self.assertEqual(db.execute('SELECT * FROM comets').fetchall(),[])
+            self.assertEqual(db.execute("SELECT manual_project FROM task_info WHERE session='legacy'").fetchone(),('project',))
+
     def test_selecting_legacy_with_partial_hooks_preserves_shared_source(self):
         self.select()
         hooks_file = self.codex_home / 'hooks.json'

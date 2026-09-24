@@ -484,6 +484,30 @@ class BridgeTest(unittest.TestCase):
             b.reconcile_read_state(db,None,self.clock.now())
         self.assertEqual(self.statuses()['a'],'unread')
 
+    def test_missing_completion_receipt_recovers_without_replaying_or_skipping_settle(self):
+        self.event('UserPromptSubmit')
+        self.event('Stop',defer=True)
+        completed=self.clock.now()
+        with contextlib.closing(b.connect_state(self.path)) as db,db:
+            # Legacy rollback restores task status but discards old receipts/comets.
+            db.execute('DELETE FROM receipts')
+            db.execute('DELETE FROM comets')
+            activity=db.execute('SELECT * FROM activity').fetchall()
+            b.reconcile_read_state(db,None,completed+60)
+            self.assertEqual(db.execute('SELECT * FROM receipts').fetchall(),[])
+            self.assertEqual(db.execute("SELECT status FROM sessions WHERE id='a'").fetchone(),('unread',))
+            b.reconcile_read_state(db,set(),completed+b.READ_SETTLE_SECONDS-.1)
+            self.assertEqual(db.execute('SELECT * FROM receipts').fetchall(),[('a','1',completed,0)])
+            self.assertEqual(db.execute('SELECT * FROM activity').fetchall(),activity)
+            b.reconcile_read_state(db,{'a'},completed+b.READ_SETTLE_SECONDS)
+            self.assertEqual(db.execute('SELECT observed FROM receipts').fetchone(),(1,))
+            b.reconcile_read_state(db,None,completed+60)
+            self.assertEqual(db.execute("SELECT status FROM sessions WHERE id='a'").fetchone(),('unread',))
+            b.reconcile_read_state(db,set(),completed+61)
+            self.assertEqual(db.execute("SELECT status FROM sessions WHERE id='a'").fetchone(),('ended',))
+            self.assertEqual(db.execute('SELECT * FROM receipts').fetchall(),[])
+            self.assertEqual(db.execute('SELECT * FROM comets').fetchall(),[])
+
     def test_runtime_closing_does_not_clear_unread_completion(self):
         self.event('UserPromptSubmit')
         self.unread={'a'}
