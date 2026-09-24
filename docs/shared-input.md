@@ -184,10 +184,13 @@ happens:
 - qualified read evidence reports the session read;
 - someone explicitly acknowledges the exact notice for consumer `nanoleaf`.
 
-The shared owner has no Codex Desktop read evidence yet. [Hub #191](https://github.com/jimmie-potts/agent-device-hub/issues/191)
-tracks it. Until it lands, a conversation that ended after its final turn keeps
-its indicator. A turn the owner could not order also keeps its earlier notice
-until a new eligible start or an acknowledgment. Nanoleaf does not clear
+Hub 0.2.2 reports Codex Desktop read evidence
+([Hub #191](https://github.com/jimmie-potts/agent-device-hub/issues/191)), so
+reading a finished task in Codex clears its indicator. Hub 0.2.3 forgets a
+session after 24 hours without lifecycle evidence
+([Hub #195](https://github.com/jimmie-potts/agent-device-hub/issues/195)), which
+removes its task and notices here. A turn the owner could not order keeps its
+earlier notice until a new eligible start, read evidence or an acknowledgment. Nanoleaf does not clear
 notices by age, bulk-acknowledge them or read Codex state in shared mode.
 
 To clear one retained notice, acknowledge it for consumer `nanoleaf`, either
@@ -198,7 +201,12 @@ read-only credential allows neither. Continuing the conversation in Codex also
 clears the notice.
 
 On disconnect or uncertain session evidence, retain the last task colors steadily
-and stop affected pulses/comets. Keep assignments and notices. Healthy sessions
+and stop affected pulses/comets. Keep assignments and notices. One change still
+applies while uncertain: a retained unread task becomes idle when the owner
+reports it read or every notice acknowledged for `nanoleaf`
+([#88](https://github.com/jimmie-potts/codex-nanoleaf/issues/88)). The change is
+steady, and the freed Line goes to the next waiting task. Other retained colors
+wait for current evidence. Healthy sessions
 continue normally; Free remains free of task-light writes. Recovery preserves
 existing phases and suppresses old outward waves and celebrations.
 

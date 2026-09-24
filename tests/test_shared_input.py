@@ -647,13 +647,14 @@ class ChildSessionTest(SelectionTest):
         self.assertEqual(self.rows('SELECT session FROM comets'), [(self.key,)])
         with contextlib.closing(b.connect_state(self.path)) as db, db: db.execute('DELETE FROM comets')
         epoch = self.rows('SELECT started FROM activity')
-        # Uncertain evidence keeps the retained notice and its Line steady.
+        # Uncertain evidence keeps the retained notice and its Line steady. Owner read evidence
+        # or full acknowledgment would clear it (#88); uncertain activity does not.
         self.root['freshness'] = 'uncertain'; self.root['restartUncertain'] = True
-        self.root['read'] = 'read'; self.advance(1005)
+        self.root['activity'] = 'active'; self.advance(1005)
         self.assertEqual(self.tasks(1005), {self.key: ('unread', 100, 'uncertain')})
         # Restart or reconnect replaces the projection from the current snapshot without replaying effects.
         self.root['freshness'] = 'current'; self.root['restartUncertain'] = False
-        self.root['read'] = 'unknown'; self.advance(1006, resync=True)
+        self.root['activity'] = 'idle'; self.advance(1006, resync=True)
         self.assertEqual(self.tasks(1006), {self.key: ('unread', 100, 'current')})
         self.assertEqual(self.rows('SELECT started FROM activity'), epoch)
         self.assertEqual(self.rows('SELECT session FROM comets'), [])
@@ -731,10 +732,20 @@ class ChildSessionTest(SelectionTest):
         self.root['notices'].append({'id': 'c' * 64, 'kind': 'turn-ended', 'turn': {'status': 'known', 'id': 'turn-2'}, 'acknowledgedBy': []})
         self.advance(1003)
         self.assertEqual(self.tasks(1003), {self.key: ('unread', 100, 'current')})
-        # When the parent is uncertain too, the task keeps its last color steadily.
+        # When the parent is uncertain too, the task keeps its last color steadily. Uncertain
+        # activity cannot change it; read evidence or full acknowledgment would (#88).
         self.root['freshness'] = 'uncertain'; self.root['restartUncertain'] = True
-        self.root['notices'][1]['acknowledgedBy'].append('nanoleaf'); self.advance(1004)
+        self.root['activity'] = 'active'; self.advance(1004)
         self.assertEqual(self.tasks(1004), {self.key: ('unread', 100, 'uncertain')})
+
+    def test_read_evidence_clears_a_stale_unread_parent_with_a_subagent(self):
+        self.value['snapshot']['sessions'].append(child_of(self.root, 'child', fresh=False))
+        self.select(recount(self.value))
+        self.assertEqual(self.tasks(1000), {self.key: ('unread', 100, 'current')})
+        self.root['freshness'] = 'uncertain'; self.root['restartUncertain'] = True; self.advance(1001)
+        self.assertEqual(self.tasks(1001), {self.key: ('unread', 100, 'uncertain')})
+        self.root['read'] = 'read'; self.advance(1002)
+        self.assertEqual(self.tasks(1002), {})
 
     def test_silent_subagent_clears_when_it_returns_idle_under_an_uncertain_parent(self):
         self.root['notices'][0]['acknowledgedBy'].append('nanoleaf')
@@ -796,3 +807,86 @@ class ChildSessionTest(SelectionTest):
                 self.assertEqual(len(groups[0]), 1)
                 self.assertEqual([orphan for orphan, _ in groups[0].values()], [True])
 
+
+
+class StaleReadEvidenceTest(SelectionTest):
+    # #88: owner read evidence and full acknowledgment clear a stale retained unread task.
+    LAYOUT = {'line_groups': [[100, 101]], 'line_positions': [[0, 0]], '_mode': 'work'}
+
+    def stale(self, value):
+        value = copy.deepcopy(value); value['snapshot']['revision'] += 1
+        for session in value['snapshot']['sessions']:
+            session['freshness'] = 'uncertain'; session['restartUncertain'] = True
+        self.s.accept(self.path, b, value, now=lambda: 1001)
+        return value
+
+    def change(self, value, instant, update, index=0):
+        value = copy.deepcopy(value); value['snapshot']['revision'] += 1
+        update(value['snapshot']['sessions'][index])
+        self.s.accept(self.path, b, value, now=lambda: instant)
+        return value
+
+    def stale_unread(self):
+        value = envelope(); self.select(value)
+        value = self.stale(value)
+        self.assertEqual(self.rows('SELECT status FROM sessions'), [('unread',)])
+        return value
+
+    def test_owner_read_evidence_clears_a_stale_unread_task(self):
+        self.change(self.stale_unread(), 1002, lambda session: session.update(read='read'))
+        self.assertEqual(self.rows('SELECT status FROM sessions'), [('idle',)])
+        self.assertEqual(self.rows('SELECT * FROM activity'), [])
+        self.assertEqual(self.rows('SELECT * FROM comets'), [])
+
+    def test_full_acknowledgment_clears_a_stale_unread_task(self):
+        def acknowledge(session):
+            for notice in session['notices']: notice['acknowledgedBy'].append('nanoleaf')
+        self.change(self.stale_unread(), 1002, acknowledge)
+        self.assertEqual(self.rows('SELECT status FROM sessions'), [('idle',)])
+        self.assertEqual(self.rows('SELECT * FROM activity'), [])
+        self.assertEqual(self.rows('SELECT * FROM comets'), [])
+
+    def test_partial_acknowledgment_keeps_the_task_unread(self):
+        def partial(session):
+            extra = copy.deepcopy(session['notices'][0]); extra['id'] = 'b' * 64; extra['acknowledgedBy'] = []
+            session['notices'][0]['acknowledgedBy'].append('nanoleaf'); session['notices'].append(extra)
+        self.change(self.stale_unread(), 1002, partial)
+        self.assertEqual(self.rows('SELECT status FROM sessions'), [('unread',)])
+
+    def test_other_stale_statuses_stay_frozen_when_read(self):
+        value = envelope(); value['snapshot']['sessions'][0]['activity'] = 'active'; self.select(value)
+        value = self.stale(value)
+        self.change(value, 1002, lambda session: session.update(activity='idle', read='read'))
+        self.assertEqual(self.rows('SELECT status FROM sessions'), [('working',)])
+
+    def test_stale_alerts_stay_frozen_when_resolved_and_read(self):
+        for kind, status in (('question', 'question'), ('approval', 'blocked')):
+            with self.subTest(kind=kind):
+                self.setUp()
+                value = envelope(); session = value['snapshot']['sessions'][0]
+                session['attention'] = [{'id': {'status': 'known', 'id': 'ask'}, 'kind': kind, 'turn': session['turn']}]
+                self.select(value)
+                self.assertEqual(self.rows('SELECT status FROM sessions'), [(status,)])
+                value = self.stale(value)
+                self.change(value, 1002, lambda item: item.update(attention=[], read='read'))
+                self.assertEqual(self.rows('SELECT status FROM sessions'), [(status,)])
+
+    def test_stale_unread_does_not_become_working_from_uncertain_activity(self):
+        self.change(self.stale_unread(), 1002, lambda session: session.update(activity='active', read='read'))
+        self.assertEqual(self.rows('SELECT status FROM sessions'), [('unread',)])
+
+    def test_a_cleared_stale_task_releases_its_line_to_a_waiting_task(self):
+        def line_holders(instant):
+            with contextlib.closing(b.connect_state(self.path)) as db, db:
+                b.dashboard(db, self.LAYOUT, instant)
+                return db.execute('SELECT session FROM slots').fetchall()
+        value = envelope(); self.select(value)
+        stale_key = self.s.identity_key(value['snapshot']['sessions'][0]['identity'])
+        self.assertEqual(line_holders(1000), [(stale_key,)])
+        value = self.stale(value)
+        waiting = copy.deepcopy(fixture()['sessions'][0]); waiting['identity']['sessionId'] = 'waiting'
+        value = copy.deepcopy(value); value['snapshot']['revision'] += 1; value['snapshot']['sessions'].append(waiting)
+        self.s.accept(self.path, b, value, now=lambda: 1002)
+        self.assertEqual(line_holders(1002), [(stale_key,)])
+        self.change(value, 1003, lambda session: session.update(read='read'))
+        self.assertEqual(line_holders(1003), [(self.s.identity_key(waiting['identity']),)])
