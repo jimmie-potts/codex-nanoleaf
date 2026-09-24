@@ -283,9 +283,10 @@ remove it and keep it until they decide. The
 This repository is public. Native branch protection is available, but `main` has
 no branch protection or rulesets configured, so these agent checks are
 procedural safeguards, not server-enforced protection. Delivery work does not
-change visibility, the plan, or existing merge-method settings. The active
-delivery task performs the checked merge; no background merge service or native
-auto-merge dependency is introduced. Honor any protections added later.
+change visibility, the GitHub account plan, or existing merge-method settings.
+The active delivery task performs the checked merge; no background merge service
+or native auto-merge dependency is introduced. Honor any protections added
+later.
 
 ## Completion and installation handoff
 
