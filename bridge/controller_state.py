@@ -250,6 +250,8 @@ def control_payload(data,command):
 
 
 def readonly(directory):
-    db=sqlite3.connect((directory/'status.sqlite').resolve().as_uri()+'?mode=ro',uri=True,timeout=.2)
+    # A rollback-journal writer briefly blocks new readers while committing.
+    # Wait for that commit without changing the database or retrying forever.
+    db=sqlite3.connect((directory/'status.sqlite').resolve().as_uri()+'?mode=ro',uri=True,timeout=1)
     db.execute('BEGIN')
     return db
