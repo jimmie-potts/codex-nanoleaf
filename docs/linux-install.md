@@ -88,6 +88,13 @@ register the hooks in each Codex home first, then run
 directory in new hook commands. Legacy selection refuses when the configured
 Codex home lacks a marked handler for any legacy event and directs the operator to `hooks register`.
 These commands do not change device mode, tasks, or physical device state.
+Registration keeps existing handler positions and restores the original file
+on an unchanged remove/register round trip. If unrelated edits intervene, it
+preserves those edits and restores missing handlers from the backup. After
+either operation, restart each affected Codex client and review required hooks
+marked new or modified. Removal can also shift retained shared hooks to a
+different trust entry. Verify a fresh prompt through the selected input before
+accepting cutover or rollback; a hook file or healthy feed is insufficient.
 
 The existing metadata readers accept explicit mounted paths:
 

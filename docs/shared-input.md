@@ -128,6 +128,11 @@ After shared input is selected, remove the marked legacy hook from each Codex
 home with `nanoleaf hooks remove --codex-home <path>`. This edits only the
 Nanoleaf-marked handlers and keeps a private backup; it does not change modes,
 tasks or device state. The command refuses while legacy input is selected.
+Removing an earlier handler can change a retained shared hook's position in
+Codex's saved trust entries. Restart each affected client, review any required
+shared hooks marked new or modified, and verify a fresh prompt reaches the
+shared owner before accepting the cutover. A current feed alone does not prove
+that lifecycle hooks are running.
 Before rolling back, restore the hooks in every relevant home, then select
 legacy input:
 
@@ -142,6 +147,12 @@ each Codex home used by the installation, including separate WSL CLI and
 Windows Desktop homes. Registration preserves existing or backed-up commands,
 fills missing events, and uses the launcher's installation directory for new
 commands, including custom Linux installations.
+Already registered handlers keep their group and handler positions. If the
+hook file still exactly matches a saved backup with only Nanoleaf handlers
+removed, registration restores that backup byte for byte. Intervening edits
+are preserved instead of replacing the file with an older backup. Restart the
+affected clients and review required hooks marked new or modified before
+relying on either input source. Registration does not change saved trust decisions.
 
 Rollback restores retained legacy tasks and current bound presentation choices,
 while preserving current modes, scenes, project colors and Line reservations.
