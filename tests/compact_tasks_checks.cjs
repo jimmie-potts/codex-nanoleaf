@@ -25,6 +25,23 @@ module.exports=async function(page,root){
     assert.equal(await page.locator('#waiting .task').count(),0);
     snapshot.tasks.reverse();await refresh();
     assert.deepEqual(await rows(),Array.from({length:15},(_,i)=>'task-'+String(i).padStart(2,'0')),'Priority and identity ties cannot depend on snapshot order');
+    const order=await rows(),isSelected=id=>row(id).evaluate(n=>n.classList.contains('selected'));
+    await row('task-10').locator('.task-title').click();await refresh();
+    assert.deepEqual(await rows(),order,'Selecting a task highlights it in place without moving any row');
+    assert.equal(await isSelected('task-10'),true);
+    await row('task-12').locator('.line-badge').click();await refresh();
+    await row('task-13').locator('.line-badge').click({modifiers:['Control']});await refresh();
+    assert.deepEqual(await rows(),order,'Line and multi-Line selection keep row positions');
+    assert.deepEqual([await isSelected('task-12'),await isSelected('task-13')],[true,true]);
+    await page.getByRole('button',{name:'Clear selection'}).click();await refresh();
+    assert.deepEqual(await rows(),order,'Clearing selection keeps row positions');
+    assert.equal(await page.locator('#taskList .task.selected').count(),0,'Clearing selection removes row highlights');
+    const promoted=snapshot.tasks.find(t=>t.id==='task-10');
+    await row('task-10').locator('.task-title').click();promoted.status='blocked';await refresh();
+    assert.equal((await rows()).indexOf('task-10'),2,'Status changes still reorder a selected task by priority');
+    assert.equal(await isSelected('task-10'),true);
+    assert.match(await page.locator('#taskDetail').textContent(),/Task 10/);
+    promoted.status='unread';await page.getByRole('button',{name:'Clear selection'}).click();await refresh();
     const allLines=snapshot.lines,allGraph=snapshot.connector_layout;
     for(const count of [5,0,15]){
       snapshot.lines=allLines.slice(0,count);
@@ -84,10 +101,11 @@ module.exports=async function(page,root){
     assert.match(await page.locator('#taskList').textContent(),/No tasks match/);
     await page.getByRole('button',{name:'Show selected tasks'}).click();
     assert.equal(await page.locator('#taskList .task').count(),72);
-    assert.equal((await rows())[0],'task-71');
+    assert.equal((await rows()).at(-1),'task-71','Revealing a selection keeps its priority position');
     assert.equal(await row('task-71').locator('.task-title').evaluate(n=>n===document.activeElement),true);
     await page.getByRole('button',{name:'Show fewer tasks'}).click();
-    assert.equal((await rows())[0],'task-71');
+    assert.equal((await rows()).includes('task-71'),false,'The compact view does not promote a selected task');
+    assert.equal(await page.locator('#taskSelectionNote').textContent(),'1 selected task outside this view.');
     assert.equal(await page.locator('#inspector .task').count(),15);
     assert.equal(await page.getByLabel('Filter tasks').isVisible(),false);
 

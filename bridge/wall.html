@@ -802,7 +802,7 @@ function drawTasks(){
   if(showAllTasks&&inspector.firstElementChild===card){inspector.insertBefore(selection,card);inspector.insertBefore(detail,card)}
   else if(!showAllTasks&&inspector.firstElementChild!==card)inspector.append(selection,detail);
   list.dataset.compact=String(!showAllTasks);
-  const priority=t=>selectedIds.has(t.id)?-1:({blocked:0,question:1,working:2,unread:3}[t.status]??4);
+  const priority=t=>({blocked:0,question:1,working:2,unread:3}[t.status]??4);
   const ordered=[...state.tasks].sort((a,b)=>priority(a)-priority(b)||a.id.localeCompare(b.id));
   const matches=ordered.filter(t=>(filter==='all'||(filter==='waiting'?!lineById(t.line):t.status===filter))&&(!query||[t.title,t.id,projectName(t.project)].join(' ').toLocaleLowerCase().includes(query)));
   const limit=state.lines.length,visible=showAllTasks?[...matches]:matches.slice(0,limit),retained=state.tasks.find(t=>t.id===focusedId);
