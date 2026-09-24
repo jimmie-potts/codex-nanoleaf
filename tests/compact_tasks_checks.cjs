@@ -19,7 +19,7 @@ module.exports=async function(page,root){
     await refresh();
     assert.equal(await page.locator('#inspector .task').count(),15,'72 tracked tasks on 15 Lines must render 15 compact tasks without duplicate waiting rows');
     assert.equal(await page.locator('#taskCount').textContent(),'72');
-    assert.match(await page.locator('#taskSummary').textContent(),/Showing 15 of 72 tasks/);
+    assert.equal(await page.locator('#taskSummary').textContent(),'15 shown');
     assert.match(await page.locator('#taskStatusCounts').textContent(),/2 blocked.*3 question.*4 working.*63 unread/);
     assert.match(await page.locator('#waiting').textContent(),/57 waiting for a Line/);
     assert.equal(await page.locator('#waiting .task').count(),0);
@@ -90,7 +90,7 @@ module.exports=async function(page,root){
       await page.getByLabel('Filter tasks').selectOption(filter);
       assert.equal(await page.locator('#taskList .task').count(),count);
       assert.equal(await page.locator('#taskCount').textContent(),'72');
-      assert.match(await page.locator('#taskSummary').textContent(),new RegExp(`Showing ${count} of 72 tasks`));
+      assert.equal(await page.locator('#taskSummary').textContent(),filter==='all'?`${count} shown`:`${count} match filter · ${count} shown`);
     }
     await page.getByLabel('Search tasks').fill('task-71');
     assert.deepEqual(await rows(),['task-71'],'Search makes an unknown-project/fallback task reachable by full identity');
@@ -126,7 +126,7 @@ module.exports=async function(page,root){
     assert.equal(await override.count(),0,'Owner retirement removes a focused stale override');
     assert.equal(await page.evaluate(()=>document.activeElement.id),'tasksTitle');
     assert.equal(await page.evaluate(()=>taskFocus),null);
-    assert.match(await page.locator('#taskSummary').textContent(),/of 71 tasks/);
+    assert.equal(await page.locator('#taskCount').textContent(),'71','Owner retirement lowers the total in the Tasks heading');
     snapshot.tasks.push(moving);moving.line=null;await refresh();
     assert.equal(await page.evaluate(()=>taskFocus),null,'Recreated identity does not resurrect retired selection');
 
@@ -177,7 +177,7 @@ module.exports=async function(page,root){
       assert.equal(await page.locator('#taskCount').textContent(),String(count));
       assert.equal(await page.locator('#taskStatusCounts').textContent(),`0 blocked · 0 question · 0 working · ${count} unread`,'Empty and small unread snapshots have truthful per-status counts');
       assert.equal(await page.locator('#waiting').textContent(),`${count} waiting for a Line`,'All tasks in these small fixtures are waiting');
-      assert.equal(await page.locator('#taskSummary').textContent(),`Showing ${count} of ${count} tasks`);
+      assert.equal(await page.locator('#taskSummary').textContent(),`${count} shown`);
       await page.screenshot({path:path.join(root,`test-results/compact-tasks-${count}.png`),fullPage:true});
     }
     assert.deepEqual(writes,[],'List controls and selection must remain read-only');
