@@ -127,6 +127,15 @@ owns project visibility, activity ordering, saved-project access, and color edit
 Use **Show saved projects** in the left column to find a project without current
 tasks or change its saved color.
 
+The inspector shows up to eight tasks, with selected tasks first, followed by
+blocked, question, working, and unread tasks. Counts cover all retained tasks.
+Use **Show all tasks** to filter by status or waiting placement, or search by
+title, project, or task ID. **Show selected tasks** reveals a selection excluded
+by the current filter. Waiting tasks share this single list; the waiting count
+summarizes them. Browsing does not mark tasks read or change their placement.
+The [task inspector specification](../openspec/specs/wall-task-inspector/spec.md)
+owns these controls and their polling, focus, and retirement behavior.
+
 | Layout | Task placement | Display |
 | --- | --- | --- |
 | Classic, the upgrade default | Automatic across all Lines | Whole-Line status colors |
@@ -138,7 +147,7 @@ your saved project settings for the next time you choose Project.
 
 Each task uses one eligible Line. Valid placements stay in place. Tasks never
 borrow another project's reserved Lines. When eligible Lines fill up, extra tasks
-appear under **Waiting for a Line** and remain tracked. Reassigning a Line moves
+remain tracked and show **Waiting for a Line** in their task rows. Reassigning a Line moves
 its task to another eligible Line or the waiting list. If the edit would move an
 active comet's source, the map shows the pending change and applies it when that
 comet finishes. Several edits made during a comet are combined.

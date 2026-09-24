@@ -15,13 +15,13 @@ await page.locator('#flipX').click();await page.waitForFunction(()=>state.settin
 await page.locator(`[data-line="${ids[0]}"]`).click();await page.locator('#locate').click();
 await page.locator('#free').click();await page.waitForFunction(()=>state.mode==='free');if(!await page.locator('#locate').isDisabled())throw Error('Locate must be disabled in Free');
 await page.locator('#work').click();await page.waitForFunction(()=>state.mode==='work');await page.locator('#classic').click();await page.waitForFunction(()=>state.settings.style==='classic');await page.locator('#project').click();await page.waitForFunction(()=>state.settings.style==='project');
-await page.locator('#taskList .task').first().click();await page.locator('[aria-label="Task project override"]').selectOption('b');await page.waitForFunction(()=>state.tasks[0].manual==='b');await page.locator('[aria-label="Task project override"]').selectOption('');await page.waitForFunction(()=>!state.tasks[0].manual);
+const firstTaskId=await page.evaluate(()=>state.tasks[0].id);await page.locator(`#taskList [data-task="${firstTaskId}"] .task-title`).click();await page.locator('[aria-label="Task project override"]').selectOption('b');await page.waitForFunction(()=>state.tasks[0].manual==='b');await page.locator('[aria-label="Task project override"]').selectOption('');await page.waitForFunction(()=>!state.tasks[0].manual);
 await page.locator(`[data-line="${ids[0]}"]`).focus();await page.waitForTimeout(1100);if(await page.evaluate(()=>document.activeElement.dataset.line)!==ids[0])throw Error('Map polling lost keyboard focus');
 await page.evaluate(()=>{state.pending={settings:{style:'classic'},lines:{[state.lines[0].id]:{project:'a'}},tasks:{}};render()});if(!await page.locator('#busy').textContent().then(t=>t.includes('classic layout')&&t.includes('Notification Service')))throw Error('Pending change details missing');if(await page.locator('.wall-line.pending').count()!==1)throw Error('Pending Line highlight missing');await page.evaluate(()=>refresh());
 if(await page.locator('#taskList b').count())throw Error('Task title interpreted as HTML');
 await page.screenshot({path:path.join(root,'test-results/wall-map-desktop.png'),fullPage:true});
 await page.setViewportSize({width:800,height:1000});await page.screenshot({path:path.join(root,'test-results/wall-map-compact.png'),fullPage:true});
-for(const name of ['current_projects','line_identity','foundation','presentation','assembly','prism_coverage','prism_lifecycle','label_clearance']){
+for(const name of ['compact_tasks','current_projects','line_identity','foundation','presentation','assembly','prism_coverage','prism_lifecycle','label_clearance']){
   try{await require('./'+name+'_checks.cjs')(page,root)}
   catch(error){errors.push(name+': '+error.message);await page.screenshot({path:path.join(root,'test-results/'+name+'-failure.png'),fullPage:true}).catch(()=>{})}
 }

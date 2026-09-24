@@ -168,9 +168,9 @@ module.exports = async function(page, root) {
     assert.deepEqual(await numbers(taskRow('waiting-task')), ['13']);
     snapshot.tasks[3].line = null; line(13).task = null; await refresh();
     assert.match(await taskRow('waiting-task').textContent(), /Waiting for a Line/);
-    await page.locator('#waiting .task[data-task="waiting-task"] .task-title').press('Enter');
+    await taskRow('waiting-task').locator('.task-title').press('Enter');
     snapshot.tasks[3].line = line(13).id; line(13).task = 'waiting-task'; await refresh();
-    assert.equal(await taskRow('waiting-task').locator('.task-title').evaluate(node => document.activeElement === node), true, 'A placed task carries focus from Waiting to its title in Tasks');
+    assert.equal(await taskRow('waiting-task').locator('.task-title').evaluate(node => document.activeElement === node), true, 'Placement preserves focus on the single task row');
     await taskRow('waiting-task').locator('.task-title').press('Enter');
     assert.equal(await wallLine(13).getAttribute('aria-pressed'), 'true');
     snapshot.tasks[3].line = null; line(13).task = null; await refresh();
