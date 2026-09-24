@@ -44,8 +44,8 @@ Three options were considered:
    (dedicated server). Chosen: it removes the dependency on WSL lifetime rather
    than working around it, and it keeps this repository free of Windows
    automation. Docker Desktop on the PC would carry the same sign-in dependency
-   unless it autostarts, so #42 must settle that before it satisfies this
-   decision; #44 does not have the dependency.
+   unless it autostarts, so hub #42 must settle that before it satisfies
+   this decision; hub #44 does not have the dependency.
 
 ## Decision
 
@@ -62,9 +62,11 @@ session that starts these units has not been measured.
 
 ## Consequences
 
-- After a reboot, lights, the map, the controller, MCP and the shared feed stay
-  dark until a user session starts the units. The shared consumer then resyncs
-  to the current snapshot; intermediate events are not replayed.
+- After a reboot, the map, the controller, MCP and the shared feed are
+  unavailable until a user session starts the units. Lights may come up earlier,
+  because a hook running in a WSL process starts the worker when needed. When
+  shared input is selected, the consumer resyncs to the current snapshot;
+  intermediate events are not replayed.
 - This decision adds no Windows artifact, so once
   [#131](https://github.com/jimmie-potts/codex-nanoleaf/issues/131) and
   [#132](https://github.com/jimmie-potts/codex-nanoleaf/issues/132) finish, the
