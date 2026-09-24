@@ -1,7 +1,7 @@
 ## 1. Capture the worker output
 
 - [x] 1.1 Return and persist a latest-only receipt after successful pulse and completion effect sends plus brightness; verify both encoded payloads, physical zone mapping, loop, mode, brightness, and timing fields with focused fake-controller tests.
-- [x] 1.2 Preserve the previous successful receipt when a worker output request fails; verify the fake-controller failure leaves the prior receipt intact and the worker records its existing failure/pending state.
+- [x] 1.2 Preserve the previous successful receipt when an output request fails, including after effect frames were accepted but brightness failed; verify the fake-controller failure leaves the prior receipt intact and the API reports the worker's failed state.
 
 ## 2. Expose a passive snapshot
 

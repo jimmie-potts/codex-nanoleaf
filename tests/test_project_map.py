@@ -223,6 +223,31 @@ class ProjectTest(unittest.TestCase):
             db.execute("DELETE FROM meta WHERE key='mode'")
         self.assertEqual(app.rendering()['outcome'],'unknown')
 
+    def test_partial_effect_acceptance_keeps_prior_receipt_and_reports_failure(self):
+        app=self.projects()
+        receipt={'apiVersion':'1.0','deviceId':'wall','effect':{'write':{'animData':'previous'}}}
+        with contextlib.closing(b.connect_state(self.directory)) as db,db:
+            db.execute('INSERT OR REPLACE INTO meta VALUES (?,?)',('rendering_receipt',json.dumps(receipt)))
+        calls=[]
+        config={**self.config,'_mode':'work','_now':lambda:2000.0}
+        def request(cfg,method,endpoint,payload=None):
+            calls.append(endpoint)
+            if endpoint=='/state': raise OSError('Brightness update failed after effect acceptance')
+        config['_controller_request']=request
+
+        with self.assertRaises(OSError):
+            with contextlib.closing(b.connect_state(self.directory)) as db,db:
+                b.update_display(db,config,[('working',1999.0)]+[None]*14,2000.0,False)
+
+        self.assertEqual(calls,['/effects','/state'])
+        self.assertEqual(json.loads(self.query("SELECT value FROM meta WHERE key='rendering_receipt'")[0][0]),receipt)
+        with contextlib.closing(b.connect_state(self.directory)) as db,db:
+            db.execute("INSERT OR REPLACE INTO meta VALUES ('control_error','Brightness update failed after effect acceptance')")
+        snapshot=app.rendering()
+        self.assertEqual(snapshot['outcome'],'failed')
+        self.assertEqual(snapshot['lastSuccessful'],receipt)
+        self.assertTrue(snapshot['failedAttempt'])
+
     def test_http_origin_host_and_token_checks(self):
         app=self.projects();server=ThreadingHTTPServer(('127.0.0.1',0),wall_server.handler(app,'test-secret'));server.app=app
         thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
