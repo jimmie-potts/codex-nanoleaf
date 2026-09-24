@@ -113,7 +113,7 @@
   button.active, button[aria-pressed="true"] { background: var(--btn-active-bg); color: var(--btn-active-ink); border-color: var(--btn-active-edge); box-shadow: var(--btn-glow); }
   select { color: var(--text); background: var(--panel-solid); border: 1px solid var(--btn-edge); border-radius: var(--radius); padding: 6px 10px; }
   select:disabled { opacity: .45; }
-  :is(a, button, select, input, [tabindex]):focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  :is(a, button, select, input, summary, [tabindex]):focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 }
 
 @layer layout {

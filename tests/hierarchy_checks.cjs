@@ -68,7 +68,10 @@ module.exports = async function(page, root) {
 
     // Keyboard journey through the menu, passive throughout.
     writes.length = 0;
-    await summary.focus(); await page.keyboard.press('Enter');
+    await summary.focus(); await page.keyboard.press('Shift+Tab'); await page.keyboard.press('Tab');
+    const ring = await summary.evaluate(node => ({focused: node === document.activeElement, ...(({outlineStyle, outlineColor}) => ({outlineStyle, outlineColor}))(getComputedStyle(node))}));
+    assert.deepEqual(ring, {focused: true, outlineStyle: 'solid', outlineColor: 'rgb(255, 255, 255)'}, 'Tab reaches Options with the shared focus ring');
+    await page.keyboard.press('Enter');
     assert.equal(await isOpen(), true, 'Enter opens Options');
     for (const name of ['Numbers', 'Orientation', 'Assembly']) assert.equal(await page.getByRole('group', {name}).count(), 1, `The ${name} group is labelled`);
     const focused = [];
