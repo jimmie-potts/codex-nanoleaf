@@ -1113,16 +1113,11 @@ def write_json(path, value):
     temporary.replace(path)
 
 
-def manage_hooks(codex_home, operation, script, state_dir=None):
-    """Change this integration's hooks in one explicitly selected Codex home."""
-    if operation not in ('remove', 'register'):
-        raise ValueError('invalid hook operation')
-    codex_home = Path(codex_home)
-    hooks_file = codex_home / 'hooks.json'
-    original_bytes = hooks_file.read_bytes() if hooks_file.exists() else None
-    original = json.loads(original_bytes.decode('utf-8-sig')) if original_bytes is not None else {}
-    if original_bytes is not None:
-        json_spans(original_bytes.decode('utf-8-sig'))
+def parse_hooks_json(raw):
+    """Validate current files and backups with the same unambiguous structure."""
+    original = json.loads(raw.decode('utf-8-sig')) if raw is not None else {}
+    if raw is not None:
+        json_spans(raw.decode('utf-8-sig'))
     if type(original) is not dict or type(original.get('hooks', {})) is not dict:
         raise ValueError('invalid hooks.json structure')
     hooks = original.get('hooks', {})
@@ -1131,16 +1126,30 @@ def manage_hooks(codex_home, operation, script, state_dir=None):
            or any(type(handler) is not dict for handler in group.get('hooks', []))
            for group in groups) for groups in hooks.values()):
         raise ValueError('invalid hooks.json structure')
+    return original
+
+
+def manage_hooks(codex_home, operation, script, state_dir=None):
+    """Change this integration's hooks in one explicitly selected Codex home."""
+    if operation not in ('remove', 'register'):
+        raise ValueError('invalid hook operation')
+    codex_home = Path(codex_home)
+    hooks_file = codex_home / 'hooks.json'
+    original_bytes = hooks_file.read_bytes() if hooks_file.exists() else None
+    original = parse_hooks_json(original_bytes)
     command, windows_command = hook_command(Path(script), state_dir=state_dir)
     saved = original if has_legacy_hooks_value(original) else None
+    saved_bytes = original_bytes if saved is not None else None
     if operation == 'register' and saved is None:
         for candidate in sorted(codex_home.glob('hooks.nanoleaf-backup-*.json'), reverse=True):
             try:
-                value = json.loads(candidate.read_text(encoding='utf-8-sig'))
+                candidate_bytes = candidate.read_bytes()
+                value = parse_hooks_json(candidate_bytes)
             except (OSError, ValueError, UnicodeError):
                 continue
             if type(value) is dict and has_legacy_hooks_value(value):
                 saved = value
+                saved_bytes = candidate_bytes
                 break
     if operation == 'remove':
         if not has_legacy_hooks_value(original):
@@ -1151,9 +1160,16 @@ def manage_hooks(codex_home, operation, script, state_dir=None):
         groups_by_event = marked_groups(fresh)
         if saved is not None:
             groups_by_event.update(marked_groups(saved))
-        rendered = remove_marked_hooks_json(original_bytes) if original_bytes is not None else b'{}'
+        # Hook trust is indexed by event/group/handler position. Existing handlers
+        # must stay in place, including marked handlers inside mixed groups.
+        rendered = original_bytes if original_bytes is not None else b'{}'
+        if saved_bytes is not None and remove_marked_hooks_json(saved_bytes) == rendered:
+            # Undo our own removal byte for byte only if nothing else changed.
+            rendered = saved_bytes
+        present = marked_groups(parse_hooks_json(rendered))
         for event, groups in groups_by_event.items():
-            rendered = append_hook_groups_json(rendered, event, groups)
+            if event not in present:
+                rendered = append_hook_groups_json(rendered, event, groups)
         # Re-registering an already-correct configuration must not rewrite bytes.
     if isinstance(rendered, str):
         bom = b'\xef\xbb\xbf' if original_bytes is not None and original_bytes.startswith(b'\xef\xbb\xbf') else b''
@@ -1194,6 +1210,7 @@ def hooks_command(argv):
         parser.error('Cannot update hooks.json; it is malformed or unavailable, and no changes were made.')
     print(('Updated' if changed else 'Already current') + ' Nanoleaf hooks in ' + str(args.codex_home / 'hooks.json'))
     print('Restart Codex to reload hook configuration.')
+    print('Review required hooks marked new or modified after reload, including retained shared hooks.')
 
 
 def has_legacy_hooks(codex_home):

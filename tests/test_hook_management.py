@@ -105,6 +105,55 @@ class HookManagementTests(unittest.TestCase):
         self.assertTrue(bridge.has_legacy_hooks(other))
         self.assertEqual(installed['hooks']['UserPromptSubmit'][0]['hooks'][0]['statusMessage'], bridge.MARKER)
 
+    def test_register_preserves_complete_hook_positions_and_bytes(self):
+        value = bridge.merge_hooks({}, 'python3 /trusted/bridge.py hook')
+        value['hooks']['Stop'].append(self.original['hooks']['Stop'][1])
+        self.hooks.write_text(json.dumps(value, indent=4) + '\n')
+        before = self.hooks.read_bytes()
+        self.assertFalse(bridge.manage_hooks(self.home, 'register', script=Path('/new/bridge.py')))
+        self.assertEqual(self.hooks.read_bytes(), before)
+        self.assertEqual(list(self.home.glob('hooks.nanoleaf-backup-*.json')), [])
+
+    def test_round_trip_restores_group_and_mixed_handler_positions(self):
+        value = bridge.merge_hooks({}, 'python3 /trusted/bridge.py hook')
+        # A mixed group exercises handler indices; a following shared group
+        # exercises group indices. Both belong to Codex's saved trust identity.
+        value['hooks']['Stop'][0]['hooks'].insert(0, self.original['hooks']['Stop'][0]['hooks'][0])
+        value['hooks']['Stop'].append(self.original['hooks']['Stop'][1])
+        self.hooks.write_bytes(b'\xef\xbb\xbf' + (json.dumps(value, indent=4) + '\r\n').encode())
+        before = self.hooks.read_bytes()
+        bridge.manage_hooks(self.home, 'remove', script=Path('/new/bridge.py'))
+        bridge.manage_hooks(self.home, 'register', script=Path('/new/bridge.py'))
+        self.assertEqual(self.hooks.read_bytes(), before)
+
+    def test_registration_preserves_edits_made_after_removal(self):
+        bridge.manage_hooks(self.home, 'remove', script=Path('/new/bridge.py'))
+        edited = self.read()
+        edited['description'] = 'changed after removal'
+        edited['hooks']['Stop'].append({'hooks': [{'type': 'command', 'command': 'new peer'}]})
+        self.hooks.write_text(json.dumps(edited, indent=3))
+        retained = self.hooks.read_bytes()
+        bridge.manage_hooks(self.home, 'register', script=Path('/new/bridge.py'))
+        self.assertEqual(self.read()['description'], edited['description'])
+        for index in range(len(edited['hooks']['Stop'])):
+            self.assertEqual(self.raw_group(self.hooks.read_bytes(), 'Stop', index),
+                             self.raw_group(retained, 'Stop', index))
+        self.assertTrue(bridge.has_legacy_hooks(self.home))
+
+    def test_invalid_backups_are_skipped_before_restoring_positions(self):
+        bridge.manage_hooks(self.home, 'remove', script=Path('/new/bridge.py'))
+        removed = self.hooks.read_bytes()
+        duplicate = (b'{"hooks":{},"hooks":' + json.dumps(self.original['hooks']).encode() + b'}')
+        invalid_group = dict(self.original, hooks={**self.original['hooks'], 'Interrupt': [None]})
+        backup = self.home / 'hooks.nanoleaf-backup-999999999999999999999.json'
+        for raw in (b'{bad json', duplicate, json.dumps(invalid_group).encode()):
+            with self.subTest(raw=raw):
+                self.hooks.write_bytes(removed)
+                backup.write_bytes(raw)
+                bridge.manage_hooks(self.home, 'register', script=Path('/new/bridge.py'))
+                self.assertEqual(self.read()['hooks']['Stop'], self.original['hooks']['Stop'])
+                self.assertTrue(bridge.has_legacy_hooks(self.home))
+
     def test_malformed_hooks_are_left_byte_for_byte_untouched(self):
         for malformed in (b'{not json\n', b'', b'{', b'{"hooks":'):
             with self.subTest(malformed=malformed):
@@ -124,11 +173,15 @@ class HookManagementTests(unittest.TestCase):
 
     def test_register_completes_partial_hooks_and_preserves_existing_commands(self):
         self.assertFalse(bridge.has_legacy_hooks(self.home))
+        before = self.hooks.read_bytes()
         bridge.manage_hooks(self.home, 'register', script=Path('/opt/nanoleaf/bridge.py'))
         self.assertTrue(bridge.has_legacy_hooks(self.home))
         marked = [h for group in self.read()['hooks']['Stop'] for h in group['hooks']
                   if h.get('statusMessage') == bridge.MARKER]
         self.assertEqual(marked, [self.original['hooks']['Stop'][0]['hooks'][1]])
+        for index in (0, 1):
+            self.assertEqual(self.raw_group(self.hooks.read_bytes(), 'Stop', index),
+                             self.raw_group(before, 'Stop', index))
 
     @unittest.skipUnless(bridge.sys.platform == 'linux', 'Linux launcher contract')
     def test_installed_launcher_uses_its_custom_state_for_hook_lifecycle(self):
