@@ -113,7 +113,7 @@
   button.active, button[aria-pressed="true"] { background: var(--btn-active-bg); color: var(--btn-active-ink); border-color: var(--btn-active-edge); box-shadow: var(--btn-glow); }
   select { color: var(--text); background: var(--panel-solid); border: 1px solid var(--btn-edge); border-radius: var(--radius); padding: 6px 10px; }
   select:disabled { opacity: .45; }
-  :is(a, button, select, input, [tabindex]):focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  :is(a, button, select, input, summary, [tabindex]):focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 }
 
 @layer layout {
@@ -130,7 +130,7 @@
   .group > button:last-child { border-radius: 0 var(--radius) var(--radius) 0; }
   .group > button.active, .group > button[aria-pressed="true"] { position: relative; z-index: 1; }
 
-  main { display: grid; grid-template-columns: 240px minmax(320px, 1fr) 480px; flex: 1; min-height: 0; }
+  main { display: grid; grid-template-columns: 240px minmax(320px, 1fr) 440px; flex: 1; min-height: 0; }
   aside { overflow: auto; padding: 12px 18px 20px; background: var(--panel); scrollbar-width: thin; min-height: 0; }
   #projects { border-right: 1px solid var(--edge); }
   #inspector { border-left: 1px solid var(--edge); overflow-anchor: none; }
@@ -140,10 +140,8 @@
   .canvas::before { content: ""; position: absolute; inset: 0; background-image: var(--grid-image); background-size: var(--grid-size); pointer-events: none; }
   .canvas::after { content: ""; position: absolute; inset: 0; background: var(--vignette), var(--scanline-image); pointer-events: none; }
   .canvas > * { position: relative; z-index: 1; }
-  .canvas-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; z-index: 2; }
-  .canvas-head .spacer { flex: 1; }
-  .canvas-head #showNumbers { padding: 5px 8px; font-size: 12px; white-space: nowrap; }
-  .canvas-head .group > button { padding: 5px 10px; font-size: 12px; }
+  /* One row: the wall heading on the left, the Options menu on the right. */
+  .canvas-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 30px; z-index: 2; }
   .wall-frame { flex: 1; min-height: 240px; position: relative; }
   #wall { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
   .legend { display: flex; justify-content: center; align-items: center; gap: 18px; flex-wrap: wrap; color: var(--muted); font-size: 11.5px; padding-top: 8px; }
@@ -170,7 +168,8 @@
     #inspector { order: 3; display: block; max-height: none; border-top: 1px solid var(--edge); }
     .aside-head { position: static; margin-top: 0; padding-top: 0; }
     .wall-frame { min-height: 340px; }
-    .brand { width: 100%; }
+    /* Layout and Mode share a row at phone width; their captions stay for assistive technology only. */
+    .control > .label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
     .canvas { padding: 12px 14px 10px; }
     footer { padding: 8px 14px; }
   }
@@ -192,6 +191,7 @@
   .line-badge.reserved, .line-badge.available { background: transparent; border-style: dashed; }
   .line-badge.selected { background: var(--selection); color: var(--selection-ink); border-color: var(--selection); border-style: solid; }
   .shared-mark { color: var(--muted); text-align: center; padding-top: 2px; }
+  #showSavedProjects { font-size: 13px; padding: 6px 10px; white-space: nowrap; }
   .empty { color: var(--muted); padding: 12px 0; font-size: 12px; }
 
   .card { position: relative; background: var(--card-bg); border: 1px solid var(--card-edge-side); border-bottom: 1px solid var(--card-edge); padding: var(--card-pad); margin-bottom: var(--card-gap); }
@@ -217,12 +217,14 @@
   .task-title:hover { background: transparent; text-decoration: underline; }
   .task-meta { grid-column: 2 / 4; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
   .task .line-badge { padding: 3px 7px; }
-  .task-controls { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .card-head { display: flex; align-items: center; justify-content: space-between; gap: 6px 12px; flex-wrap: wrap; }
+  .task-controls { display: flex; flex-wrap: wrap; gap: 6px; }
+  .task-controls button { padding: 5px 10px; font-size: 12px; white-space: nowrap; }
   #taskFilters { margin-top: 8px; }
   #taskSearch { color: var(--text); background: var(--panel-solid); border: 1px solid var(--btn-edge); border-radius: var(--radius); padding: 6px 10px; }
   #taskFilters label { display: block; margin-top: 6px; }
   #taskFilters input, #taskFilters select { box-sizing: border-box; width: 100%; min-width: 0; }
-  #taskSummary, #taskStatusCounts, #waiting, #taskSelectionNote { margin: 6px 0; }
+  .task-counts, #taskSelectionNote { margin: 6px 0; }
   #taskList[data-compact="true"] { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 14px; }
   #taskList[data-compact="true"] .task { min-width: 0; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 6px; padding: 6px 0; }
   #taskList[data-compact="true"] .task-title { grid-column: 1 / -1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -256,13 +258,16 @@
   /* The readout wraps whenever its row is tight; two or three lines still fit the 56 px toolbar. */
   .readout { flex: 1 1 0; min-width: 0; margin-left: auto; text-align: right; font: 600 var(--label-size)/1.25 var(--font-num); text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
   .readout b { color: var(--accent); font-weight: 600; }
+  .readout .mode-note::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; background: currentColor; box-shadow: 0 0 6px currentColor; }
+  .readout .pending { color: var(--pending); }
+  .readout b[data-alert="blocked"] { color: var(--chip-blocked); }
+  .readout b[data-alert="question"] { color: var(--chip-question); }
   @media (max-width: 1049.98px) { .readout { order: 3; flex-basis: 100%; text-align: left; } }
   #connection { color: var(--chip-working); }
   #connection.offline { color: var(--chip-blocked); }
   body[data-mode="work"] #wallNote { color: var(--chip-working); }
   body[data-mode="quiet"] #wallNote { color: var(--chip-unread); }
   body[data-mode="free"] #wallNote { color: var(--muted); }
-  #wallNote::before { box-shadow: 0 0 6px currentColor; }
   .legend .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; }
   .legend .halves { display: none; align-items: center; gap: 7px; }
   body[data-style="project"] .legend .halves { display: inline-flex; }
@@ -285,12 +290,17 @@
   .connector-hex { fill: var(--connector-fill); stroke: var(--connector-edge); stroke-width: 3.5; stroke-linejoin: round; }
   .connector-ring { fill: none; stroke: var(--connector-ring); stroke-width: 2; }
   .wall-line .sheen { stroke: #ffffff; stroke-width: 3; stroke-linecap: round; opacity: .22; fill: none; pointer-events: none; }
-  .assembly-prefs { position: relative; }
-  .assembly-prefs > summary { cursor: pointer; list-style: none; padding: 5px 10px; border: 1px solid var(--btn-edge); border-radius: 0 var(--radius) var(--radius) 0; margin-left: -1px; background: var(--btn-bg); font-size: 12px; color: var(--text); }
-  .assembly-prefs > summary::-webkit-details-marker { display: none; }
-  .assembly-prefs[open] > summary { background: var(--btn-hover); }
-  .assembly-prefs > div { position: absolute; right: 0; top: calc(100% + 6px); z-index: 3; min-width: 190px; padding: 10px 12px; background: var(--panel-solid); border: 1px solid var(--edge-strong); border-radius: var(--radius); display: grid; gap: 8px; font-size: 12px; }
-  .assembly-prefs label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+  /* Secondary map controls live under one Options menu so the wall keeps the room. */
+  .wall-options { position: relative; flex: none; }
+  .wall-options > summary { cursor: pointer; list-style: none; padding: 5px 10px; border: 1px solid var(--btn-edge); border-radius: var(--radius); background: var(--btn-bg); font-size: 12px; color: var(--text); white-space: nowrap; transition: background var(--dur-fast), border-color var(--dur-fast), color var(--dur-fast); }
+  .wall-options > summary::-webkit-details-marker { display: none; }
+  .wall-options > summary::after { content: " ▾" / ""; color: var(--muted); }
+  .wall-options > summary:hover { background: var(--btn-hover); }
+  .wall-options[open] > summary { background: var(--btn-active-bg); color: var(--btn-active-ink); border-color: var(--btn-active-edge); box-shadow: var(--btn-glow); }
+  .wall-options-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 3; min-width: 230px; max-width: calc(100vw - 28px); padding: 12px 14px; background: var(--panel-solid); border: 1px solid var(--edge-strong); border-radius: var(--radius); box-shadow: 0 10px 28px rgba(0, 0, 0, .55); display: grid; gap: 12px; font-size: 12px; }
+  .option-group { display: grid; gap: 6px; justify-items: start; }
+  .option-group > button, .option-group .group > button { padding: 5px 10px; font-size: 12px; white-space: nowrap; }
+  .option-group label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
   .number-bg { fill: var(--number-bg); stroke: var(--number-edge); }
   .number { fill: var(--number-ink); font-family: var(--font-num); font-weight: 600; font-variant-numeric: tabular-nums; text-anchor: middle; dominant-baseline: central; pointer-events: all; }
 }
@@ -345,18 +355,21 @@ body[data-mode="quiet"] #wall.prism-scene, body[data-mode="free"] #wall.prism-sc
 <div id="notice" role="status"></div>
 <main>
   <aside id="projects">
-    <div class="aside-head"><h2>Projects</h2><span class="hint" title="Shared Lines are available for overflow. Reserved Lines stay with their project.">Pick a color, assign Lines on the map</span></div>
+    <div class="aside-head"><h2>Projects</h2></div>
     <button type="button" id="showSavedProjects" aria-expanded="false" aria-controls="projectList">Show saved projects (0)</button>
     <div id="projectList"></div>
   </aside>
   <section class="canvas">
     <div class="canvas-head">
-      <div><h2>The wall <span class="small" id="lineCount"></span></h2><div class="small">Click to select · Ctrl/⌘ or Shift for several</div></div>
-      <span class="pill" id="wallNote"></span>
-      <span class="spacer"></span>
-      <button type="button" id="showNumbers" aria-pressed="false" title="Show every physical Line number on this browser only">Show all numbers</button>
-      <div class="group" role="group" aria-label="Map orientation"><button type="button" id="rotate" title="Rotate map 90 degrees">Rotate</button><button type="button" id="flipX">Flip H</button><button type="button" id="flipY">Flip V</button></div>
-      <div class="group" role="group" aria-label="Assembly"><button type="button" id="replay" title="Replay the opening assembly. Decorative only; it changes nothing on the lights.">Replay assembly</button><details class="assembly-prefs"><summary aria-label="Assembly playback settings">Playback</summary><div><label><input type="checkbox" id="assemblyOnOpen"> Play on opening</label><label><input type="checkbox" id="assemblyOnEntry"> Play on view entry</label></div></details></div>
+      <h2>The wall <span class="small" id="lineCount"></span></h2>
+      <details class="wall-options" id="wallOptions">
+        <summary title="Number display, map orientation and assembly playback">Options</summary>
+        <div class="wall-options-menu">
+          <div class="option-group" id="numbersOption" role="group" aria-labelledby="numbersLabel"><span class="label" id="numbersLabel">Numbers</span><button type="button" id="showNumbers" aria-pressed="false" title="Show every physical Line number on this browser only">Show all numbers</button></div>
+          <div class="option-group" role="group" aria-labelledby="orientationLabel"><span class="label" id="orientationLabel">Orientation</span><div class="group"><button type="button" id="rotate" title="Rotate map 90 degrees">Rotate</button><button type="button" id="flipX">Flip H</button><button type="button" id="flipY">Flip V</button></div></div>
+          <div class="option-group" role="group" aria-labelledby="assemblyLabel"><span class="label" id="assemblyLabel">Assembly</span><button type="button" id="replay" title="Replay the opening assembly. Decorative only; it changes nothing on the lights.">Replay assembly</button><label><input type="checkbox" id="assemblyOnOpen"> Play on opening</label><label><input type="checkbox" id="assemblyOnEntry"> Play on view entry</label></div>
+        </div>
+      </details>
     </div>
     <div id="busy" role="status" aria-live="polite"></div>
     <div class="wall-frame" id="wallHost"><svg id="wall" aria-label="Nanoleaf wall map" role="group"></svg></div>
@@ -371,7 +384,7 @@ body[data-mode="quiet"] #wall.prism-scene, body[data-mode="free"] #wall.prism-sc
   <aside id="inspector">
     <div class="card selection">
       <h2 id="selectionTitle" tabindex="-1">Select a Line</h2>
-      <p class="hint" id="selectionHint">Choose one or more Lines to assign them to a project.</p>
+      <p class="hint" id="selectionHint">Click a Line on the wall or a numbered badge to reserve it for a project. Ctrl/⌘ or Shift selects several.</p>
       <div id="selectionBody">
         <label class="label field" for="assignProject">Reservation project</label>
         <select id="assignProject" class="full"></select>
@@ -381,11 +394,9 @@ body[data-mode="quiet"] #wall.prism-scene, body[data-mode="free"] #wall.prism-sc
     </div>
     <div class="card" id="taskDetail"></div>
     <div class="card" id="taskCard">
-      <h2 id="tasksTitle" tabindex="-1">Tasks <span class="small" id="taskCount"></span></h2>
-      <p class="small" id="taskStatusCounts"></p>
-      <p class="small" id="waiting"></p>
-      <p class="small" id="taskSummary"></p>
-      <div class="task-controls"><button type="button" id="showAllTasks" aria-expanded="false" aria-controls="taskList taskFilters">Show all tasks</button><button type="button" id="showSelectedTasks" hidden>Show selected tasks</button></div>
+      <div class="card-head"><h2 id="tasksTitle" tabindex="-1">Tasks <span class="small" id="taskCount"></span></h2><div class="task-controls"><button type="button" id="showAllTasks" aria-expanded="false" aria-controls="taskList taskFilters">Show all tasks</button><button type="button" id="showSelectedTasks" hidden>Show selected tasks</button></div></div>
+      <p class="small task-counts" id="taskStatusCounts"></p>
+      <p class="small task-counts"><span id="waiting"></span> · <span id="taskSummary"></span></p>
       <p class="small" id="taskSelectionNote" hidden></p>
       <div id="taskFilters" hidden>
         <label class="small" for="taskFilter">Filter tasks</label>
@@ -488,7 +499,8 @@ function drawProjects(){
   if(state.settings.style==='project'){
     let row=list.querySelector('.shared-pool');
     if(!row){row=el('div',undefined,'project shared-pool');const mark=el('span','◇','shared-mark');mark.setAttribute('aria-hidden','true');row.append(mark,el('div'))}
-    const info=row.lastElementChild,content=el('div');content.append(el('div','Shared pool','project-name'));
+    const info=row.lastElementChild,content=el('div'),name=el('div','Shared pool','project-name');
+    name.title='Shared Lines are available for overflow. Reserved Lines stay with their project.';content.append(name);
     const shared=state.lines.filter(l=>!l.project);
     content.append(lineGroup('In use','in-use',shared.filter(l=>lineTask(l))),lineGroup('Available','available',shared.filter(l=>!lineTask(l))));
     for(const badge of content.querySelectorAll('.line-badge'))badge.dataset.focusKey=JSON.stringify(['shared',badge.dataset.lineId]);
@@ -609,14 +621,14 @@ function zoneColors(line){
 function drawWall(){
   if(!window.Prism||!window.PrismAdapters||!state?.lines.length){
     prismError=state?.lines.length&&(!window.Prism||!window.PrismAdapters)?'Prism artwork unavailable. Showing standard Lines. Repair the app installation to restore the crystal artwork.':'';
-    $('showNumbers').hidden=true;
+    $('numbersOption').hidden=true;
     if(prism){prism.destroy();prism=null;prismGeometryKey='';$('wallHost').innerHTML='<svg id="wall" role="group" aria-label="Nanoleaf wall map"></svg>'}
     return drawStandardWall();
   }
   let layout;
   try{layout=PrismAdapters.fromState(state,zoneColors);Prism.validate(layout);prismError=''}
-  catch{prismError='Connector layout unavailable. '+(prism?'Keeping the last valid wall.':'Showing standard Lines.');if(!prism){$('showNumbers').hidden=true;return drawStandardWall()}}
-  $('showNumbers').hidden=false;
+  catch{prismError='Connector layout unavailable. '+(prism?'Keeping the last valid wall.':'Showing standard Lines.');if(!prism){$('numbersOption').hidden=true;return drawStandardWall()}}
+  $('numbersOption').hidden=false;
   if(layout){
     const key=JSON.stringify([layout.nodes,layout.lines.map(({colors,...line})=>line)]);
     if(!prism){
@@ -812,7 +824,8 @@ function drawTasks(){
   if(retained&&(showAllTasks||limit>0)&&!visible.includes(retained)){if(!showAllTasks&&visible.length===limit)visible.pop();visible.push(retained);visible.sort((a,b)=>priority(a)-priority(b)||a.id.localeCompare(b.id))}
   $('taskStatusCounts').textContent=['blocked','question','working','unread'].map(status=>state.tasks.filter(t=>t.status===status).length+' '+status).join(' · ');
   $('waiting').textContent=state.tasks.filter(t=>!lineById(t.line)).length+' waiting for a Line';
-  $('taskSummary').textContent=`Showing ${visible.length} of ${state.tasks.length} tasks`+(filter!=='all'||query?` · ${matches.length} match filter`:'')+(outsideFilter?' · 1 focused task outside filter':'');
+  // The Tasks heading carries the total; this line says how many of them are on screen.
+  $('taskSummary').textContent=(filter!=='all'||query?`${matches.length} match filter · `:'')+`${visible.length} shown`+(outsideFilter?' · 1 focused task outside filter':'');
   $('showAllTasks').textContent=showAllTasks?'Show fewer tasks':'Show all tasks';
   $('showAllTasks').setAttribute('aria-expanded',String(showAllTasks));
   $('taskFilters').hidden=!showAllTasks;
@@ -857,7 +870,7 @@ function highlightAssociations(){
 function inspect(){
   const chosen=state.lines.filter(l=>selected.has(l.id)).sort((a,b)=>a.number-b.number);
   $('selectionTitle').textContent=chosen.length===1?'Line '+chosen[0].number:chosen.length?'Lines '+chosen.map(l=>l.number).join(', '):'Select a Line';
-  $('selectionHint').textContent=chosen.length===1?lineDescription(chosen[0]):chosen.length?chosen.length+' physical Lines selected.':'Click a Line on the wall, or a numbered badge, to reserve it for a project.';
+  $('selectionHint').textContent=chosen.length===1?lineDescription(chosen[0]):chosen.length?chosen.length+' physical Lines selected.':'Click a Line on the wall or a numbered badge to reserve it for a project. Ctrl/⌘ or Shift selects several.';
   $('selectionBody').hidden=!chosen.length&&!taskFocus;
   for(const id of ['assign','swap'])$(id).disabled=!chosen.length;
   $('clear').disabled=!chosen.length&&!taskFocus;
@@ -917,9 +930,6 @@ function render(){
   drawProjects();drawWall();inspect();drawTasks();highlightAssociations();anchorPulses();
   if(!assembly.seen&&state.lines.length){assembly.seen=true;playAssembly('opening')}
   const busy=state.pending?pendingText():state.mode_pending?'Mode change pending.':'';if($('busy').textContent!==busy)$('busy').textContent=busy;
-  const [note,detail]=modeNotes[state.mode]||['',''];
-  $('wallNote').textContent=state.mode!=='free'&&!state.tasks.length?note.split(' · ')[0]+' · scene playing':note;
-  $('wallNote').title=state.mode!=='free'&&!state.tasks.length?'No active indicators. Your remembered scene plays on the wall.':detail;
   $('connection').textContent='Live';$('connection').classList.remove('offline');
   readout();
   if(Date.now()>errorUntil)message(state.error||state.geometry_error||prismError||prismLabelError||'',!!(state.error||state.geometry_error||prismError||prismLabelError));
@@ -927,15 +937,25 @@ function render(){
 }
 let lastReadout='';
 function readout(){
-  // An indicative summary of the polled state, not a mirror of the controller. State comes before counts.
+  // Live status only, not a mirror of the controller: the mode note, a pending flag and the alerts.
+  // The Line and task totals live at their headings.
   const count=status=>state.tasks.filter(t=>t.status===status).length;
-  const parts=[[state.mode,true]];
-  if(state.mode==='free')parts.push(['lights released',true]);
-  if(state.pending)parts.push(['pending edit',true]);else if(state.mode_pending)parts.push(['mode change pending',true]);
-  parts.push([state.lines.length+' Lines'],[state.tasks.length+' tasks'],[count('blocked')+' blocked'],[count('question')+' question']);
+  const [note,detail]=modeNotes[state.mode]||['',''],resting=state.mode!=='free'&&!state.tasks.length;
+  const parts=[[resting?note.split(' · ')[0]+' · scene playing':note,'mode',resting?'No active indicators. Your remembered scene plays on the wall.':detail]];
+  if(state.pending)parts.push(['pending edit','pending']);else if(state.mode_pending)parts.push(['mode change pending','pending']);
+  const alerts=['blocked','question'].filter(status=>count(status)).map(status=>[count(status)+' '+status,status]);
+  parts.push(...(alerts.length?alerts:[['no alerts']]));
   const key=JSON.stringify(parts);if(key===lastReadout)return;lastReadout=key;
   const node=$('readout');node.replaceChildren();
-  parts.forEach(([text,strong],i)=>{if(i)node.append(' · ');node.append(strong?el('b',text):text)});
+  parts.forEach(([text,kind,title],i)=>{
+    if(i)node.append(' · ');
+    if(!kind)return node.append(text);
+    const part=el('b',text);
+    if(kind==='mode'){part.id='wallNote';part.className='mode-note';part.title=title}
+    else if(kind==='pending')part.className='pending';
+    else part.dataset.alert=kind;
+    node.append(part);
+  });
 }
 async function refresh(){if(refreshing)return;refreshing=true;try{const r=await fetch('/api/state');const data=await r.json();if(!r.ok)throw Error(data.error);state=data;render()}catch(e){endAssembly();$('connection').textContent='Disconnected · retrying';$('connection').classList.add('offline');message(e.message,true)}finally{refreshing=false}}
 for(const id of ['classic','project'])$(id).onclick=()=>action('/api/settings',{style:id});for(const mode of ['work','free','quiet'])$(mode).onclick=()=>action('/api/mode',{mode});$('coverage').onchange=()=>action('/api/settings',{coverage:$('coverage').value});$('assign').onclick=()=>action('/api/assign',{lines:Object.fromEntries([...selected].map(id=>[id,{project:$('assignProject').value||null}]))});$('clear').onclick=()=>{selected.clear();taskFocus=null;$('selectionTitle').focus({preventScroll:true});drawWall();inspect();drawTasks();highlightAssociations()};$('swap').onclick=()=>action('/api/assign',{lines:Object.fromEntries(state.lines.filter(l=>selected.has(l.id)).map(l=>[l.id,{signature:1-l.signature}]))});$('locate').onclick=()=>{const id=[...selected][0],group=$('wall').querySelector(`[data-line="${id}"]`);if(group){group.classList.remove('locating');void group.getBBox();group.classList.add('locating');setTimeout(()=>group.classList.remove('locating'),1000)}action('/api/locate',{line:id})};$('rotate').onclick=()=>action('/api/settings',{rotation:(state.settings.rotation+90)%360});$('flipX').onclick=()=>action('/api/settings',{flip_x:1-state.settings.flip_x});$('flipY').onclick=()=>action('/api/settings',{flip_y:1-state.settings.flip_y});new ResizeObserver(sizeLineNumbers).observe($('wallHost'));refresh();setInterval(refresh,1000);
@@ -945,11 +965,11 @@ window.matchMedia?.('(prefers-reduced-motion: reduce)')?.addEventListener('chang
 // Assembly controls. Any other interaction completes a running assembly before its own action.
 $('replay').onclick=()=>playAssembly('replay');
 for(const [id,name] of [['assemblyOnOpen','opening'],['assemblyOnEntry','entry']]){$(id).checked=assemblyPref(name);$(id).onchange=()=>setAssemblyPref(name,$(id).checked)}
-for(const type of ['pointerdown','keydown'])document.addEventListener(type,e=>{if(assembly.active&&!e.target.closest?.('#replay,.assembly-prefs'))endAssembly(type==='pointerdown')},true);
-// The Playback menu closes on Escape or a click elsewhere.
-const prefsMenu=document.querySelector('.assembly-prefs');
-document.addEventListener('pointerdown',e=>{if(prefsMenu.open&&!e.target.closest?.('.assembly-prefs'))prefsMenu.open=false},true);
-document.addEventListener('keydown',e=>{if(e.key==='Escape'&&prefsMenu.open&&prefsMenu.contains(document.activeElement)){prefsMenu.open=false;prefsMenu.querySelector('summary').focus()}});
+for(const type of ['pointerdown','keydown'])document.addEventListener(type,e=>{if(assembly.active&&!e.target.closest?.('#wallOptions'))endAssembly(type==='pointerdown')},true);
+// The Options menu closes on Escape, returning focus to its control, or on a press elsewhere.
+const optionsMenu=$('wallOptions');
+document.addEventListener('pointerdown',e=>{if(optionsMenu.open&&!e.target.closest?.('#wallOptions'))optionsMenu.open=false},true);
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&optionsMenu.open&&optionsMenu.contains(document.activeElement)){optionsMenu.open=false;optionsMenu.querySelector('summary').focus()}});
 window.wallAssembly={play:playAssembly,active:()=>assembly.active,snapshot:()=>prism?.snapshot()||null};
 window.addEventListener('pagehide',()=>prism?.pause());
 window.addEventListener('pageshow',()=>prism?.resume());

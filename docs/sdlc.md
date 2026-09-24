@@ -46,11 +46,10 @@ request. Keep source, installed, and physically verified claims separate.
 
 ## Define and prepare work
 
-Search existing issues before creating one. Record the problem, intended outcome,
-scope boundary, observable acceptance criteria, dependencies, verification approach,
-and delivery target. Use the feature or bug form when applicable. For maintenance
-and investigations, use the same fields in an ordinary issue. Source-only is the
-default target.
+Search existing issues before creating one. Draft features with the prompts in
+[scope defaults](#scope-defaults) and bugs with the bug form. For maintenance
+and investigations, use the same headings in an ordinary issue. Source-only is
+the default delivery target.
 
 Preserve unrelated labels. Use `bug`, `enhancement`, `documentation`, or
 `maintenance` to describe the work, with exactly one status label on an open
@@ -80,6 +79,83 @@ discoverable facts first, then ask all independent current questions together.
 Resolve dependent questions in later rounds. Record accepted decisions and
 assumptions. Add an ADR for lasting choices about ownership, compatibility,
 concurrency, persistence, or deployment. Routine implementation details need no ADR.
+
+## Scope defaults
+
+This is a personal project. Size each story for how it actually runs: one
+operator, the selected installation (the Linux runtime, with legacy Windows
+installations still supported where documented), and the Nanoleaf devices
+explicitly registered there. Add hosts, users, services or automation only when
+the story needs them. These defaults never remove an already accepted capability.
+
+Assess scope when drafting a story, at pickup and after a material scope or
+assumption change, whether or not `plan-work` or `deliver-work` was invoked.
+Use the shared assessment in the installed deliver-work package's
+`references/work-assessment.md`, found through the host's skill discovery.
+Reading it does not invoke either skill. If it is unavailable, report that and
+apply this section. Codex and Claude follow the same policy. A read-only request
+reports the assessment instead of editing the issue.
+
+Draft stories with the five prompts of the
+[feature form](../.github/ISSUE_TEMPLATE/feature.yml). A small story may answer
+them in a few sentences.
+
+1. Outcome and real setup.
+2. Smallest useful implementation, with dependencies.
+3. Behavior and protections to preserve.
+4. Observable acceptance and planned evidence, with the delivery target.
+5. Meaningful deferrals, each with its consequence or manual alternative and
+   its owning issue or revisit trigger.
+
+Prefer existing components and explicit manual steps where practical. Avoid
+speculative platform support, abstraction layers, automatic rollback systems and
+broad outage matrices. Always protect supported behavior: one authoritative
+state owner and one light writer per device, correct targets, bounded queued
+work, no unsafe replay, accurate freshness and completion, manual control, and
+user data integrity, including task and scene state.
+
+Basic credential hygiene and the existing authorization and origin checks apply
+to local use too. Reassess before remote or public exposure, an additional
+operator or writer, expanded compatibility, or recurring failures. A change that
+could lose irreplaceable data needs practical recovery evidence, using existing
+facilities where possible; this is not a general backup-tooling requirement.
+
+For each meaningful cut, name the capability or assurance lost and reconcile
+dependent issues and specifications within the task's authority. Never silently
+remove requested behavior; ask the user when a cut would change it. Scope
+defaults keep review, CI, UI approval, OpenSpec and the source, installation and
+physical boundaries, with their existing exceptions, and add no new gate.
+
+For a consequential change to credentials, persistent state, concurrency or
+device commands, define acceptance examples before implementation. Give the owner
+a short walkthrough in the PR with code and test links: state and writer
+ownership, timeout, restart and duplicate behavior, the important failure test,
+and diagnosis and recovery. Explain any change that weakens an existing test
+assertion. The walkthrough is an understanding aid, not an approval gate.
+
+Judge these defaults from existing PR evidence: delivery time, correction rounds,
+defects after merge and human effort. Unknown effort or usage stays unknown.
+[agent-skills#44](https://github.com/jimmie-potts/agent-skills/issues/44) owns
+the comparative evaluation; no metrics service or parallel report is required.
+
+Example, checked on 2026-09-24 against the map selector
+([#44](https://github.com/jimmie-potts/codex-nanoleaf/issues/44)) and the future
+combined pool ([#47](https://github.com/jimmie-potts/codex-nanoleaf/issues/47)):
+
+- Setup: one operator, the Linux installation, and registered Lines and Light
+  Panels.
+- Smallest implementation: a selector in the existing map that shows one device
+  at a time, with static triangle colours.
+- Preserve: the protected controller API stays Lines-only, requests that name
+  no device still address Lines, unknown devices are rejected, and selection
+  sends no Locate. Origin and edit-token checks remain.
+- Evidence: browser fixtures with Lines and the synthetic NL22 layout, plus
+  human approval of the UI candidate.
+- Deferred: the combined pool and its migration of tasks, unread evidence,
+  preferences and effect epochs stay with #47 rather than entering the selector.
+  Side-by-side devices and triangle animation wait for a user request.
+- Limitation: this checks the issue text against the guidance. It does not show
+  how an agent will apply it.
 
 ## Choose the amount of planning
 
