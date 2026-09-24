@@ -262,7 +262,7 @@ def unread_reader(config):
                 else:
                     # Older Desktop releases have only this unversioned local bucket.
                     ids = state['electron-persisted-atom-state']['unread-thread-ids-by-host-v1']['local']
-                if not isinstance(ids, list) or any(not isinstance(i, str) for i in ids):
+                if not isinstance(ids, list) or any(not isinstance(i, str) or not i for i in ids):
                     return None
                 cached, stamp = set(ids), current
             return cached

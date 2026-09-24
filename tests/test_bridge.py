@@ -613,6 +613,14 @@ class BridgeTest(unittest.TestCase):
         state.unlink()
         self.assertIsNone(read())
 
+    def test_invalid_legacy_read_ids_are_unavailable(self):
+        state=self.path/'desktop.json'
+        for ids in ([''],['a',None],['a',1]):
+            with self.subTest(ids=ids):
+                state.write_text(json.dumps({'electron-persisted-atom-state':{
+                    'unread-thread-ids-by-host-v1':{'local':ids}}}))
+                self.assertIsNone(b.unread_reader({'desktop_state_path':str(state)})())
+
 
 if __name__=='__main__':
     unittest.main()
