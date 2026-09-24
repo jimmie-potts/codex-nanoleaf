@@ -62,3 +62,11 @@ review and source history; consumers record the evaluated revision.
 
 The [SDLC guide](../sdlc.md) owns the operating procedure. Changes to these lasting
 defaults should amend this decision through review or introduce a superseding ADR.
+
+## Update, 2026-09-24
+
+The repository is now public. Native branch protection is available, but `main`
+has no branch protection or rulesets configured, so the merge checks remain
+procedural rather than server-enforced. The decision above is unchanged; its
+private-repository and unavailable-protection notes record the 2026-09-05 state.
+The [SDLC guide](../sdlc.md) describes current settings.
