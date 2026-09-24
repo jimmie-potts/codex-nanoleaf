@@ -73,6 +73,45 @@ class BridgeTest(unittest.TestCase):
         with contextlib.closing(b.connect_state(self.path)) as db,db:
             return b.dashboard(db,self.config,self.clock.now())
 
+    def test_render_returns_the_successfully_accepted_output_and_timing(self):
+        calls=[]
+        config={**self.config,'_mode':'work','_now':self.clock.now}
+        snapshot=[('working',1000.0)]+[None]*14
+        def request(cfg,method,endpoint,payload=None):
+            calls.append((method,endpoint,json.loads(json.dumps(payload))))
+            self.clock.sleep(.25 if endpoint=='/effects' else .4)
+        config['_controller_request']=request
+
+        receipt=b.render(config,snapshot,1000.0,True)
+
+        self.assertEqual([call[:2] for call in calls],[('PUT','/effects'),('PUT','/state')])
+        self.assertEqual(receipt['effect'],calls[0][2])
+        self.assertEqual(receipt['lineGroups'],self.config['line_groups'])
+        self.assertEqual(receipt['mode'],'work')
+        self.assertEqual(receipt['brightness'],30)
+        self.assertTrue(receipt['loop'])
+        self.assertEqual(receipt['animationEpochMs'],1_000_000)
+        self.assertEqual(receipt['sendStartedAtMs'],1_000_000)
+        self.assertEqual(receipt['effectAcceptedAtMs'],1_000_250)
+        self.assertEqual(receipt['acceptedAtMs'],1_000_650)
+
+    def test_update_display_keeps_only_the_last_fully_successful_receipt(self):
+        receipt={'apiVersion':'1.0','deviceId':'wall','effect':{'write':{'animData':'1 100 1 0'}},
+                 'lineGroups':[[100,101]],'mode':'work','brightness':30,'loop':True,
+                 'animationEpochMs':1_000_000,'acceptedAtMs':1_000_650}
+        with contextlib.closing(b.connect_state(self.path)) as db,db:
+            b.update_display(db,self.config,[('working',1000.0)]+[None]*14,1000.0,True,
+                              send=lambda *_:receipt)
+        saved=json.loads(self.query("SELECT value FROM meta WHERE key='rendering_receipt'")[0][0])
+        self.assertEqual(saved,receipt)
+
+        def fail(*_):
+            raise OSError('Device unavailable')
+        with self.assertRaises(OSError):
+            with contextlib.closing(b.connect_state(self.path)) as db,db:
+                b.update_display(db,self.config,[('blocked',1001.0)]+[None]*14,1001.0,False,send=fail)
+        self.assertEqual(json.loads(self.query("SELECT value FROM meta WHERE key='rendering_receipt'")[0][0]),receipt)
+
     def test_first_working_pulse_radiates_then_only_local_loop(self):
         self.event('UserPromptSubmit')
         self.assertEqual([loop for _,_,loop in self.sent], [False,True])

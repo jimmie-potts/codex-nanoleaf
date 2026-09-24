@@ -444,6 +444,10 @@ Locate let you adjust it to your viewing position.
 
 The [controller API guide](../docs/controller-api.md) describes opt-in local machine authentication, mode, power, brightness and saved-scene control, pure snapshots, bounded recovery and verified dependency adoption. The [protected controller specification](../openspec/specs/protected-controller-api/spec.md) owns the machine contract. Existing wall-map authentication and the animation/scene behavior above remain unchanged. Source delivery does not enable the listener or install credentials.
 
+## Rendering snapshot
+
+The local map's `GET /api/rendering` reads the latest fully successful worker receipt directly from private SQLite. It returns the encoded effect payload, physical zone groups, mode, brightness, looping, and separate animation and send-acceptance timestamps. The endpoint does not refresh task metadata, acquire geometry, contact the controller, or launch a worker. A successful command is not optical verification; Free mode and unreadable external scenes do not claim mirrored frames. The map does not consume this snapshot yet; [#17](https://github.com/jimmie-potts/codex-nanoleaf/issues/17) owns its renderer. See the [rendering snapshot specification](../openspec/specs/wall-rendering-snapshot/spec.md).
+
 ## Connector geometry for the wall
 
 The [connector geometry specification](../openspec/specs/wall-connector-geometry/spec.md)
