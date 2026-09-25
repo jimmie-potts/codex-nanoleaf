@@ -16,11 +16,13 @@ controller listener serves both APIs on the same authenticated loopback endpoint
 | `elements.assign` | Stable physical Line ID, nullable project ID, optional `signature` 0 or 1 | Machine `control` |
 | `task.assign` | Opaque task ID, nullable project override | Machine `control` |
 | `project.color` | Opaque project ID, `#RRGGBB` saved color | Machine `control` |
-| Cancel a configuration edit | Its original request ticket | Owning machine principal with `control` |
+| `animation.play` | Pattern, 1 to 8 colors, speed, direction, loop; Free only | Machine `control`; see [requested animations](#requested-animations) |
+| Animation options | Patterns, speeds, directions, defaults, limits | Machine `read`, `GET /animations` |
+| Cancel a configuration edit or queued animation | Its original request ticket | Owning machine principal with `control` |
 | Power, brightness, saved-scene activation | Shared v1 `power.set`, `brightness.set`, `scene.activate` | Machine `control`, unchanged `/controller/v1/commands`; see [general controls](controller-api.md#general-controls) |
 | Locate, preview, source switching, orientation, new devices or combined layouts | Unsupported by this extension | No operation |
 
-The four extension edits preserve the selected Work/Quiet/Free mode. They are
+The four configuration edits preserve the selected Work/Quiet/Free mode. They are
 available in all three modes, using the existing wall application operations.
 Classic preserves Project reservations. Coverage and half selection retain their
 existing display meaning. A saved configuration does not prove a device send or
@@ -42,6 +44,7 @@ All paths below begin with `/controller/integration/v1`. Every call requires
 | --- | --- |
 | `GET /snapshot?deviceId=<configured-id>` | Sanitized snapshot and current extension request ticket |
 | `POST /commands` | Admission receipt |
+| `GET /animations?deviceId=<configured-id>` | Animation options, mode, revision and current request ticket |
 | `GET /receipt?deviceId=<id>&epoch=<epoch>&sequence=<sequence>` | Original principal's retained receipt, without effects |
 | `POST /cancel` | Cancel queued work, or return an already completed receipt |
 
@@ -139,6 +142,61 @@ launch/service failure. Reads return capacity instead of silently truncating an
 editable identity map. Limits are 1,000 projects/tasks/reservations, 300 configured
 Lines, one queued edit, 256 retained completed receipts and 65,536 request bytes.
 The existing controller thread, socket, transaction-deadline and body limits apply.
+
+## Requested animations
+
+[Issue #92](https://github.com/jimmie-potts/codex-nanoleaf/issues/92) adds one
+light operation, `animation.play`, and [ADR 0014](decisions/0014-requested-animations.md)
+records why it lives in this extension. The command carries `pattern` (`wave`,
+`gradient`, `pulse`, `breathe` or `sparkle`) and `colors` (1 to 8 `#rrggbb`
+values). It can also carry `speed` (`slow`, `medium` or `fast`; default
+`medium`), `loop` (default true) and, for the spatial `wave` and `gradient`
+patterns only, `direction` (`left`, `right`, `up`, `down`, `outward` or
+`inward`; default `right`). Directions use the controller's layout coordinates,
+before the map's Rotate and Flip view options. Unknown fields and values fail
+as `invalid-request`.
+
+```json
+{"kind": "animation.play", "pattern": "wave", "colors": ["#0044aa", "#00aa66"], "speed": "slow"}
+```
+
+Animations are Free-mode content, following hub ADR 0005. While the desired
+mode is Work or Quiet the controller rejects the command as
+`unsupported-capability` before queueing, and it never changes the mode. Switch
+to Free with the v1 `mode.set` command first. Admission also requires the
+current `revision`. It renders the effect against the saved Lines layout and
+rejects with `capacity` any effect over 20 frames per zone or an 8,192-byte
+request body. That bound stays inside the largest effect proven on the device,
+the 9,009-byte middle-Line comet preview. A spatial pattern without saved Line
+positions fails as `unsupported-capability`. These rejections consume no
+ticket.
+
+An accepted animation takes the one queued slot and follows the same replay,
+cancellation, revocation, disable and 30-second expiry rules as configuration
+edits. Any explicit mode command from the CLI, wall map or a native client,
+including the same mode, cancels a queued animation with `stale-generation`.
+The Lines worker plays it as one `PUT /effects` display write that the device
+loops or plays once. It sends no per-frame stream and no brightness or power
+write. A pending mode command applies first, and queued v1 controls and
+animations then run in admission order. The worker records the attempt before
+the write and never sends it again.
+
+| Outcome | Meaning | Prior effects |
+| --- | --- | --- |
+| `queued` | Waiting for the worker | `none` |
+| `sent` | The display write was transmitted | `confirmed-transmission` |
+| `failed` | Not sent; inspect the failure code | `none` |
+| `uncertain` | The write raised or the worker stopped mid-attempt | `possible` |
+| `cancelled` | Retired before sending by a mode command, owner or revocation | `none` |
+
+`physicalOutcome` stays `unknown`: `sent` is transport evidence, not visible
+output. The extension snapshot does not list `animation.play` and keeps its
+exact 1.0 shape, because the hub validates that shape exactly. Read the options
+from `GET /animations` instead. It returns `patterns` (each `{id, spatial}`),
+`speeds`, `directions`, `defaults` and `limits` (`minColors`, `maxColors`,
+`maxFramesPerZone` and `maxEffectBytes`), plus `mode`, `revision` and
+`nextRequestId` for the next request. It is a pure read like the snapshot.
+The [local MCP tools](local-mcp.md#play-animations) use this route.
 
 ## Runtime, versioning and rollback
 

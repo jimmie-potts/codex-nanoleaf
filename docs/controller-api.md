@@ -1,6 +1,6 @@
 # Local controller API
 
-The optional controller API exposes the bridge's existing Work, Quiet and Free modes, plus power, brightness and saved-scene activation, to local native clients. The installation's single worker owns light updates on Linux. Media, zones and animation preview are explicitly unsupported. Work/Quiet brightness and scene restoration retain their existing policies; [general controls](#general-controls) describe how a native override interacts with them.
+The optional controller API exposes the bridge's existing Work, Quiet and Free modes, plus power, brightness and saved-scene activation, to local native clients. The installation's single worker owns light updates on Linux. Media, zones and preview are explicitly unsupported in v1; requested Free-mode animations use the [integration extension](integration-api.md#requested-animations). Work/Quiet brightness and scene restoration retain their existing policies; [general controls](#general-controls) describe how a native override interacts with them.
 
 The [protected controller specification](../openspec/specs/protected-controller-api/spec.md) owns the machine behavior. [Issue #28](https://github.com/jimmie-potts/codex-nanoleaf/issues/28) owns the original delivery scope and [issue #64](https://github.com/jimmie-potts/codex-nanoleaf/issues/64) the general controls. Shared monitoring, installation/real-client acceptance and physical previews have separate issues.
 
@@ -96,4 +96,6 @@ reservations, task-project overrides and saved colors through the protected
 controller. It has separate versioned requests and configuration receipts; shared
 controller v1 mode commands remain unchanged. Pure reads exclude local titles and
 paths. The existing worker applies edits on the installation's native database.
+Its one light command, the Free-only [`animation.play`](integration-api.md#requested-animations),
+is played by the same worker with transport receipts.
 Source delivery does not enable the listener, switch task input or change an installation.
