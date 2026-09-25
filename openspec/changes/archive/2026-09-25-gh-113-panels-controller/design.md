@@ -25,11 +25,12 @@ Only the `wall` worker instance reads and executes this state ([ADR 0010](../../
 
 ## Decisions
 
-1. **One table set with a `device` column.**
-   - `controller_meta` gains `device TEXT NOT NULL DEFAULT 'wall'` and a unique index. The existing row keeps `id=1`.
-   - `controller_requests` and `controller_events` are rebuilt with `device` as the last column and a `(device, sequence)` primary key. Their rows move over unchanged.
-   - The migration is guarded and idempotent, and it runs inside `connect_state`'s initialization transaction, beside `devices.migrate`.
-   - Keeping separate tables per device was rejected: it duplicates every query and still needs a key.
+1. **The Lines keep the original tables; other devices get suffixed tables.**
+   - `controller_meta`, `controller_requests` and `controller_events` stay exactly as they are and hold the Lines ledger. No migration runs, so older source can still read and write them after a rollback.
+   - Another device's ledger uses the same three schemas under `controller_meta@<device>`, `controller_requests@<device>` and `controller_events@<device>`. This follows the ADR 0009 `key@device` naming for meta keys. Device IDs are validated before they become quoted identifiers.
+   - `controller_state.table(base, device)` names the table for every query, so each query stays the same for every device.
+   - Adding a `device` column to the original tables was tried first and rejected in review. The older source's positional inserts then fail, so after a rollback mode changes, map edits and listener start would break.
+   - Removing a device (`device-remove`) drops its suffixed tables in the same transaction that purges its other device state.
 2. **Internal and external device identity.** The `wall` ledger is the original identity, whatever `deviceId` the operator configured for it (tests use `device`). Every other ledger is keyed by a registered device ID, and its external `deviceId` equals that ID. Routes resolve a requested `deviceId` by matching ledger identities.
 3. **Configure adds a ledger; it never redirects one.** When the `wall` ledger has the same `controllerId` and `sourceId`, a new `deviceId` that names a registered device other than `wall` adds that device's ledger with its own epoch and scene key. Configuring an existing identity again changes nothing. Any other difference is rejected as a redirect, as before.
 4. **Listener-wide flags live in every ledger.** `controller-serve` sets a new `clockEpoch` and `stopped=false` on every ledger. `controller-disable` sets `stopped=true` on every ledger and cancels every device's queued work. Issuing or revoking a token cancels that principal's queued work on every device and holds each affected device. Every per-ledger check then works unchanged.
@@ -50,14 +51,14 @@ Only the `wall` worker instance reads and executes this state ([ADR 0010](../../
 
 ## Risks / Trade-offs
 
-- **Older source after the upgrade.** Older source reads the `wall` ledger (`id=1`) unchanged, but its positional insert into the rebuilt `controller_requests` fails. Admission then fails closed with `transport-failure`, and no device is written. Rolling source back therefore means accepting failed native admission until the upgrade is reapplied. Nothing in the installation downgrades automatically.
+- **Older source after a rollback.** Older source uses the original tables unchanged and ignores the suffixed tables, so the Lines keep working. A Panels ledger stays unused until the newer source returns.
 - **Two workers write the database concurrently.** Each device's controller work runs under the existing `BEGIN IMMEDIATE` passes and the five-second busy timeout that ADR 0010 already relies on. Controller rows are now partitioned by device, so one instance never finishes, holds or recovers another device's requests.
 - **Crash between attempt and result.** This case is unchanged for each device: the owning instance's startup recovery marks the attempt uncertain and holds that device only.
-- **Hub integration status for the Panels.** The hub's closed extension validator rejects `supported: false`, so the hub's integration status for the Panels fails with `incompatible-controller` until the hub accepts it. Hub v1 control and MCP don't use that validator.
+- **Hub dashboard for the Panels.** The hub's dashboard shows no controls for the Panels until [agent-device-hub#323](https://github.com/jimmie-potts/agent-device-hub/issues/323) lands. The hub rejects the Panels' read-only extension snapshot, whose configuration operations are unsupported, and the dashboard loads that snapshot together with the v1 snapshot. The hub's v1 API routes and the MCP tools still control the Panels, and #113's live check uses Codex. The owner accepted this deferral on 2026-09-25.
 
 ## Migration Plan
 
-`connect_state` migrates on the next hook, CLI, map, worker or listener start, and `controller-serve` migrates before its first read. A committed-style test builds the pre-change ledger (single-row meta, legacy request and event tables with rows), opens it, and checks three things: the identity, epoch, receipts, cursor, scenes and hold keys are preserved; a second run changes nothing; and replaying a retained request returns the same receipt.
+No data migration runs. `CompatibilityTest` opens the committed pre-change database (`tests/fixtures/linux-state-v4`) and adds a Panels ledger. It then checks four things: the original tables' schema and rows are unchanged; the hold key survives; the pre-change source's exact positional writes still succeed; and a retained request replays its original receipt.
 
 ## Open Questions
 

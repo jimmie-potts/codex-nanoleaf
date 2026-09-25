@@ -225,7 +225,7 @@ The controller SHALL advertise Work, Quiet and Free as supported modes, power as
 
 ### Requirement: Per-device controller ledgers
 
-The controller SHALL keep one ledger per configured device, with its own identity and epoch, configuration revision, generation, request journal and sequence, event feed, saved-scene identities, overrides and hold. The original ledger SHALL keep its identity, epoch, retained receipts, cursor and scene IDs across the upgrade. `controller-configure` SHALL add a ledger only for a registered device other than the original one, with the original controller and source IDs, and SHALL still reject redirecting an existing identity. `/controller/v1/devices` SHALL list every configured device's snapshot, the original first. Snapshot, feed and command routes SHALL select the ledger named by `deviceId`, and one credential SHALL authorize every configured device. Power, brightness, mode and `scene.activate` SHALL follow the same mode rules on every device. This requirement maps to [issue #113](https://github.com/jimmie-potts/codex-nanoleaf/issues/113) scope 1 and 3 and AC1.
+The controller SHALL keep one ledger per configured device, with its own identity and epoch, configuration revision, generation, request journal and sequence, event feed, saved-scene identities, overrides and hold. The original ledger SHALL keep its identity, epoch, retained receipts, cursor and scene IDs in storage that older source can still read and write. Removing a device SHALL delete its ledger. `controller-configure` SHALL add a ledger only for a registered device other than the original one, with the original controller and source IDs, and SHALL still reject redirecting an existing identity. `/controller/v1/devices` SHALL list every configured device's snapshot, the original first. Snapshot, feed and command routes SHALL select the ledger named by `deviceId`, and one credential SHALL authorize every configured device. Power, brightness, mode and `scene.activate` SHALL follow the same mode rules on every device. This requirement maps to [issue #113](https://github.com/jimmie-potts/codex-nanoleaf/issues/113) scope 1 and 3 and AC1.
 
 #### Scenario: Both devices are listed
 
@@ -242,7 +242,12 @@ The controller SHALL keep one ledger per configured device, with its own identit
 - **WHEN** a client activates an advertised Panels scene while the Panels are in Work and the Lines are in Free
 - **THEN** the request fails with `unsupported-capability` and a retained receipt, and neither device receives a write
 
-#### Scenario: Existing single-device ledger is upgraded
+#### Scenario: Existing ledger stays compatible with older source
 
-- **WHEN** an installation with a pre-change single ledger, retained receipts, a hold and discovered scenes is opened
-- **THEN** the ledger keeps its identity, epoch, receipts, cursor, hold and scene IDs, a retained request replays its original receipt, and a second initialization changes nothing
+- **WHEN** an installation with a pre-change single ledger, retained receipts and a hold is opened and a Panels ledger is added
+- **THEN** the original tables' schema and rows are unchanged and still accept the older source's writes, the hold survives, and a retained request replays its original receipt
+
+#### Scenario: Removing the Panels
+
+- **WHEN** the operator removes the Panels after they were added to the controller
+- **THEN** their ledger is deleted, `/controller/v1/devices` lists only the Lines, and a later Panels request is forbidden

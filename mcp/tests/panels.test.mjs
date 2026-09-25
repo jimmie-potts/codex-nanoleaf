@@ -114,3 +114,28 @@ test('real MCP discovery and a Panels mode call reach the Panels routes', async 
     assert.equal(written.body.result.structuredContent.data.receipt.deviceId, 'panels');
     assert.deepEqual(seen, [['GET', '/controller/v1/snapshot?deviceId=panels', undefined], ['POST', '/controller/v1/commands', 'panels']]);
 });
+
+test('without a Panels target the Lines tool descriptions are unchanged', () => {
+    const descriptions = bindings(lines, store).tools.map(tool => tool.description).join('\n');
+    for (const text of ['Read the Nanoleaf controller snapshot', 'Request Work, Quiet or Free through the Nanoleaf controller.', 'Activate a saved Nanoleaf scene through the controller.', "List the Nanoleaf controller's advertised saved scenes"])
+        assert.ok(descriptions.includes(text), text);
+    assert.ok(!descriptions.includes('Nanoleaf Lines'));
+    assert.ok(bindings(config, store).tools.find(tool => tool.name === 'nanoleaf_panels_status').description.includes('Nanoleaf Light Panels'));
+});
+
+test('the Panels scene tools list and activate on the Panels only', async () => {
+    const sceneId = 'scene-' + 'e'.repeat(64);
+    const calls = [];
+    const { registry, tools } = bindings(config, store, async (target, operation, token, request) => {
+        calls.push([target.deviceId, operation, request?.deviceId]);
+        if (operation === 'scenes') return { status: 200, body: { apiVersion: 'nanoleaf.integration/1.0', identity: { ...snapshot.identity, deviceId: target.deviceId }, scenes: [{ id: sceneId, name: 'Forest' }] } };
+        return { status: 202, body: receiptFor(request) };
+    });
+    const tool = name => tools.find(candidate => candidate.name === name);
+    const listed = await invokeDeviceTool(registry, tool('nanoleaf_panels_scenes_list'), {}, principal);
+    assert.deepEqual(listed.structuredContent.data.scenes, [{ id: sceneId, name: 'Forest' }]);
+    const { mode, ...ticket } = modeArgs;
+    const activated = await invokeDeviceTool(registry, tool('nanoleaf_panels_scene_activate'), { ...ticket, sceneId }, principal);
+    assert.equal(activated.structuredContent.data.receipt.deviceId, 'panels');
+    assert.deepEqual(calls, [['panels', 'scenes', undefined], ['panels', 'command', 'panels']]);
+});

@@ -141,6 +141,8 @@ def purge(directory, b, device):
             db.execute('DELETE FROM ' + table + ' WHERE device=?', (device,))
         suffix = '@' + device
         db.execute('DELETE FROM meta WHERE substr(key, -?) = ?', (len(suffix), suffix))
+        import controller_state
+        controller_state.drop(db, device)  # Its controller ledger goes with it; the listener then forbids the ID.
     devices.save_device_layout(directory / 'layout.json', device, None, b.write_json)
     (directory / devices.scene_file(device)).unlink(missing_ok=True)
 
@@ -305,6 +307,9 @@ def leftovers(directory, b, device):
     suffix = '@' + device
     with contextlib.closing(b.connect_state(directory)) as db:
         if db.execute('SELECT 1 FROM meta WHERE substr(key, -?) = ?', (len(suffix), suffix)).fetchone():
+            return True
+        import controller_state
+        if controller_state.present(db, device):
             return True
         return any(db.execute('SELECT 1 FROM ' + table + ' WHERE device=? LIMIT 1', (device,)).fetchone()
                    for table in devices.SCHEMAS)

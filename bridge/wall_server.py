@@ -176,7 +176,7 @@ class App:
                 db.execute('BEGIN IMMEDIATE')
                 apply_operation(db,self.b,config,route,payload)
                 import controller_state
-                controller_state.changed(db)
+                controller_state.changed(db,device=devices.device_of(config))  # The edited device's ledger.
                 self.b.mark_dirty(db)
         self.launch(self.directory)
         return {'ok':True}

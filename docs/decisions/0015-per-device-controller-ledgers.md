@@ -21,7 +21,7 @@ This decision uses these terms. [#163](https://github.com/jimmie-potts/codex-nan
 
 ## Decision
 
-- **One ledger per device.** The controller keeps one ledger per configured device. The original Lines ledger keeps its identity, epoch, receipts, cursor, scene IDs and unsuffixed meta keys. Other ledgers use the ADR 0009 `key@device` names for their overrides and hold.
+- **One ledger per device.** The controller keeps one ledger per configured device. The Lines ledger stays in the original, unchanged controller tables, with its identity, epoch, receipts, cursor, scene IDs and unsuffixed meta keys. Another device's ledger uses the same tables under `@<device>` names (`controller_meta@panels` and so on), as ADR 0009 names device meta keys. Removing the device drops them.
 - **Each worker instance owns its own ledger.** It recovers that ledger's attempts, stops on that ledger's hold, and applies that ledger's overrides. It journals and executes that ledger's mode, power, brightness and scene commands, and records that device's saved scenes. It never touches another device's requests. An instance without a ledger behaves as before.
 - **The `wall` instance keeps the shared work.** It alone polls the shared feed, applies the integration settings queue and plays requested animations. Every device already reads the tasks and settings those produce.
 - **Adding a device.** `controller-configure` with the original controller and source IDs and a registered device ID other than `wall` adds that device's ledger. Redirecting an existing identity is still refused. So is naming an unregistered device, or naming another registered device as the first ledger.
@@ -33,8 +33,8 @@ This decision uses these terms. [#163](https://github.com/jimmie-potts/codex-nan
 
 ## Consequences
 
-- **State upgrade.** The controller tables gain a `device` column. The next hook, CLI, map, worker or listener start migrates them in place, and a second run changes nothing. Older source still reads the Lines ledger, but its native admission fails closed with `transport-failure` and writes nothing. Rolling back source therefore suspends native admission until the newer runtime returns.
+- **No migration.** Existing tables and rows are untouched. After a source rollback, older code keeps using the Lines ledger and ignores the Panels' tables, which wait for the newer source. Review rejected an earlier design that added a `device` column: older code's positional writes then failed.
 - **Concurrency.** Two worker instances now execute controller work in the same database. Their rows are partitioned by device, and each pass keeps the existing `BEGIN IMMEDIATE` transactions and the five-second busy timeout from ADR 0010.
 - **Unchanged.** A registry without a Panels ledger behaves as before, and so do callers that name no device and the Lines' wire contract and fixtures.
-- **Hub gap.** The hub's closed extension validator currently requires every configuration operation to be supported. Until the hub accepts the Panels' read-only snapshot, the hub's extension status for the Panels fails. Hub v1 control and MCP don't depend on it.
+- **Hub gap.** The hub's dashboard shows no controls for the Panels until [agent-device-hub#323](https://github.com/jimmie-potts/agent-device-hub/issues/323) lands. The hub rejects the Panels' read-only extension snapshot, whose configuration operations are unsupported, and the dashboard loads that snapshot together with the v1 snapshot. The hub's v1 API routes and the MCP tools still control the Panels, and #113's live check uses Codex. The owner accepted this deferral on 2026-09-25.
 - **Out of scope.** Configuring the Panels ledger on the installed runtime, the hub entry and physical checks need the owner's request. Panels animations and a combined device pool ([#47](https://github.com/jimmie-potts/codex-nanoleaf/issues/47)) remain separate.

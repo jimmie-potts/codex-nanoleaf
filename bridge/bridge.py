@@ -525,8 +525,6 @@ def connect_state(directory, timeout=2.5):
             db.execute('CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)')
             # Existing Linux state gains its device key in place; a repeat is a no-op.
             devices.migrate(db)
-            import controller_state
-            controller_state.migrate(db)
             wall.seed(db)
             if db.execute("SELECT value FROM meta WHERE key='model_version'").fetchone() != ('4',):
                 # This is only the integration's own database. Replace old lighting

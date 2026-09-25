@@ -14,7 +14,7 @@ The owner settled the design at the delivery checkpoint (issue comment of 2026-0
 - **Adding a device.** `controller-configure` with the same controller and source IDs and the ID of a registered device other than `wall` adds that device's ledger. Redirecting an existing identity is still rejected. So is naming an unregistered device.
 - **Routes.**
   - `/controller/v1/devices` lists every configured device, Lines first.
-  - Snapshot, feed and command routes select the ledger named by `deviceId`. An unknown device is still `unknown-device`.
+  - Snapshot, feed and command routes select the ledger named by `deviceId`. An unknown or unconfigured device is still refused (`forbidden`, since the credential does not cover it).
   - One credential authorizes every configured device.
 - **Per-device worker ownership.**
   - Each worker instance recovers, holds, journals and executes its own device's v1 requests (mode, power, brightness, `scene.activate`) and records its own scene discovery.
@@ -32,18 +32,19 @@ None.
 
 ### Modified Capabilities
 
-- `protected-controller-api`: per-device ledgers, the multi-device devices route and migration of the existing ledger.
+- `protected-controller-api`: per-device ledgers, the multi-device devices route and compatibility of the existing ledger.
 - `device-worker`: each instance owns its own device's controller work. This replaces "Protected APIs stay on Lines".
 - `integration-settings-api`: a read-only extension view for devices other than the Lines.
 - `local-mcp-bindings`: an optional fixed Panels target.
+- `device-enrollment` and `wall-device-selector`: their Lines-only controller statements and the enrollment guidance now allow a device the controller has added.
 
 ## Impact
 
 - **Code:** `bridge/controller_state.py`, `bridge/controller_server.py`, `bridge/integration_api.py`, `bridge/bridge.py` (mode notification and worker ownership) and `mcp/src` (config, tools, transport, server).
 - **Tests:** the Python controller, worker and integration suites and the MCP tests.
 - **Docs:** `docs/controller-api.md`, `docs/local-mcp.md`, `docs/integration-api.md`, `bridge/README.md`, ADR 0010 (status note) and ADR 0015.
-- **State migration:** `controller_meta`, `controller_requests` and `controller_events` gain a `device` column (the last two are rebuilt with a per-device key). `integration_requests` is unchanged, because extension commands stay Lines-only. After the upgrade, older source can still read the Lines ledger, but its admission insert fails closed.
+- **State:** the original controller tables keep the Lines ledger unchanged. Another device gets `controller_*@<device>` tables, which removing that device drops. `integration_requests` is unchanged, because extension commands stay Lines-only. Older source keeps working after a rollback.
 - **Out of scope:**
   - Installing, provisioning a Panels ledger on the live installation, the hub controller entry and physical checks. The owner requests these separately.
   - Animations on the Panels (#92 follow-up) and a project glossary (#163).
-- **Known gap:** the hub's closed `validateIntegrationSnapshot` requires every configuration operation to be `supported: true`, so the hub rejects the Panels' read-only extension snapshot until the hub accepts unsupported operations. Hub v1 control of the Panels (snapshot, power, brightness, mode, scenes) and MCP scene listing don't use that validator.
+- **Known gap:** The hub's dashboard shows no controls for the Panels until [agent-device-hub#323](https://github.com/jimmie-potts/agent-device-hub/issues/323) lands. The hub rejects the Panels' read-only extension snapshot, whose configuration operations are unsupported, and the dashboard loads that snapshot together with the v1 snapshot. The hub's v1 API routes and the MCP tools still control the Panels, and #113's live check uses Codex. The owner accepted this deferral on 2026-09-25.

@@ -1,7 +1,7 @@
 ## 1. Decision and ledger state
 
 - [x] 1.1 Add ADR 0015 and a status note in ADR 0010. Observable: the ADR records per-device ledgers, the scope `wall` keeps, credential scope, read-only extension for other devices, the display v2.0 answer from #46, and the migration and rollback consequences.
-- [x] 1.2 Migrate `controller_meta`, `controller_requests` and `controller_events` to per-device keys inside `connect_state`. Observable: a pre-change ledger fixture keeps identity, epoch, receipts, cursor, hold and scenes, replays a retained request, and a second run changes nothing.
+- [x] 1.2 Keep the Lines ledger in the original controller tables and give another device `controller_*@<device>` tables that removal drops. Observable: the pre-change fixture's original tables stay unchanged and accept the pre-change source's writes, and a retained request replays.
 - [x] 1.3 Make every `controller_state` operation device-scoped with `wall` as default and add `controller-configure` for a registered device. Observable: configure tests cover add, repeat, unregistered and redirect.
 
 ## 2. Controller routes and worker ownership
@@ -20,4 +20,4 @@
 - [x] 4.1 Update `docs/controller-api.md`, `docs/local-mcp.md`, `docs/integration-api.md`, `docs/linux-install.md`, `bridge/README.md` and the enrollment guidance. Observable: each page describes configuring the Panels ledger and the per-device behavior.
 - [x] 4.2 Run `python3 scripts/check.py`, `npm run test:mcp` and `npm run check:workflow`, and record the results in the PR. The live hub entry and physical checks stay with the owner.
 - [x] 4.3 Synchronize and archive this change on the delivery branch and verify each affected main spec.
-- [x] 4.4 Publish the PR with the owner walkthrough. Observable: the PR records the walkthrough, local results, independent Standards and Specification reviews and CI for its head.
+- [x] 4.4 Publish the PR with the owner walkthrough. Observable: PR #164 carries the walkthrough and local results; its review rounds and CI are recorded in the PR, not in this plan.

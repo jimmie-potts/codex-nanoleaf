@@ -101,7 +101,7 @@ function extensions(config: Config, store: Pick<CredentialStore, 'forDispatch'>,
         return undefined;
     };
     const extension = (write: boolean): ServiceExtension => ({
-        description: write ? `Request Work, Quiet or Free for the ${name} through the controller. Preserve the snapshot request identity; queued or sent is not visible-light confirmation.` : `Read the ${name} controller snapshot without refreshing tasks or sending light commands.`,
+        description: write ? `Request Work, Quiet or Free through the ${name} controller. Preserve the snapshot request identity; queued or sent is not visible-light confirmation.` : `Read the ${name} controller snapshot without refreshing tasks or sending light commands.`,
         scope: write ? 'control' : 'read', annotations: { readOnlyHint: !write, destructiveHint: write, idempotentHint: !write, openWorldHint: true },
         inputSchema: { type: 'object', additionalProperties: false, $defs: schema.$defs, properties: write ? { requestId: ref('ticket'), expectedConfigurationRevision: ref('counter'), expectedGeneration: ref('ticket'), mode: { enum: ['Work', 'Quiet', 'Free'] } } : {}, required: write ? ['requestId', 'expectedConfigurationRevision', 'expectedGeneration', 'mode'] : [] }, outputSchema,
         async invoke(args, context) {
@@ -140,7 +140,7 @@ function extensions(config: Config, store: Pick<CredentialStore, 'forDispatch'>,
         }
     });
     const sceneActivate: ServiceExtension = {
-        description: `Activate a saved scene on the ${name} through the controller. Free mode only; the tool never switches mode itself. Preserve the request identity; queued or sent is not visible-light confirmation.`,
+        description: `Activate a saved ${name} scene through the controller. Free mode only; the tool never switches mode itself. Preserve the request identity; queued or sent is not visible-light confirmation.`,
         scope: 'control', annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
         inputSchema: { type: 'object', additionalProperties: false, $defs: schema.$defs, properties: { requestId: ref('ticket'), expectedConfigurationRevision: ref('counter'), expectedGeneration: ref('ticket'), sceneId: ref('id') }, required: ['requestId', 'expectedConfigurationRevision', 'expectedGeneration', 'sceneId'] }, outputSchema,
         async invoke(args, context) {
@@ -173,7 +173,7 @@ function extensions(config: Config, store: Pick<CredentialStore, 'forDispatch'>,
         }
     };
     const scenesList: ServiceExtension = {
-        description: `List the ${name}' advertised saved scenes with their opaque IDs and Nanoleaf app names, without refreshing tasks or sending light commands.`,
+        description: `List the ${name} controller's advertised saved scenes with their opaque IDs and Nanoleaf app names, without refreshing tasks or sending light commands.`,
         scope: 'read', annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
         inputSchema: { type: 'object', additionalProperties: false, $defs: schema.$defs, properties: {}, required: [] }, outputSchema: scenesOutputSchema,
         async invoke(_args, context) {
@@ -264,7 +264,8 @@ function extensions(config: Config, store: Pick<CredentialStore, 'forDispatch'>,
     return { status: extension(false), mode: extension(true), scenes: scenesList, sceneActivate, animations: animationsList, animationPlay };
 }
 export function bindings(config: Config, store: Pick<CredentialStore, 'forDispatch'>, transport: Transport = exchange) {
-    const lines = extensions(config, store, transport, 'Nanoleaf Lines');
+    // Without a Panels target the descriptions stay exactly as before; with one they name each device.
+    const lines = extensions(config, store, transport, config.panelsDeviceId ? 'Nanoleaf Lines' : 'Nanoleaf');
     const registrations = [{ controllerId: config.controllerId, deviceId: config.deviceId, extensions: lines }];
     const panelsDeviceId = config.panelsDeviceId;
     if (panelsDeviceId) {
