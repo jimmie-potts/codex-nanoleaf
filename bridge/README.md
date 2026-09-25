@@ -188,7 +188,7 @@ scene. The existing mode and scene brightness rules still apply.
 
 Animation coverage has two choices. **Both halves**, the default, lets waves and
 comets cover the project half before restoring its current color. **Status half
-only** keeps project identity steady. Red and yellow task indicators retain their
+only** keeps project identity steady. Blocked and question task indicators retain their
 existing priority. Changing a color does not restart pulses or replay completions.
 Quiet uses steady colors at 10%. Free tracks tasks while the Nanoleaf app controls
 the lights.
@@ -251,8 +251,8 @@ Line. A white head travels outward by distance, reaching the farthest Line after
 1.4 seconds. A tail in the Unread color fades over the remaining 0.6 seconds. In Classic layout, both zones of each
 Line stay identical, and overall brightness stays at 30%.
 
-Comets play one at a time in completion order. Red and yellow task Lines remain
-visible, and red/yellow outward waves take precedence wherever they pass. Green
+Comets play one at a time in completion order. Blocked and question task Lines remain
+visible, and blocked and question outward waves take precedence wherever they pass. Working
 and unread indicators briefly show the comet, then return to their current state.
 Queued completions keep their ordinary unread pulse while waiting.
 
@@ -403,7 +403,7 @@ Use the installed `bridge.py` with these arguments:
 | `setup --check` | Check connectivity, physical Line count, and remembered scene |
 | `setup --demo` | Preview working, question, blocked, and unread pulses in the current palette from the middle Line, then restore live status |
 | `setup --comet` | Preview one completion comet in Work, then restore live status |
-| `setup --notify` | Preview one outward green pulse and a local pulse, then restore live status |
+| `setup --notify` | Preview one outward working pulse and a local pulse, then restore live status |
 | `setup --refresh` | Redraw current task states |
 | `setup --reset` | Clear task records and restore the remembered scene, or blue if none is available |
 | `setup --uninstall` | Remove this integration's hooks; restart Codex afterward |

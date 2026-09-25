@@ -24,4 +24,4 @@ In Work mode the unread pulse uses the same blue as the unused-Line base, so at 
 
 ## Impact
 
-`bridge/bridge.py` frame colors, the display cache key and preview; `bridge/project_map.py` palette storage; `bridge/wall_server.py` state and settings validation; `bridge/wall.html` tokens, legend and Options menu; `scripts/demo.py`; Python frame, API and migration tests; a new browser check; the bridge guide. No new service, dependency, device command or credential path. The unchanged baseline: status priority, pulse timing, wave and comet timing, reservations, halves, coverage, orientation, mode, scene and brightness handling.
+`bridge/bridge.py` frame colors, the display cache key and preview; `bridge/project_map.py` palette storage; `bridge/wall_server.py` state and settings validation; `bridge/wall.html` tokens, legend and Options menu; Python frame, API and migration tests; a new browser check; the bridge guide. No new service, dependency, device command or credential path. The unchanged baseline: status priority, pulse timing, wave and comet timing, reservations, halves, coverage, orientation, mode, scene and brightness handling.

@@ -1007,7 +1007,7 @@ const linear=c=>(c/=255)<=.04045?c/12.92:((c+.055)/1.055)**2.4;
 const luminance=hex=>{const [r,g,b]=hexRgb(hex).map(linear);return .2126*r+.7152*g+.0722*b};
 // Status text mixes the chosen color toward white until it reaches 4.5:1 against the page.
 function readableColor(hex){
-  const page=luminance('#05070d'),rgb=hexRgb(hex);
+  const page=luminance(getComputedStyle(document.documentElement).getPropertyValue('--bg').trim()||'#05070d'),rgb=hexRgb(hex);
   for(let step=0;step<=20;step++){
     const mixed='#'+rgb.map(c=>Math.round(c+(255-c)*step/20).toString(16).padStart(2,'0')).join('');
     if((luminance(mixed)+.05)/(page+.05)>=4.5)return mixed;

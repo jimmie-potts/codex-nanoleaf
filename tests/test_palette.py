@@ -58,10 +58,12 @@ class PaletteStateTest(PaletteCase):
                         {'palette': {'unread': '#ff00c0', 'comet': '#ffffff'}},
                         {'palette': {'unread': 'red'}}, {'palette': {'unread': None}},
                         {'palette': {}}, {'palette': 'reset'}, {'palette': ['#ff00c0']},
-                        {'palette': {'unread': '#ff00c0'}, 'style': 'bad'}):
+                        {'palette': {'unread': '#ff00c0'}, 'style': 'bad'},
+                        {'rotation': 90, 'palette': {'unread': '#12345'}}):
             with self.subTest(payload=payload), self.assertRaises(ValueError):
                 app.update('/api/settings', payload)
             self.assertEqual(self.palette(app), before)
+            self.assertEqual(app.state()['settings']['rotation'], 0)
 
     def test_palette_write_requires_origin_and_token(self):
         app = self.projects()
@@ -198,15 +200,18 @@ class PaletteFrameTest(PaletteCase):
     def test_swapped_hues_keep_status_priority(self):
         self.configure(blocked='#9b30ff', unread='#ff0000')
         violet = rgb('#9b30ff')
-        snapshot = [('working', 1000), ('blocked', 1000), ('unread', 900)] + [None] * 12
+        snapshot = [('working', 1000), ('blocked', 1000), ('unread', 900), ('question', 1000)] + [None] * 11
         cfg = dict(self.config, _palette=b.wall.palette_rgb(self.palette()))
         delays = self.delays(cfg)
         self.assertEqual(b.pixel_color(snapshot, 2, 1000.55, delays, palette=cfg['_palette']), violet)
         self.assertEqual(b.pixel_color(snapshot, 1, 1000.5, delays, palette=cfg['_palette']), violet)
         cfg['_comet'] = {'source': 2, 'started': 1003}
         colors = {b.zone_color(cfg, snapshot, 1, 0, 1003 + t / 100, delays) for t in range(0, 200)}
-        self.assertNotIn((255, 255, 255), colors)
-        self.assertTrue(all(c[0] > 0 and c[2] > 0 and c[1] < c[2] for c in colors))
+        # The blocked Line only ever shows its own violet pulse, from 20% to full brightness.
+        for color in colors:
+            level = color[2] / 255
+            self.assertGreaterEqual(level, b.MIN_BRIGHTNESS - 0.01)
+            self.assertTrue(all(abs(a - c * level) <= 1 for a, c in zip(color, violet)), color)
 
     def palette(self):
         with contextlib.closing(b.connect_state(self.directory)) as db:
@@ -285,6 +290,19 @@ class PaletteWorkerTest(PaletteCase):
         for at, frames in shown:
             self.assertTrue(any(f[:3] == [255, 0, 0] for f in frames[100]))
             self.assertEqual({tuple(f[:3]) for zone in range(102, 130) for f in frames[zone]}, {(0, 0, 0)})
+        self.assertEqual(self.device.selected, 'Beach Waves')
+
+    # AC3: Free hands the lights back once and sends no palette colors.
+    def test_free_after_palette_change_restores_scene_once(self):
+        app = self.projects()
+        app.update('/api/settings', {'palette': {'base': '#000000', 'working': '#00e5ff'}})
+        self.task('a', None)
+        self.run_worker([(1003, lambda: b.set_mode(self.directory, 'free', launch=lambda *_: None, now=self.clock.now))])
+        self.assertTrue(self.effects(0), 'Work showed the task before Free')
+        self.assertEqual(self.effects(1003), [], 'Free sends no task frames')
+        restored = [at for at, method, _, payload in self.device.calls
+                    if at >= 1003 and method == 'PUT' and payload.get('select') == 'Beach Waves']
+        self.assertEqual(len(restored), 1)
         self.assertEqual(self.device.selected, 'Beach Waves')
 
     def test_no_scene_fallback_stays_blue(self):

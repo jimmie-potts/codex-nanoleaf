@@ -1413,7 +1413,7 @@ def setup(args):
             with contextlib.closing(connect_state(directory)) as db, db:
                 db.execute("INSERT OR REPLACE INTO meta VALUES (?,'all')", (preview,))
             launch_worker(directory)
-            print('Previewing green, yellow, red, and unread blue pulses; live status returns afterward.')
+            print('Previewing working, question, blocked, and unread pulses in the current colors; live status returns afterward.')
         if args.reset:
             with contextlib.closing(connect_state(directory)) as db, db:
                 db.execute('DELETE FROM comets')
@@ -1431,7 +1431,7 @@ def setup(args):
             with contextlib.closing(connect_state(directory)) as db, db:
                 db.execute("INSERT OR REPLACE INTO meta VALUES (?,'working')", (preview,))
             launch_worker(directory)
-            print('Queued one outward green pulse, then a local pulse. Live status returns afterward.')
+            print('Queued one outward working pulse, then a local pulse. Live status returns afterward.')
         if args.refresh:
             with contextlib.closing(connect_state(directory)) as db, db:
                 db.execute('DELETE FROM display_v3 WHERE device=?', (device,))

@@ -440,7 +440,7 @@ class BridgeTest(unittest.TestCase):
         self.assertEqual(b.merge_hooks(merged,'python3 bridge.py hook'),merged)
         self.assertEqual(b.merge_hooks(merged,'',remove=True),original)
 
-    def test_unread_completion_pulses_blue_until_desktop_flag_clears(self):
+    def test_unread_completion_pulses_until_desktop_flag_clears(self):
         self.event('UserPromptSubmit')
         self.unread={'a'}
         self.event('Stop',defer=True)

@@ -316,7 +316,7 @@ class ModesTest(DeviceWorkerTest):
         self.assertEqual(self.query("SELECT device FROM map_pending"), [('wall',)])
         self.assertEqual(b.get_status(self.directory)['mode'], 'work')
 
-    def test_unread_completion_shows_blue_on_both_devices(self):
+    def test_unread_completion_shows_unread_color_on_both_devices(self):
         self.mode('quiet', 'wall')
         self.mode('quiet', 'panels')
         self.event('UserPromptSubmit')
