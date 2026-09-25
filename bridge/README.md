@@ -205,7 +205,7 @@ owns that behavior and the readout. The map offers no per-task project override;
 tasks without an attributed project read "No project", and the
 [integration settings extension](../docs/integration-api.md) keeps the manual
 override for machine clients. The status-first default screen is recorded in
-[ADR 0012](../docs/decisions/0012-wall-map-status-first.md).
+[ADR 0013](../docs/decisions/0013-wall-map-status-first.md).
 
 Shared Codex tasks use local titles and projects from the same configured metadata
 reader. A hub label takes precedence over the local title. Project allocation uses

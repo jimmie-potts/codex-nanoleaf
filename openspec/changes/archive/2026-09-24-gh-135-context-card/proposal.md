@@ -8,7 +8,7 @@ The inspector still shows two cards for one selection, repeats the selected task
 - Merge the selection card and the task detail card into one context card: the selected Line or Lines, the task's title, status, project, elapsed time and Open in Codex link, then Locate. Waiting tasks, Lines without a task and multi-Line selections render conditional sections.
 - Show a Reserved for select, applied on change, and Swap halves only while Project layout is active. Classic shows neither. The map no longer offers the per-task project override; the machine API keeps it.
 - Remove Clear selection; Escape or a click on empty wall canvas clears the selection and returns focus to the wall heading. Show the Locate explanation only in Free.
-- Record the decision in ADR 0012. The bridge, the CLI `style` command and the integration-settings extension keep Project layout, reservations and overrides unchanged.
+- Record the decision in ADR 0013. The bridge, the CLI `style` command and the integration-settings extension keep Project layout, reservations and overrides unchanged.
 
 ## Capabilities
 
@@ -24,4 +24,4 @@ None.
 
 ## Impact
 
-`bridge/wall.html` markup, styles and the inspect, render, clearing and Options logic; the browser suites that clicked the header layout controls, Clear selection, Assign selected or the override; a new context-card browser check; the bridge guide; ADR 0012. No API, Python, state, database or device change. Draft PR #116 edits one line of the override handler in the same file; whichever merges second refreshes its comparison.
+`bridge/wall.html` markup, styles and the inspect, render, clearing and Options logic; the browser suites that clicked the header layout controls, Clear selection, Assign selected or the override; a new context-card browser check; the bridge guide; ADR 0013. No API, Python, state, database or device change. Draft PR #116 edits one line of the override handler in the same file; whichever merges second refreshes its comparison.

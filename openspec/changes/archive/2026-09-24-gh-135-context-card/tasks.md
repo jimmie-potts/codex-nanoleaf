@@ -5,5 +5,5 @@
 
 ## 2. Documentation and delivery
 
-- [x] 2.1 Update the bridge guide and add ADR 0012; synchronize and archive this change; run the full browser, Python and workflow suites.
+- [x] 2.1 Update the bridge guide and add ADR 0013; synchronize and archive this change; run the full browser, Python and workflow suites.
 - [x] 2.2 Publish the PR with the comparison and evidence. Independent reviews, current-head CI and explicit human UI approval remain merge gates.

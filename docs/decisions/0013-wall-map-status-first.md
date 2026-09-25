@@ -1,4 +1,4 @@
-# 0012. The wall map shows status first; layout and placement editing are secondary
+# 0013. The wall map shows status first; layout and placement editing are secondary
 
 Status: Accepted for source implementation in [#135](https://github.com/jimmie-potts/codex-nanoleaf/issues/135).
 
