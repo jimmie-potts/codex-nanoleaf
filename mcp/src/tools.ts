@@ -5,9 +5,10 @@ import { exchange, TransportFailure, type ExchangeResult, type Operation } from 
 type Transport = (config: Config, operation: Operation, token: string, request?: unknown) => Promise<ExchangeResult>;
 const ref = (name: string) => ({ $ref: `#/$defs/${name}` });
 const outputSchema = { type: 'object' as const, additionalProperties: false, $defs: schema.$defs, properties: { kind: { enum: ['snapshot', 'receipt', 'failure'] }, snapshot: ref('snapshot'), receipt: ref('receipt'), code: ref('failureCode'), priorEffects: { enum: ['none', 'possible'] }, requestId: ref('ticket'), retry: { const: 'never-automatically' } }, required: ['kind'], oneOf: [{ properties: { kind: { const: 'snapshot' }, snapshot: ref('snapshot') }, required: ['snapshot'] }, { properties: { kind: { const: 'receipt' }, receipt: ref('receipt') }, required: ['receipt'] }, { properties: { kind: { const: 'failure' }, code: ref('failureCode'), priorEffects: { enum: ['none', 'possible'] }, retry: { const: 'never-automatically' } }, required: ['code', 'priorEffects', 'retry'] }] };
-const sceneItemSchema = { type: 'object' as const, additionalProperties: false, properties: { id: { type: 'string', pattern: '^scene-[a-f0-9]{64}$' }, name: { type: 'string', minLength: 1, maxLength: 80 } }, required: ['id'] };
+const SCENE_ID_PATTERN = 'scene-[a-f0-9]{64}', SCENE_NAME_MAX = 80;
+const SCENE_ID = new RegExp(`^${SCENE_ID_PATTERN}$`);
+const sceneItemSchema = { type: 'object' as const, additionalProperties: false, properties: { id: { type: 'string', pattern: `^${SCENE_ID_PATTERN}$` }, name: { type: 'string', minLength: 1, maxLength: SCENE_NAME_MAX } }, required: ['id'] };
 const scenesOutputSchema = { type: 'object' as const, additionalProperties: false, $defs: schema.$defs, properties: { kind: { enum: ['scenes', 'failure'] }, scenes: { type: 'array', maxItems: 256, items: sceneItemSchema }, code: ref('failureCode'), priorEffects: { enum: ['none', 'possible'] }, retry: { const: 'never-automatically' } }, required: ['kind'], oneOf: [{ properties: { kind: { const: 'scenes' }, scenes: { type: 'array', maxItems: 256, items: sceneItemSchema } }, required: ['scenes'] }, { properties: { kind: { const: 'failure' }, code: ref('failureCode'), priorEffects: { enum: ['none', 'possible'] }, retry: { const: 'never-automatically' } }, required: ['code', 'priorEffects', 'retry'] }] };
-const SCENE_ID = /^scene-[a-f0-9]{64}$/;
 type SceneEntry = { id: string; name?: string };
 const failures: Record<number, string[]> = { 400: ['invalid-request'], 401: ['unauthenticated'], 403: ['forbidden'], 404: ['unknown-device'], 409: ['revision-conflict', 'stale-generation', 'request-conflict', 'request-order'], 410: ['request-expired'], 422: ['unsupported-capability'], 429: ['capacity'], 503: ['transport-failure'] };
 function validScenes(value: unknown, config: Config): value is { scenes: SceneEntry[] } {
@@ -28,7 +29,17 @@ function validScenes(value: unknown, config: Config): value is { scenes: SceneEn
     return scenes.every(entry => entry && typeof entry === 'object' && !Array.isArray(entry)
         && Object.keys(entry).every(key => key === 'id' || key === 'name')
         && typeof (entry as SceneEntry).id === 'string' && SCENE_ID.test((entry as SceneEntry).id)
-        && (!('name' in entry) || (typeof (entry as SceneEntry).name === 'string' && (entry as SceneEntry).name!.length >= 1 && (entry as SceneEntry).name!.length <= 80)));
+        && (!('name' in entry) || (typeof (entry as SceneEntry).name === 'string' && (entry as SceneEntry).name!.length >= 1 && (entry as SceneEntry).name!.length <= SCENE_NAME_MAX)));
+}
+/** Shared by mode.set and scene.activate: the only two commands whose success path is a receipt. */
+function matchedReceipt(value: unknown, status: number, request: Request): Receipt | undefined {
+    if (!validate('receipt', value))
+        return undefined;
+    const receipt = value as Receipt;
+    const receiptStatus = [200, 202].includes(status) || ([409, 422, 503].includes(status) && receipt.outcome === 'failed' && failures[status]?.includes(receipt.failure?.code ?? ''));
+    if (receiptStatus && receipt.controllerId === request.controllerId && receipt.deviceId === request.deviceId && receipt.requestId.epoch === request.requestId.epoch && receipt.requestId.sequence === request.requestId.sequence)
+        return receipt;
+    return undefined;
 }
 export function bindings(config: Config, store: Pick<CredentialStore, 'forDispatch'>, transport: Transport = exchange) {
     const failure = (code: string, possible: boolean, request?: Request) => ({ data: { kind: 'failure', code, priorEffects: possible ? 'possible' : 'none', retry: 'never-automatically', ...(request ? { requestId: request.requestId } : {}) }, isError: true });
@@ -71,10 +82,9 @@ export function bindings(config: Config, store: Pick<CredentialStore, 'forDispat
                 if (snapshot.identity.controllerId === config.controllerId && snapshot.identity.deviceId === config.deviceId)
                     return { data: { kind: 'snapshot', snapshot } };
             }
-            if (write && validate('receipt', value)) {
-                const receipt = value as Receipt;
-                const receiptStatus = [200, 202].includes(result.status) || ([409, 422, 503].includes(result.status) && receipt.outcome === 'failed' && failures[result.status]?.includes(receipt.failure?.code ?? ''));
-                if (receiptStatus && receipt.controllerId === config.controllerId && receipt.deviceId === config.deviceId && receipt.requestId.epoch === request!.requestId.epoch && receipt.requestId.sequence === request!.requestId.sequence)
+            if (write) {
+                const receipt = matchedReceipt(value, result.status, request!);
+                if (receipt)
                     return { data: { kind: 'receipt', receipt }, isError: ['failed', 'partially-applied', 'uncertain'].includes(receipt.outcome) };
             }
             const code = genericFailure(value, result.status);
@@ -107,12 +117,9 @@ export function bindings(config: Config, store: Pick<CredentialStore, 'forDispat
                 return failure(!(error instanceof TransportFailure) || error.possible ? 'uncertain-result' : 'transport-failure', !(error instanceof TransportFailure) || error.possible, request);
             }
             const value = result.body;
-            if (validate('receipt', value)) {
-                const receipt = value as Receipt;
-                const receiptStatus = [200, 202].includes(result.status) || ([409, 422, 503].includes(result.status) && receipt.outcome === 'failed' && failures[result.status]?.includes(receipt.failure?.code ?? ''));
-                if (receiptStatus && receipt.controllerId === config.controllerId && receipt.deviceId === config.deviceId && receipt.requestId.epoch === request.requestId.epoch && receipt.requestId.sequence === request.requestId.sequence)
-                    return { data: { kind: 'receipt', receipt }, isError: ['failed', 'partially-applied', 'uncertain'].includes(receipt.outcome) };
-            }
+            const receipt = matchedReceipt(value, result.status, request);
+            if (receipt)
+                return { data: { kind: 'receipt', receipt }, isError: ['failed', 'partially-applied', 'uncertain'].includes(receipt.outcome) };
             const code = genericFailure(value, result.status);
             if (code)
                 return failure(code, false, request);

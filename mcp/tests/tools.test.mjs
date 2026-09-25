@@ -80,7 +80,7 @@ for(const [status,code] of [[422,'unsupported-capability']])test(`preserves a Wo
  assert.equal(result.isError,true);assert.deepEqual(result.structuredContent.data,{kind:'receipt',receipt});
 });
 
-test('rejects an unknown scene before any device dispatch',async()=>{
+test('rejects an unknown scene as unsupported-capability, with no receipt',async()=>{
  const b=bindings(config,{forDispatch:async()=>({upstreamToken:'a'.repeat(43)})},async()=>({status:422,body:{failure:{code:'unsupported-capability'}}}));
  const result=await invokeDeviceTool(b.registry,b.tools[3],sceneArgs,principal);
  assert.equal(result.isError,true);assert.equal(result.structuredContent.data.code,'unsupported-capability');assert.equal(result.structuredContent.data.priorEffects,'none');
