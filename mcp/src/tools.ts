@@ -10,6 +10,51 @@ const SCENE_ID = new RegExp(`^${SCENE_ID_PATTERN}$`);
 const sceneItemSchema = { type: 'object' as const, additionalProperties: false, properties: { id: { type: 'string', pattern: `^${SCENE_ID_PATTERN}$` }, name: { type: 'string', minLength: 1, maxLength: SCENE_NAME_MAX } }, required: ['id'] };
 const scenesOutputSchema = { type: 'object' as const, additionalProperties: false, $defs: schema.$defs, properties: { kind: { enum: ['scenes', 'failure'] }, scenes: { type: 'array', maxItems: 256, items: sceneItemSchema }, code: ref('failureCode'), priorEffects: { enum: ['none', 'possible'] }, retry: { const: 'never-automatically' } }, required: ['kind'], oneOf: [{ properties: { kind: { const: 'scenes' }, scenes: { type: 'array', maxItems: 256, items: sceneItemSchema } }, required: ['scenes'] }, { properties: { kind: { const: 'failure' }, code: ref('failureCode'), priorEffects: { enum: ['none', 'possible'] }, retry: { const: 'never-automatically' } }, required: ['code', 'priorEffects', 'retry'] }] };
 type SceneEntry = { id: string; name?: string };
+const EXTENSION = 'nanoleaf.integration/1.0', MAX_SEQUENCE = 9007199254740991;
+const PATTERNS = ['wave', 'gradient', 'pulse', 'breathe', 'sparkle'], SPATIAL = ['wave', 'gradient'];
+const SPEEDS = ['slow', 'medium', 'fast'], DIRECTIONS = ['left', 'right', 'up', 'down', 'outward', 'inward'];
+const OUTCOMES = ['queued', 'sent', 'failed', 'uncertain', 'cancelled'], PRIOR_EFFECTS = ['none', 'confirmed-transmission', 'possible'];
+const FREE_FIRST = 'Animations play only in Free. Switch to Free with nanoleaf_mode_set, then call nanoleaf_animations_list again for a fresh requestId and expectedRevision.';
+const HEX = (length: number) => new RegExp(`^[a-f0-9]{${length}}$`);
+const extensionTicket = { type: 'object' as const, additionalProperties: false, properties: { epoch: { type: 'string', pattern: '^[a-f0-9]{32}$' }, sequence: { type: 'integer', minimum: 0, maximum: MAX_SEQUENCE } }, required: ['epoch', 'sequence'] };
+const word = { type: 'string', pattern: '^[a-z]{1,32}$' }, count = { type: 'integer', minimum: 0, maximum: MAX_SEQUENCE };
+const animationsViewSchema = { type: 'object' as const, additionalProperties: false, properties: { apiVersion: { const: EXTENSION }, identity: ref('identity'), mode: { enum: ['Work', 'Quiet', 'Free'] }, revision: { type: 'string', pattern: '^[a-f0-9]{64}$' }, nextRequestId: extensionTicket,
+    patterns: { type: 'array', maxItems: 16, items: { type: 'object', additionalProperties: false, properties: { id: word, spatial: { type: 'boolean' } }, required: ['id', 'spatial'] } }, speeds: { type: 'array', maxItems: 16, items: word }, directions: { type: 'array', maxItems: 16, items: word },
+    defaults: { type: 'object', additionalProperties: false, properties: { speed: word, direction: word, loop: { type: 'boolean' } }, required: ['speed', 'direction', 'loop'] },
+    limits: { type: 'object', additionalProperties: false, properties: { minColors: count, maxColors: count, maxFramesPerZone: count, maxEffectBytes: count }, required: ['minColors', 'maxColors', 'maxFramesPerZone', 'maxEffectBytes'] } },
+    required: ['apiVersion', 'identity', 'mode', 'revision', 'nextRequestId', 'patterns', 'speeds', 'directions', 'defaults', 'limits'] };
+const animationReceiptSchema = { type: 'object' as const, additionalProperties: false, properties: { apiVersion: { const: EXTENSION }, requestId: extensionTicket, outcome: { enum: OUTCOMES }, priorEffects: { enum: PRIOR_EFFECTS }, physicalOutcome: { const: 'unknown' }, failure: { type: 'object', additionalProperties: false, properties: { code: ref('failureCode') }, required: ['code'] } }, required: ['apiVersion', 'requestId', 'outcome', 'priorEffects', 'physicalOutcome'] };
+const failureVariant = { properties: { kind: { const: 'failure' }, code: ref('failureCode'), priorEffects: { enum: ['none', 'possible'] }, retry: { const: 'never-automatically' }, requestId: extensionTicket, message: { type: 'string', maxLength: 512 } }, required: ['code', 'priorEffects', 'retry'] };
+const animationsOutputSchema = { type: 'object' as const, additionalProperties: false, $defs: schema.$defs, properties: { ...failureVariant.properties, kind: { enum: ['animations', 'failure'] }, animations: animationsViewSchema }, required: ['kind'], oneOf: [{ properties: { kind: { const: 'animations' }, animations: animationsViewSchema }, required: ['animations'] }, failureVariant] };
+const animationPlayOutputSchema = { type: 'object' as const, additionalProperties: false, $defs: schema.$defs, properties: { ...failureVariant.properties, kind: { enum: ['receipt', 'failure'] }, receipt: animationReceiptSchema }, required: ['kind'], oneOf: [{ properties: { kind: { const: 'receipt' }, receipt: animationReceiptSchema }, required: ['receipt'] }, failureVariant] };
+const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
+const exactKeys = (value: Record<string, unknown>, required: string[], optional: string[] = []) => required.every(key => key in value) && Object.keys(value).every(key => required.includes(key) || optional.includes(key));
+const words = (value: unknown) => Array.isArray(value) && value.length <= 16 && value.every(item => typeof item === 'string' && /^[a-z]{1,32}$/.test(item));
+const counter = (value: unknown) => Number.isSafeInteger(value) && (value as number) >= 0;
+function validTicket(value: unknown): value is { epoch: string; sequence: number } {
+    return record(value) && exactKeys(value, ['epoch', 'sequence']) && typeof value.epoch === 'string' && HEX(32).test(value.epoch) && counter(value.sequence);
+}
+function validAnimations(value: unknown, config: Config): boolean {
+    if (!record(value) || !exactKeys(value, ['apiVersion', 'identity', 'mode', 'revision', 'nextRequestId', 'patterns', 'speeds', 'directions', 'defaults', 'limits']) || value.apiVersion !== EXTENSION)
+        return false;
+    if (!validate('identity', value.identity) || (value.identity as { controllerId: string }).controllerId !== config.controllerId || (value.identity as { deviceId: string }).deviceId !== config.deviceId)
+        return false;
+    const { defaults, limits, patterns } = value;
+    return ['Work', 'Quiet', 'Free'].includes(value.mode as string) && typeof value.revision === 'string' && HEX(64).test(value.revision) && validTicket(value.nextRequestId)
+        && Array.isArray(patterns) && patterns.length <= 16 && patterns.every(item => record(item) && exactKeys(item, ['id', 'spatial']) && words([item.id]) && typeof item.spatial === 'boolean')
+        && words(value.speeds) && words(value.directions)
+        && record(defaults) && exactKeys(defaults, ['speed', 'direction', 'loop']) && words([defaults.speed, defaults.direction]) && typeof defaults.loop === 'boolean'
+        && record(limits) && exactKeys(limits, ['minColors', 'maxColors', 'maxFramesPerZone', 'maxEffectBytes']) && Object.values(limits).every(counter);
+}
+/** Only a receipt for exactly this extension ticket; sent is transport evidence, never visible output. */
+function animationReceipt(value: unknown, status: number, ticket: { epoch: string; sequence: number }): Record<string, unknown> | undefined {
+    if (!record(value) || !exactKeys(value, ['apiVersion', 'requestId', 'outcome', 'priorEffects', 'physicalOutcome'], ['failure']) || value.apiVersion !== EXTENSION
+        || !validTicket(value.requestId) || value.requestId.epoch !== ticket.epoch || value.requestId.sequence !== ticket.sequence
+        || !OUTCOMES.includes(value.outcome as string) || !PRIOR_EFFECTS.includes(value.priorEffects as string) || value.physicalOutcome !== 'unknown'
+        || ('failure' in value && !(record(value.failure) && exactKeys(value.failure, ['code']) && validate('failureCode', value.failure.code))))
+        return undefined;
+    return [200, 202].includes(status) || (status === 503 && value.outcome === 'failed') ? value : undefined;
+}
 const failures: Record<number, string[]> = { 400: ['invalid-request'], 401: ['unauthenticated'], 403: ['forbidden'], 404: ['unknown-device'], 409: ['revision-conflict', 'stale-generation', 'request-conflict', 'request-order'], 410: ['request-expired'], 422: ['unsupported-capability'], 429: ['capacity'], 503: ['transport-failure'] };
 function validScenes(value: unknown, config: Config): value is { scenes: SceneEntry[] } {
     if (!value || typeof value !== 'object' || Array.isArray(value))
@@ -154,7 +199,68 @@ export function bindings(config: Config, store: Pick<CredentialStore, 'forDispat
             return failure('transport-failure', false);
         }
     };
-    const registry = createDeviceRegistry([{ controllerId: config.controllerId, deviceId: config.deviceId, extensions: { status: extension(false), mode: extension(true), scenes: scenesList, sceneActivate } }]);
-    const tools = bindServiceTools(registry, { deviceId: config.deviceId, bindings: [{ extension: 'status', name: 'nanoleaf_status' }, { extension: 'mode', name: 'nanoleaf_mode_set' }, { extension: 'scenes', name: 'nanoleaf_scenes_list' }, { extension: 'sceneActivate', name: 'nanoleaf_scene_activate' }] });
+    const extensionFailure = (code: string, possible: boolean, requestId?: unknown, message?: string) => ({ data: { kind: 'failure', code, priorEffects: possible ? 'possible' : 'none', retry: 'never-automatically', ...(requestId ? { requestId } : {}), ...(message ? { message } : {}) }, isError: true });
+    const animationsList: ServiceExtension = {
+        description: 'List the Nanoleaf animation patterns, speeds, directions and limits, with the current mode, expectedRevision and requestId that nanoleaf_animation_play needs. Reads without refreshing tasks or sending light commands.',
+        scope: 'read', annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+        inputSchema: { type: 'object', additionalProperties: false, properties: {}, required: [] }, outputSchema: animationsOutputSchema,
+        async invoke(_args, context) {
+            let credential;
+            try {
+                credential = await store.forDispatch(context.principalId, 'read');
+            }
+            catch {
+                return extensionFailure('forbidden', false);
+            }
+            let result: ExchangeResult;
+            try {
+                result = await transport(config, 'animations', credential.upstreamToken);
+            }
+            catch {
+                return extensionFailure('transport-failure', false);
+            }
+            if (result.status === 200 && validAnimations(result.body, config))
+                return { data: { kind: 'animations', animations: result.body as Record<string, unknown> } };
+            return extensionFailure(genericFailure(result.body, result.status) ?? 'transport-failure', false);
+        }
+    };
+    const animationPlay: ServiceExtension = {
+        description: 'Play a Nanoleaf animation on the Lines. Free mode only; the tool never switches mode itself, so switch with nanoleaf_mode_set first and take requestId and expectedRevision from nanoleaf_animations_list. Direction applies to wave and gradient only. Queued or sent is not visible-light confirmation.',
+        scope: 'control', annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+        inputSchema: { type: 'object', additionalProperties: false, properties: { requestId: extensionTicket, expectedRevision: { type: 'string', pattern: '^[a-f0-9]{64}$' }, pattern: { enum: PATTERNS },
+            colors: { type: 'array', minItems: 1, maxItems: 8, items: { type: 'string', pattern: '^#[0-9a-fA-F]{6}$' } }, speed: { enum: SPEEDS }, direction: { enum: DIRECTIONS }, loop: { type: 'boolean' } },
+            required: ['requestId', 'expectedRevision', 'pattern', 'colors'] }, outputSchema: animationPlayOutputSchema,
+        async invoke(args, context) {
+            const requestId = args.requestId as { epoch: string; sequence: number };
+            if ('direction' in args && !SPATIAL.includes(args.pattern as string))
+                return extensionFailure('invalid-request', false, requestId);
+            const command = { kind: 'animation.play', pattern: args.pattern, colors: args.colors, ...Object.fromEntries(['speed', 'direction', 'loop'].filter(key => key in args).map(key => [key, args[key]])) };
+            const request = { apiVersion: EXTENSION, controllerId: config.controllerId, deviceId: config.deviceId, requestId, expectedRevision: args.expectedRevision, command };
+            let credential;
+            try {
+                credential = await store.forDispatch(context.principalId, 'control');
+            }
+            catch {
+                return extensionFailure('forbidden', false, requestId);
+            }
+            let result: ExchangeResult;
+            try {
+                result = await transport(config, 'extension-command', credential.upstreamToken, request);
+            }
+            catch (error) {
+                const possible = !(error instanceof TransportFailure) || error.possible;
+                return extensionFailure(possible ? 'uncertain-result' : 'transport-failure', possible, requestId);
+            }
+            const receipt = animationReceipt(result.body, result.status, requestId);
+            if (receipt)
+                return { data: { kind: 'receipt', receipt }, isError: ['failed', 'uncertain', 'cancelled'].includes(receipt.outcome as string) };
+            const code = genericFailure(result.body, result.status);
+            if (code)
+                return extensionFailure(code, false, requestId, code === 'unsupported-capability' ? FREE_FIRST : undefined);
+            return extensionFailure('uncertain-result', true, requestId);
+        }
+    };
+    const registry = createDeviceRegistry([{ controllerId: config.controllerId, deviceId: config.deviceId, extensions: { status: extension(false), mode: extension(true), scenes: scenesList, sceneActivate, animations: animationsList, animationPlay } }]);
+    const tools = bindServiceTools(registry, { deviceId: config.deviceId, bindings: [{ extension: 'status', name: 'nanoleaf_status' }, { extension: 'mode', name: 'nanoleaf_mode_set' }, { extension: 'scenes', name: 'nanoleaf_scenes_list' }, { extension: 'sceneActivate', name: 'nanoleaf_scene_activate' }, { extension: 'animations', name: 'nanoleaf_animations_list' }, { extension: 'animationPlay', name: 'nanoleaf_animation_play' }] });
     return { registry, tools };
 }
