@@ -7,6 +7,7 @@ import posixpath
 import re
 import sqlite3
 import devices
+import panels
 
 DEFAULT_SETTINGS=('classic','whole',0,0,0)
 # One task-light palette for every device. Only changed roles are stored.
@@ -334,6 +335,32 @@ def geometry(config):
         points=[rotate(a['x']-dx/2,a['y']-dy/2),rotate((a['x']+b['x'])/2,(a['y']+b['y'])/2),rotate(b['x']+dx/2,b['y']+dy/2)]
         segments.append({'id':element['id'],'number':element['number'],'points':points})
     return segments
+
+
+def triangle_geometry(config):
+    """Map polygons for one-zone NL22 triangles from cached geometry; [] when it is unavailable.
+
+    Each vertex sits one circumradius from the reported centroid at 90° + o + k·120°, so o 0 is an
+    apex-up triangle and o 60 an apex-down one, which is the only reading that makes the cached
+    rows edge-adjacent. The global orientation and the display Y inversion match `geometry`.
+    """
+    raw=config.get('panel_geometry'); elements=devices.elements(config)
+    def numeric(value): return type(value) in (int,float) and math.isfinite(value)
+    if (not isinstance(raw,dict) or not isinstance(raw.get('triangles'),list) or not elements
+            or any(len(element['zones'])!=1 for element in elements)): return []
+    known={t['id']:t for t in raw['triangles'] if isinstance(t,dict) and isinstance(t.get('id'),str)
+           and all(numeric(t.get(key)) for key in ('x','y','o'))}
+    orientation=raw.get('orientation',0)
+    if not numeric(orientation) or any(element['id'] not in known for element in elements): return []
+    angle=math.radians(orientation); radius=panels.SIDE/math.sqrt(3)
+    def rotate(x,y): return [x*math.cos(angle)-y*math.sin(angle),-(x*math.sin(angle)+y*math.cos(angle))]
+    polygons=[]
+    for element in elements:
+        t=known[element['id']]
+        corners=[math.radians(90+t['o']+120*k) for k in range(3)]
+        polygons.append({'id':element['id'],'number':element['number'],
+                         'points':[rotate(t['x']+radius*math.cos(c),t['y']+radius*math.sin(c)) for c in corners]})
+    return polygons
 
 
 def validated_connector_geometry(raw, groups):

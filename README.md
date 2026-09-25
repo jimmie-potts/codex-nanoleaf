@@ -6,7 +6,7 @@ Turn Nanoleaf Lines into status indicators for Codex Desktop tasks. A local wall
 - Free mode leaves lighting control to Nanoleaf. Quiet uses steady indicators at 10%.
 - Classic layout assigns tasks automatically with whole-Line colors.
 - Project layout uses a steady project half and a task-status half, with Shared overflow.
-- The wall map supports multi-selection, color picking, half swapping, Locate, and rotation, in a neon HUD style that pulses active Lines on screen in Work and dims the wall in Free.
+- The wall map supports multi-selection, color picking, half swapping, Locate, and rotation, in a neon HUD style that pulses active Lines on screen in Work and dims the wall in Free. A Device control switches it between the Lines and registered NL22 Light Panels, drawn as plain triangles.
 
 The integration runs as a Linux installation with separate Python services and a Node MCP host. Hooks, the map, controller, and worker coordinate through private Linux SQLite. The existing worker remains the sole light writer, with one instance per registered device. Tests and the demo run without lights or credentials.
 
@@ -47,7 +47,9 @@ owns numbering, selection, and the Locate boundary. The
 device registry, device-scoped state, the per-device layout shape and the
 Linux migration. The [device worker](openspec/specs/device-worker/spec.md) and
 [Panels rendering](openspec/specs/panels-rendering/spec.md) specifications own
-per-device workers and NL22 triangles. Other behavior remains
+per-device workers and NL22 triangles, and the
+[device selector specification](openspec/specs/wall-device-selector/spec.md)
+owns the map's device switch and triangle view. Other behavior remains
 documented in [the bridge guide](bridge/README.md) until migrated through review.
 
 ## Installation

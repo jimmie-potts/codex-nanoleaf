@@ -234,13 +234,37 @@ if Codex is updating a file or a file is unavailable. It reads
 These desktop fields are implementation details and may need updating after a
 future Codex release.
 
+The map shows one registered device at a time. It opens on the Lines; when a
+second device is registered, a **Device** control beside the wall heading lists
+the devices and switches the page, and the choice stays in the URL
+(`?device=panels`) so a reload keeps it. The registry is read on every state
+request, so a device enrolled while the map runs appears without a restart. The
+Mode controls, the readout's pending state and last error, the reservations,
+the waiting count, Locate and the orientation settings all belong to the
+selected device; project colours and task project assignment stay shared. A
+Light Panels device is drawn as plain triangles from the geometry that
+enrollment saved, in the reported arrangement and numbered in the geometry
+reader's order, each filled with its task's status colour or the Base colour
+without pulse, wave or comet animation. In Project layout a reserved triangle
+shows its project colour on its outline. Triangles support selection,
+multi-selection, **Reserved for** and Shared release, the context card and
+Locate; Coverage and Swap halves are Lines-only and hidden for triangles.
+Switching devices or selecting sends nothing to the lights, and the Panels play
+no assembly. The
+[device selector specification](../openspec/specs/wall-device-selector/spec.md)
+owns this behavior.
+
 The map server uses bundled HTML, CSS, and JavaScript with no external assets.
 It listens only on `127.0.0.1` at the configured fixed port, defaulting
 to `8765`. Requests must use its exact
 local address; writes also require the page's origin and an unpredictable request
 token. The Nanoleaf credential never reaches the browser. `/api/state` reads map
 state, including the effective palette; `/api/settings`, which also saves the palette, `/api/project`, `/api/assign`, `/api/task`, `/api/locate`, and
-`/api/mode` validate and save changes. All writes run in the installation's Python runtime, using the
+`/api/mode` validate and save changes. `/api/state` takes an optional `device`
+query parameter, and the mode, settings, assignment, Locate and eviction actions
+take an optional `device` field; a request that names no device addresses the
+Lines, and an unregistered device is rejected without touching the Lines. Coverage
+settings and half swaps are rejected for one-zone elements. All writes run in the installation's Python runtime, using the
 same operating system and private database as its hooks. Only the existing bridge worker sends light
 updates. The map server runs as a user service and also starts on demand.
 
@@ -344,7 +368,8 @@ placements, reservations, capacity and waiting list. It also keeps its own
 mode, saved scene, comets and failure state. Each triangle is one task slot
 with whole-triangle colors; Lines keep their project and status halves.
 `nanoleaf mode <mode> --device panels` and `status --device panels` target the
-panels, and commands without `--device` address the Lines. `setup --reset` and
+panels, and commands without `--device` address the Lines. The wall map's
+**Device** control shows and edits the Panels one device at a time. `setup --reset` and
 switching the shared task source reset every device. The protected controller,
 integration settings API and MCP stay on the Lines. The
 [device worker](../openspec/specs/device-worker/spec.md) and

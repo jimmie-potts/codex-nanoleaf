@@ -211,8 +211,10 @@ Activation shows only current task status; it replays no earlier wave or comet:
 ```
 
 No service needs a restart. Hooks and the worker read the device list each time
-they start, and the wall map, controller and MCP stay on the Lines. The map
-shows only the Lines until [#44](https://github.com/jimmie-potts/codex-nanoleaf/issues/44).
+they start, the map reads it on every state request, and the controller and MCP
+stay on the Lines. The map opens on the Lines; once a second device is
+registered, its **Device** control beside the wall heading switches the page to
+the Panels, and `?device=panels` in the map URL opens it there directly.
 
 To remove the Panels, hand them back first and wait until status shows nothing
 pending, so they restore their own scene:

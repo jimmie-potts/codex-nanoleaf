@@ -27,7 +27,7 @@ class ControllerCLITest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             directory=Path(temporary)/'User/AppData/Local/CodexNanoleaf';directory.mkdir(parents=True)
             shutil.copyfile(b.__file__,directory/'bridge.py')
-            for name in ('project_map.py','shared_input.py','devices.py'):
+            for name in ('project_map.py','shared_input.py','devices.py','panels.py'):
                 shutil.copyfile(Path(b.__file__).with_name(name),directory/name)
             state=Path(temporary)/'state';state.mkdir()
             with contextlib.closing(b.connect_state(state)): pass
