@@ -11,6 +11,7 @@
     --wall-question: #ffff00;
     --wall-blocked: #ff0000;
     --wall-unread: #193cff;
+    --wall-idle: #193cff;
     --dur-fast: 150ms;
     --dur-pulse: 2s;
     /* Neon HUD surfaces and text. Near-black with a faint cyan grid; cyan accent, magenta for pending. */
@@ -248,7 +249,7 @@
   .dot[data-status="working"], .badge[data-status="working"] { color: var(--chip-working); }
   .dot[data-status="question"], .badge[data-status="question"] { color: var(--chip-question); }
   .dot[data-status="blocked"], .badge[data-status="blocked"] { color: var(--chip-blocked); }
-  .dot[data-status="unread"], .badge[data-status="unread"] { color: var(--chip-unread); }
+  .dot[data-status="unread"], .badge[data-status="unread"], .dot[data-status="idle"], .badge[data-status="idle"] { color: var(--chip-unread); }
   .dot[data-status] { background: currentColor; }
 
   #notice { display: none; padding: 8px 20px; background: #243047; color: #d9e5ff; font-size: 12px; }
@@ -315,8 +316,8 @@
   .wall-line:focus-visible:not(.selected) .outline { stroke: var(--focus); stroke-width: 22; }
   .wall-line.selected:focus-visible .outline { filter: drop-shadow(0 0 3px var(--focus)) drop-shadow(0 0 3px var(--focus)); }
   .wall-line.pending .outline { stroke: var(--pending); stroke-dasharray: 7 5; animation: none; }
-  body[data-mode="work"] .wall-line[data-status] .glow { animation: var(--pulse-anim); }
-  body[data-mode="work"] .wall-line[data-status] .zone { animation: var(--pulse-core-anim); }
+  body[data-mode="work"] .wall-line[data-status]:not([data-status="idle"]) .glow { animation: var(--pulse-anim); }
+  body[data-mode="work"] .wall-line[data-status]:not([data-status="idle"]) .zone { animation: var(--pulse-core-anim); }
   body[data-mode="quiet"] .wall-line .glow { opacity: var(--glow-quiet); }
   body[data-mode="quiet"] .wall-line .zone { opacity: var(--dim-quiet); }
   body[data-mode="free"] #wall { filter: var(--free-filter); }
@@ -403,7 +404,7 @@ body[data-mode="quiet"] #wall.prism-scene, body[data-mode="free"] #wall.prism-sc
       <p class="small" id="taskSelectionNote" hidden></p>
       <div id="taskFilters" hidden>
         <label class="small" for="taskFilter">Filter tasks</label>
-        <select id="taskFilter"><option value="all">All tasks</option><option value="blocked">Blocked</option><option value="question">Question</option><option value="working">Working</option><option value="unread">Unread</option><option value="waiting">Waiting for a Line</option></select>
+        <select id="taskFilter"><option value="all">All tasks</option><option value="blocked">Blocked</option><option value="question">Question</option><option value="working">Working</option><option value="unread">Unread</option><option value="idle">Idle</option><option value="waiting">Waiting for a Line</option></select>
         <label class="small" for="taskSearch">Search tasks</label><input id="taskSearch" type="search" placeholder="Title, project or task ID" autocomplete="off">
       </div>
       <div class="tasklist" id="taskList"></div>
@@ -644,7 +645,7 @@ function drawWall(){
   const available=new Set(prism.layout.lines.map(line=>line.id));
   for(const line of state.lines)if(available.has(line.id))prism.setColors(line.id,zoneColors(line));
   prism.setMode(state.mode);
-  prism.setActivity(state.lines.filter(line=>available.has(line.id)&&lineTask(line)).map(line=>line.id));
+  prism.setActivity(state.lines.filter(line=>available.has(line.id)&&lineTask(line)&&lineTask(line).status!=='idle').map(line=>line.id));
   prism.setSelection([...selected].filter(id=>available.has(id)));
   prism.setPending(Object.keys(state.pending?.lines||{}).filter(id=>available.has(id)));
   prism.setLineMetadata(Object.fromEntries(state.lines.filter(line=>available.has(line.id)).map(line=>[line.id,{ariaLabel:`Line ${line.number} · ${lineDescription(line)}`,status:lineTask(line)?.status||null}])));
@@ -825,7 +826,8 @@ function drawTasks(){
   const outsideFilter=retained&&!matches.includes(retained);
   // A poll may change priority or filter membership while a keyboard user is on a row.
   if(retained&&(showAllTasks||limit>0)&&!visible.includes(retained)){if(!showAllTasks&&visible.length===limit)visible.pop();visible.push(retained);visible.sort((a,b)=>priority(a)-priority(b)||a.id.localeCompare(b.id))}
-  $('taskStatusCounts').textContent=['blocked','question','working','unread'].map(status=>state.tasks.filter(t=>t.status===status).length+' '+status).join(' · ');
+  const statuses=['blocked','question','working','unread',...(state.tasks.some(t=>t.status==='idle')?['idle']:[])];
+  $('taskStatusCounts').textContent=statuses.map(status=>state.tasks.filter(t=>t.status===status).length+' '+status).join(' · ');
   $('waiting').textContent=state.tasks.filter(t=>!lineById(t.line)).length+' waiting for a Line';
   // The Tasks heading carries the total; this line says how many of them are on screen.
   $('taskSummary').textContent=(filter!=='all'||query?`${matches.length} match filter · `:'')+`${visible.length} shown`+(outsideFilter?' · 1 focused task outside filter':'');
@@ -894,8 +896,8 @@ function inspect(){
   $('locate').disabled=chosen.length!==1||state.mode==='free';
   $('locateHint').hidden=state.mode!=='free';$('locateHint').textContent=state.mode==='free'?'Switch to Work or Quiet to locate a Line.':'';
   const detail=$('taskDetail');
-  if(task&&detail.contains(document.activeElement)&&document.activeElement.dataset.task===task.id)return;
-  const fingerprint=JSON.stringify([chosen.length,project,task&&[task.id,task.title,task.status,task.project,task.manual,task.started,task.codexUrl],state.projects.map(p=>[p.id,p.name])]);
+  const refocusEvict=task&&document.activeElement?.dataset.evictTask===task.id;
+  const fingerprint=JSON.stringify([chosen.length,project,task&&[task.id,task.title,task.status,task.project,task.manual,task.started,task.codexUrl,task.evictionToken],state.projects.map(p=>[p.id,p.name])]);
   if(fingerprint===detailFingerprint){
     // Keep the elapsed time in step without rebuilding the card.
     const clock=detail.querySelector('[data-elapsed]');if(clock&&task)clock.textContent=elapsed(task.started);
@@ -908,6 +910,12 @@ function inspect(){
   const head=el('div',undefined,'detail-head');head.append(el('h3',task.title),statusBadge(task.status));detail.append(head);
   for(const [key,value]of[['Project',projectName(task.project)],['Elapsed',elapsed(task.started)]]){const row=el('div',undefined,'kv'),node=el('span',value);if(key==='Elapsed')node.dataset.elapsed='';row.append(el('span',key),node);detail.append(row)}
   if(task.codexUrl){const link=el('a','Open in Codex','codex-link');link.href=task.codexUrl;detail.append(link)}
+  if(task.evictionToken){
+    const evict=el('button','Evict task','field');evict.type='button';evict.dataset.evictTask=task.id;
+    evict.onclick=()=>action('/api/evict',{id:task.id,evictionToken:task.evictionToken});
+    detail.append(evict,el('p','Clears this device only. New work can appear again.','small'));
+    if(refocusEvict)evict.focus({preventScroll:true});
+  }
 }
 function pendingText(){
   const p=state.pending,parts=[];

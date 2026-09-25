@@ -1,41 +1,4 @@
-# Shared session consumer
-
-## Purpose
-
-Allow Nanoleaf to consume one shared interpretation of agent sessions while preserving private device ownership, task presentation and reversible source selection.
-
-## Requirements
-
-### Requirement: Explicit source authority
-The installation SHALL default to legacy input and persist an explicit legacy/shared selection independently of Work/Quiet/Free. Only the selected input SHALL update each session. Shared mode SHALL use the shared owner as the authority for agent state, with local presentation projections only. The operator SHALL register this integration's hooks for every legacy event in the selected Codex home before selecting legacy input. This covers #29 source selection and ownership criteria and #89 rollback safety.
-
-#### Scenario: Configure without cutover
-- **WHEN** shared input is configured or source software is upgraded
-- **THEN** the selected source and device mode remain unchanged
-
-#### Scenario: Cutover and rollback
-- **WHEN** the operator selects shared after successful preflight or explicitly returns to legacy with the integration's hooks registered
-- **THEN** selection commits atomically, prevents duplicate ingestion, preserves preferences and bound assignments/epochs, and survives restart without changing unrelated hooks or installation owner
-- **AND** an active comet reservation prevents cutover until it finishes
-
-#### Scenario: Legacy selection without registered hooks
-- **WHEN** the operator selects legacy while the selected Codex home lacks this integration's marked handler for any legacy event
-- **THEN** selection is refused without changing source state and the diagnostic names `hooks register`
-
-### Requirement: Explicit legacy hook lifecycle
-The CLI SHALL provide hook removal and registration commands that take a Codex home explicitly and change only handlers marked `nanoleaf-codex-status-v1`. Removal SHALL create a private backup, preserve every other hook entry, and SHALL NOT change device modes, tasks or device state. Repeating either operation SHALL be safe. Removal SHALL be refused while legacy input is selected. Malformed hook JSON SHALL be left untouched. Registration SHALL preserve existing or backed-up commands, fill missing legacy events, and include the selected installation state directory in newly generated commands. Hook-file replacement SHALL be atomic.
-
-#### Scenario: Remove and restore marked hooks
-- **WHEN** an operator removes legacy hooks after selecting shared input and then registers them for rollback
-- **THEN** only marked handlers are removed and restored, unrelated entries remain unchanged, a backup exists, and repeating either operation leaves the configuration valid and equivalent
-
-#### Scenario: Refuse removal during legacy input
-- **WHEN** the operator removes hooks while legacy input is selected
-- **THEN** the command refuses without modifying the Codex home or Nanoleaf state
-
-#### Scenario: Malformed hook configuration
-- **WHEN** a hook lifecycle command reads malformed `hooks.json`
-- **THEN** it reports failure and leaves the original file byte-for-byte unchanged
+## MODIFIED Requirements
 
 ### Requirement: Validated bounded shared input
 The consumer SHALL request snapshot 1.1, require a non-negative safe integer generation no greater than its revision for every session, and validate the versioned snapshot contract and expected owner over authenticated configured numeric-loopback HTTP with bounded time, size and concurrency, no redirects and no proxy use. Source readiness declarations SHALL distinguish operator assertions from verified feed evidence. No provider reducer SHALL be copied to Python. This covers #29 shared-contract, privacy and transport criteria.
@@ -109,30 +72,7 @@ Disconnected or uncertain shared sessions SHALL keep their last colors steady wi
 - **WHEN** an uncertain session's retained status is working, question or blocked, or a retained unread session's uncertain evidence would show another status, or only some notices are acknowledged
 - **THEN** the task keeps its retained status steadily
 
-### Requirement: Pure sanitized inspection and private ownership
-Inspection SHALL report source selection, owner, consumer health and sanitized identity/project mapping without starting a worker, changing state, contacting a device or returning credentials/private metadata. One installation-local Python worker SHALL remain the sole device writer; SQLite SHALL remain private to its operating system. This covers #29 additional health and runtime criteria.
-
-#### Scenario: Inspect integration state
-- **WHEN** a caller reads shared status
-- **THEN** it receives selected source, neutral identities, connection, last revision/update, evidence age, uncertainty and fixed errors without mutations or credential/path disclosure
-
-### Requirement: Source qualification evidence
-The delivery SHALL exercise released fixtures and isolated Linux fake-feed/worker paths, measure bounded consumer overhead, and distinguish source evidence from installed, integrated performance and optical acceptance. This covers #29 verification and performance criteria; the legacy Windows routing clause was retired under [issue #131](https://github.com/jimmie-potts/codex-nanoleaf/issues/131).
-
-#### Scenario: Consumer qualification
-- **WHEN** source acceptance is evaluated
-- **THEN** repeatable synthetic profiles and failure/recovery tests demonstrate bounded resources and preserved behavior without personal hooks, agents or devices
-
-### Requirement: Wall links use the presented root identity
-The wall task projection SHALL expose `codexUrl` only when its presented root session has provider `codex`, client `desktop` and a valid UUID session ID. Folded children SHALL NOT supply or replace that identity. The URL SHALL be built on the server and SHALL NOT enter controller or integration API projections or the shared feed. Eligibility SHALL NOT change session lifecycle, allocation or read state. Covers #108 AC2, AC3, AC4 and AC5.
-
-#### Scenario: Desktop parent with folded child
-- **WHEN** a shared Desktop root session has a folded child
-- **THEN** its single wall task links to the parent's UUID, never the child's
-
-#### Scenario: Ineligible root
-- **WHEN** a root is Codex CLI, Claude Code, an unknown client, or has a malformed session ID
-- **THEN** its wall task has no link even if a child is an eligible Desktop session or a matching ID exists in the local title index
+## ADDED Requirements
 
 ### Requirement: Authoritative session retirement
 A current owner snapshot that removes a task SHALL remove its task-specific local presentation and release its Lines through the existing allocator. A changed generation for a retained identity SHALL have the same reset effect before projecting the new task. The consumer SHALL preserve unrelated tasks, the global project catalogue, project colors and reservations, preferences, source selection, modes and scenes. Retirement SHALL NOT acknowledge a notice, mark work successful or terminate an agent.

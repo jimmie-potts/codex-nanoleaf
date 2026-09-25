@@ -21,7 +21,7 @@ await page.evaluate(()=>{state.pending={settings:{style:'classic'},lines:{[state
 if(await page.locator('#taskList b').count())throw Error('Task title interpreted as HTML');
 await page.screenshot({path:path.join(root,'test-results/wall-map-desktop.png'),fullPage:true});
 await page.setViewportSize({width:800,height:1000});await page.screenshot({path:path.join(root,'test-results/wall-map-compact.png'),fullPage:true});
-for(const name of ['codex_links','shared_metadata','compact_tasks','current_projects','line_identity','foundation','hierarchy','context_card','presentation','assembly','prism_coverage','prism_lifecycle','label_clearance']){
+for(const name of ['codex_links','eviction','shared_metadata','compact_tasks','current_projects','line_identity','foundation','hierarchy','context_card','presentation','assembly','prism_coverage','prism_lifecycle','label_clearance']){
   try{await require('./'+name+'_checks.cjs')(page,root)}
   catch(error){errors.push(name+': '+error.message);await page.screenshot({path:path.join(root,'test-results/'+name+'-failure.png'),fullPage:true}).catch(()=>{})}
 }

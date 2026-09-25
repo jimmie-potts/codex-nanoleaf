@@ -134,3 +134,17 @@ The starting implementation passed 100 tests in WSL and, at the time, Windows. P
 ## Optional controller development
 
 For controller API fixtures, install the pinned source dependencies with `python -m pip install -r requirements-controller.txt`, then run the normal Python suite. The listener imports the verified shared Python consumer; legacy commands remain usable without these packages. Run the existing browser and workflow checks for API/OPSX changes. See [the controller guide](controller-api.md) for the immutable release receipt, source-only activation commands and separate installation/physical acceptance boundary.
+
+## Desktop retirement consumer
+
+The normal Python suite includes snapshot 1.1 validation and a missed-retirement regression that reopens saved state, resets one task's manual project and effects, preserves its peer, and distinguishes healthy empty recovery from feed loss. Run `fnm exec --using=24 -- python3 scripts/check.py` with the controller dependencies installed. Browser and workflow checks remain required for this shared-input change.
+
+The owning [Hub #218](https://github.com/jimmie-potts/agent-device-hub/issues/218) consumer harness also passes real owner snapshots and the shared 1.1 fixture corpus through this candidate. Record the exact source revisions in the PR. This evidence does not install the consumer or qualify a device.
+
+The shared-input suite also verifies read-to-idle Line retention and device-local
+eviction through restart, feed recovery and fresh turns/generations. HTTP checks
+exercise origin/edit-token rejection and stale controls. Browser checks cover
+the Evict button, keyboard focus, failed requests, idle animation and narrow
+layout. Run `python3 scripts/check.py` and `npm run test:browser`; these use
+synthetic tasks and do not evict an installed task. Changed UI needs renewed
+human approval before merge.

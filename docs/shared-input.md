@@ -17,9 +17,9 @@ Use the selected installation's Python runtime with the dependencies in
 [the immutable release](https://github.com/jimmie-potts/agent-device-hub/releases/tag/agent-state-v1.0.0),
 archive SHA-256 `ae589d311e282c3356579c85507a3aa973ab7990e06e062143aeb08d8d2dcc99`.
 Its unchanged Python validator, schemas and fixtures are extracted alongside the
-archive. Legacy input does not import the optional validator dependency.
+archive. The consumer checks snapshot 1.1 generations, validates the remaining fields as the unchanged closed 1.0 shape, then preserves generations in its private saved envelope. Every live session must provide a safe integer generation between zero and the snapshot revision. Legacy input does not import the optional validator dependency.
 
-The initial host is Pixoo's `/api/monitor/v1` on numeric loopback. Provision the
+This reader requires a host that supports `GET /api/monitor/v1/sessions?snapshotVersion=1.1`, such as standalone Hub 0.3.0. Install the compatible owner before upgrading this consumer. Earlier Pixoo embedded owners and snapshot 1.0-only hosts cannot supply the required generation; preflight reports unavailable without fallback. Provision the
 Nanoleaf consumer **when initializing the shared host** with:
 
 ```json
@@ -168,7 +168,7 @@ A new evidenced turn clears earlier notices **for the Nanoleaf consumer** throug
 the owner's `clearOnNewTurn` policy. Unknown ordering does not prove a new turn;
 ambiguous notices remain retained. Turn end does not imply successful work.
 Read evidence is optional and separate: qualified read evidence can suppress the
-local blue indicator without acknowledging the shared notice. Missing Claude or
+local unread pulse without acknowledging the shared notice. Missing Claude or
 Codex read evidence stays unknown. Legacy unread clearing remains unchanged.
 
 Explicit acknowledgment targets a session key and exact notice ID. Obtain them
@@ -217,7 +217,7 @@ happens:
 
 Hub 0.2.2 reports Codex Desktop read evidence
 ([Hub #191](https://github.com/jimmie-potts/agent-device-hub/issues/191)), so
-reading a finished task in Codex clears its indicator. Hub 0.2.3 forgets a
+reading a finished task in Codex ends its unread pulse but retains the row and Line as idle. Hub 0.2.3 forgets a
 session after 24 hours without lifecycle evidence
 ([Hub #195](https://github.com/jimmie-potts/agent-device-hub/issues/195)), which
 removes its task and notices here. A turn the owner could not order keeps its
@@ -236,7 +236,7 @@ and stop affected pulses/comets. Keep assignments and notices. One change still
 applies while uncertain: a retained unread task becomes idle when the owner
 reports it read or every notice acknowledged for `nanoleaf`
 ([#88](https://github.com/jimmie-potts/codex-nanoleaf/issues/88)). The change is
-steady, and the freed Line goes to the next waiting task. Other retained colors
+steady, and its row and assigned Line remain until owner removal or local eviction. Other retained colors
 wait for current evidence. Healthy sessions
 continue normally; Free remains free of task-light writes. Recovery preserves
 existing phases and suppresses old outward waves and celebrations.
@@ -272,3 +272,51 @@ construction. The checked receipt in `docs/performance/gh29-shared-consumer.json
 identifies source hashes. It is consumer overhead evidence, not the full-hook
 baseline, final Hub #30 integrated performance qualification, Windows timing,
 installed-client acceptance or optical evidence. Those gates retain their owners.
+
+## Ended Desktop tasks
+
+[Hub #218](https://github.com/jimmie-potts/agent-device-hub/issues/218) owns prompt Desktop retirement. A current snapshot that removes a task releases its Lines through the existing allocator. A changed generation has the same reset effect even if this consumer missed the empty interval or restarted. The old manual task project, waits, receipts, assignment and task effects are forgotten; fresh work receives default task presentation. Project definitions, colors, reservations, unrelated tasks, settings, modes and scenes remain intact. Retirement does not acknowledge notices or report work success.
+
+A disconnected or invalid feed retains its last valid projection with unavailable health. It cannot establish removal. A healthy empty reconnect returns to existing idle behavior, without replaying missed effects or switching native Work/Quiet/Free mode. Optional presence-driven mode selection belongs to Nanoleaf #110.
+
+The saved envelope needs no database schema change. An older saved snapshot has generation zero, matching the compatible owner's import of existing records. Generation comparisons require continuity of the selected owner and its revision history. Rolling back this reader loses missed-retirement protection. An older owner cannot read the newer Hub durable format; owner rollback needs a separately authorized compatible handoff, not an in-place binary downgrade.
+
+Source tests use synthetic state and fake transports. Installation and visible Line release remain separate acceptance on the owning Hub issue.
+
+Retirement depends on the owner receiving an end; the installed trial did not
+establish reliable Codex idle/shutdown emission. [Hub #253](https://github.com/jimmie-potts/agent-device-hub/issues/253)
+owns that investigation and subsequent reopen/resume qualification. Quitting
+Codex or waiting thirty minutes does not guarantee that every task disappears.
+The owner's existing evidence expiry remains its fallback; this consumer adds
+no timer or global clear.
+
+## Retained idle tasks and Evict
+
+In shared mode, reading or acknowledging a completed task leaves its wall row
+and assigned Line visible. Idle is steady blue. This does not assert successful
+completion. The owner can later remove the task on an accepted session end or
+its existing evidence-expiry policy; Nanoleaf adds no idle timer. Legacy input
+keeps its existing read/Line-release behavior.
+
+Select a shared task or its Line and click **Evict task** in the detail card to
+clear that task from this device. Its row, assignment and task comet disappear;
+other tasks, devices, project reservations, scenes and the selected mode stay
+unchanged. The existing worker sends the resulting display. Free mode continues
+to leave device control alone.
+
+Eviction survives polling, read/acknowledgment changes, reconnection and restart.
+An identifiable new turn or a recreated owner generation can appear again with
+a fresh allocation. If the turn identity is unknown, the consumer waits for
+changed identity evidence rather than inferring new work from time or read state.
+A control from an older turn, generation or source selection is rejected; refresh
+and select the current task. A failed request leaves the task displayed.
+
+This is device-local presentation suppression. It does not archive or delete
+the Codex conversation, acknowledge anything, or remove the shared owner record.
+The record therefore still counts for future owner-based Work/Free automation.
+Eviction across all consumers will need an explicit shared-owner command. The
+wall uses its existing origin/edit-token checks and needs no Hub write credential.
+
+The local database gains an initially empty eviction table. Older consumer
+versions ignore it and can show evicted tasks again. Switching input sources
+clears local evictions; ordinary restarts preserve them.

@@ -11,7 +11,27 @@ def validate_snapshot(value):
     if location not in sys.path:
         sys.path.insert(0, location)
     from agent_state import validate_snapshot as validate
-    return validate(value)
+    if type(value) is not dict or value.get('apiVersion') != '1.1':
+        return validate(value)
+    revision=value.get('revision');sessions=value.get('sessions')
+    if (type(revision) is not int or not 0 <= revision <= 9007199254740991
+            or type(sessions) is not list or len(sessions)>128):
+        return {'ok':False,'code':'invalid-snapshot'}
+    generations=[];legacy=[]
+    for session in sessions:
+        if (type(session) is not dict or type(session.get('generation')) is not int
+                or not 0 <= session['generation'] <= revision):
+            return {'ok':False,'code':'invalid-snapshot'}
+        generations.append(session['generation'])
+        legacy.append({key:item for key,item in session.items() if key!='generation'})
+    # All other fields have the closed 1.0 shape. Its pinned validator returns
+    # a detached copy; only the independently checked generation is restored.
+    checked=validate(dict(value,apiVersion='1.0',sessions=legacy))
+    if checked['ok']:
+        checked['value']['apiVersion']='1.1'
+        for session,generation in zip(checked['value']['sessions'],generations):
+            session['generation']=generation
+    return checked
 
 import contextlib
 import hashlib
@@ -184,7 +204,7 @@ def check_envelope(value, config, minimum_revision=0):
             or type(value['nextRequestId']) is not str or not 1 <= len(value['nextRequestId']) <= 100):
         raise FeedError('invalid-feed')
     checked = validate_snapshot(value['snapshot'])
-    if not checked['ok'] or checked['value']['revision'] < minimum_revision:
+    if not checked['ok'] or checked['value']['apiVersion']!='1.1' or checked['value']['revision'] < minimum_revision:
         raise FeedError('invalid-feed')
     sources = {dumps(source) for source in config['qualifiedSources']}
     if any(dumps({k: session['identity'][k] for k in SOURCE}) not in sources for session in checked['value']['sessions']):
@@ -194,7 +214,7 @@ def check_envelope(value, config, minimum_revision=0):
 
 def fetch_snapshot(config, minimum_revision=0):
     config = validate_config(config)
-    return check_envelope(request(config, '/sessions'), config, minimum_revision)
+    return check_envelope(request(config, '/sessions?snapshotVersion=1.1'), config, minimum_revision)
 
 import devices
 
@@ -209,6 +229,7 @@ def init(db):
     db.execute('CREATE TABLE IF NOT EXISTS shared_stale (session TEXT PRIMARY KEY)')
     db.execute('CREATE TABLE IF NOT EXISTS shared_suppressed_waves (session TEXT PRIMARY KEY, epoch REAL)')
     db.execute('CREATE TABLE IF NOT EXISTS shared_ack (id INTEGER PRIMARY KEY, payload TEXT, result TEXT)')
+    db.execute('CREATE TABLE IF NOT EXISTS shared_evictions (session TEXT, device TEXT, token TEXT NOT NULL, PRIMARY KEY (session,device))')
 
 
 def state(db):
@@ -224,6 +245,36 @@ def selected(db):
     return bool(row and row[0] == 'shared')
 
 
+def visible_tasks(db, device):
+    shared = selected(db)
+    statuses = "'working','question','blocked','unread','idle'" if shared else "'working','question','blocked','unread'"
+    excluded = 'AND NOT EXISTS (SELECT 1 FROM shared_evictions WHERE session=sessions.id AND device=?) ' if shared else ''
+    return db.execute('SELECT id,turn,status FROM sessions WHERE status IN (' + statuses + ') ' + excluded +
+                      "ORDER BY CASE status WHEN 'blocked' THEN 0 WHEN 'question' THEN 1 ELSE 2 END, updated, id",
+                      (device,) if shared else ()).fetchall()
+
+
+def eviction_token(current, session):
+    """A stale-view guard, not an authentication credential or lifecycle event."""
+    return hashlib.sha256(dumps([current['config']['ownerId'], current['generation'],
+                                 session['identity'], session.get('generation', 0), session['turn']]).encode()).hexdigest()
+
+
+def evict(db, device, payload):
+    if (set(payload) != {'id','evictionToken'} or not isinstance(payload['id'], str)
+            or not isinstance(payload['evictionToken'], str) or not selected(db)):
+        raise ValueError('Invalid eviction.')
+    current = state(db)
+    tasks = presented(current['envelope']['snapshot']) if current['envelope'] else {}
+    key = payload['id']
+    if (key not in tasks or payload['evictionToken'] != eviction_token(current, tasks[key][0])
+            or not db.execute('SELECT 1 FROM sessions WHERE id=?', (key,)).fetchone()):
+        raise ValueError('Task changed. Refresh before evicting.')
+    db.execute('INSERT OR REPLACE INTO shared_evictions VALUES (?,?,?)', (key,device,payload['evictionToken']))
+    for table in ('slots','comets'):
+        db.execute('DELETE FROM '+table+' WHERE session=? AND device=?', (key,device))
+
+
 def configure(directory, bridge, config):
     config = validate_config(config)
     with contextlib.closing(bridge.connect_state(directory)) as db, db:
@@ -233,6 +284,7 @@ def configure(directory, bridge, config):
             raise FeedError('acknowledgment-pending-use-explicit-retry')
         db.execute('UPDATE shared_input SET config=?,generation=generation+1,envelope=NULL,received=NULL,connection=\'unavailable\',error=NULL WHERE id=1', (dumps(config),))
         db.execute('DELETE FROM shared_ack')
+        db.execute('DELETE FROM shared_evictions')
 
 
 def source_config(directory, bridge):
@@ -341,6 +393,7 @@ def select_source(directory, bridge, source, fetch=fetch_snapshot, now=time.time
             db.execute('INSERT INTO shared_stale SELECT id FROM sessions')
             db.execute("UPDATE shared_input SET source='legacy',generation=generation+1,connection='unavailable',error=NULL WHERE id=1")
         db.execute('DELETE FROM shared_suppressed_waves')
+        db.execute('DELETE FROM shared_evictions')
         # Switching the task source resets every device's comets and display cache.
         db.execute('DELETE FROM display_v3')
         bridge.mark_dirty(db)
@@ -400,6 +453,14 @@ def _supporters(session, children, status, retained=False):
     return [session]
 
 
+def _forget_task(db, key):
+    for table,column in (('sessions','id'),('activity','session'),('task_info','session'),
+                         ('comets','session'),('slots','session'),('waits','session'),
+                         ('receipts','session'),('shared_stale','session'),('shared_suppressed_waves','session'),
+                         ('shared_evictions','session')):
+        db.execute('DELETE FROM '+table+' WHERE '+column+'=?',(key,))
+
+
 def _project(db, bridge, envelope, config, instant, resync=False, targets=(DEFAULT_DEVICE,), metadata=None):
     current = state(db)
     previous = current['envelope']
@@ -418,6 +479,13 @@ def _project(db, bridge, envelope, config, instant, resync=False, targets=(DEFAU
         status = semantic_status(session, config['consumerId'], children)
         if orphan and status not in ALERTS: continue
         live.add(key)
+        token = eviction_token(current, session)
+        db.execute('DELETE FROM shared_evictions WHERE session=? AND token!=?', (key,token))
+        recreated=key in prior and session['generation']!=prior[key].get('generation',0)
+        if recreated:
+            _forget_task(db,key)
+            prior.pop(key);prior_tasks.pop(key,None)
+        task_resync=resync or recreated
         old = db.execute('SELECT turn,status FROM sessions WHERE id=?', (key,)).fetchone()
         old_activity = db.execute('SELECT turn,status,started FROM activity WHERE session=?', (key,)).fetchone()
         turn = session['turn'].get('id', '')
@@ -456,7 +524,7 @@ def _project(db, bridge, envelope, config, instant, resync=False, targets=(DEFAU
                 # A retained matching phase survives cutover and resync. New resync states
                 # use an expired wave epoch; ordinary current transitions get one wave.
                 epoch = (old_activity[2] if old_activity and old_activity[:2] == (turn,status)
-                         else instant - 10 if resync or stale or was_stale else instant)
+                         else instant - 10 if task_resync or stale or was_stale else instant)
                 db.execute('INSERT OR REPLACE INTO activity VALUES (?,?,?,?)', (key,turn,status,epoch))
             else: db.execute('DELETE FROM activity WHERE session=?', (key,))
             if (old and old[0] != turn) or session['activity'] in ('active','interrupted'):
@@ -465,13 +533,14 @@ def _project(db, bridge, envelope, config, instant, resync=False, targets=(DEFAU
                 db.execute('DELETE FROM comets WHERE session=? AND started IS NULL', (key,))
         if stale or was_stale:
             db.execute('INSERT OR REPLACE INTO shared_suppressed_waves SELECT session,started FROM activity WHERE session=?', (key,))
-        if stale or resync or was_stale:
+        if stale or task_resync or was_stale:
             db.execute('DELETE FROM comets WHERE session=?', (key,))
         elif changed and status == 'unread' and key in prior:
             old_notices = {n['id'] for n in prior[key]['notices']}
             if any(n['id'] not in old_notices and config['consumerId'] not in n['acknowledgedBy'] for n in session['notices']):
                 for device in targets:
-                    if bridge.control_state(db, device)['mode'] == 'work':
+                    if (bridge.control_state(db, device)['mode'] == 'work'
+                            and not db.execute('SELECT 1 FROM shared_evictions WHERE session=? AND device=?', (key,device)).fetchone()):
                         db.execute('INSERT OR IGNORE INTO comets (session,turn,queued,source,started,device) VALUES (?,?,?,NULL,NULL,?)', (key,turn,instant,device))
         project = 'shared-project-' + session['projectId'] if session.get('projectId') else None
         if project:
@@ -483,15 +552,14 @@ def _project(db, bridge, envelope, config, instant, resync=False, targets=(DEFAU
             local_title,local_project=metadata.lookup(db,identity['sessionId'])
         title=session.get('label') or local_title or bridge.wall.fallback_title(identity['provider'],identity['sessionId'])
         manual = existing[3] if existing else None
-        started = existing[5] if existing and existing[4] == turn else (instant if not resync and turn else None)
+        started = existing[5] if existing and existing[4] == turn else (instant if not task_resync and turn else None)
         details=(title,'',project or local_project,manual,turn,started)
         if existing != details:
             db.execute('INSERT OR REPLACE INTO task_info VALUES (?,?,?,?,?,?,?)', (key,*details))
             presentation_changed=True
     for (key,) in db.execute('SELECT id FROM sessions').fetchall():
         if key not in live:
-            for table, column in (('sessions','id'),('activity','session'),('task_info','session'),('comets','session'),('slots','session'),('shared_stale','session'),('shared_suppressed_waves','session')):
-                db.execute('DELETE FROM ' + table + ' WHERE ' + column + '=?', (key,))
+            _forget_task(db,key)
     db.execute("UPDATE shared_input SET envelope=?,received=?,connection='current',error=NULL WHERE id=1", (dumps(envelope),instant))
     if previous != envelope or presentation_changed: bridge.mark_dirty(db)
 
@@ -551,7 +619,7 @@ def inspect(directory, now=time.time):
 
 def render_config(db, config):
     device = config.get('device', DEFAULT_DEVICE)
-    config['_steady_slots'] = [slot for (slot,) in db.execute('SELECT slot FROM slots JOIN shared_stale ON slots.session=shared_stale.session WHERE slots.device=?', (device,))]
+    config['_steady_slots'] = [slot for (slot,) in db.execute("SELECT slot FROM slots JOIN sessions ON sessions.id=slots.session WHERE slots.device=? AND (sessions.status='idle' OR EXISTS (SELECT 1 FROM shared_stale WHERE shared_stale.session=slots.session))", (device,))]
     config['_wave_suppressed_slots'] = [slot for (slot,) in db.execute('SELECT slot FROM slots JOIN shared_suppressed_waves USING (session) JOIN activity USING (session) WHERE epoch=started AND slots.device=?', (device,))]
     row = db.execute("SELECT value FROM meta WHERE key='shared_wave_cutoff'").fetchone()
     if row: config['_wave_cutoff'] = max(config.get('_wave_cutoff',float('-inf')),float(row[0]))

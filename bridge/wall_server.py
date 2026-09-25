@@ -59,11 +59,13 @@ class App:
                 details={s:(title,cwd,manual,started) for s,title,cwd,manual,started in db.execute('SELECT session,title,cwd,manual_project,started FROM task_info')}
                 tasks=[]; snap=[None]*len(prefs)
                 epochs={s:epoch for s,epoch in db.execute('SELECT session,started FROM activity')}
-                uncertain=set(); codex_urls={}
+                uncertain=set(); codex_urls={}; eviction_tokens={}
                 if shared:
-                    envelope=self.b.shared_input.state(db)['envelope']
+                    shared_state=self.b.shared_input.state(db)
+                    envelope=shared_state['envelope']
                     if envelope:
                         for key,(root,_,_) in self.b.shared_input.presented(envelope['snapshot']).items():
+                            eviction_tokens[key]=self.b.shared_input.eviction_token(shared_state,root)
                             identity=root['identity']
                             if identity['provider']=='codex' and identity['client']=='desktop':
                                 codex_urls[key]=codex_thread_url(identity['sessionId'])
@@ -72,12 +74,13 @@ class App:
                         uncertain={sid for (sid,) in db.execute('SELECT id FROM sessions')}
                     else:
                         uncertain={sid for (sid,) in db.execute('SELECT session FROM shared_stale')}
-                for sid,turn,status in db.execute("SELECT id,turn,status FROM sessions WHERE status IN ('working','question','blocked','unread')"):
+                for sid,turn,status in self.b.shared_input.visible_tasks(db, device):
                     title,cwd,manual,started=details.get(sid,('', '',None,None)); slot=slots.get(sid)
                     codex_url=codex_urls.get(sid) if shared else codex_thread_url(sid) if sid in self.metadata.index_ids else None
                     tasks.append({'id':sid,'title':title or wall.fallback_title('codex',sid),'project':memberships.get(sid),'status':status,'started':started,
                                   'line':elements[slot]['id'] if slot is not None and slot<len(prefs) else None,'manual':manual,
                                   **({'codexUrl':codex_url} if codex_url else {}),
+                                  **({'evictionToken':eviction_tokens[sid]} if sid in eviction_tokens else {}),
                                   **({'statusEvidence':'uncertain' if sid in uncertain else 'current'} if shared else {})})
                     if slot is not None and slot<len(snap): snap[slot]=(status,epochs.get(sid,time.time()-10))
                 for pid,name,color in db.execute('SELECT id,name,color FROM projects ORDER BY name COLLATE NOCASE'):
@@ -127,7 +130,9 @@ def apply_operation(db,b,config,route,payload):
     device=devices.device_of(config)
     ids={element['id'] for element in devices.elements(config)}
     patch={}
-    if route=='/api/settings':
+    if route=='/api/evict':
+        b.shared_input.evict(db,device,payload)
+    elif route=='/api/settings':
         checks={'style':('classic','project'),'coverage':('whole','status'),'rotation':(0,90,180,270),'flip_x':(0,1),'flip_y':(0,1)}
         if not payload or any(k not in checks or v not in checks[k] for k,v in payload.items()): raise ValueError('Invalid setting.')
         patch={'settings':payload}
