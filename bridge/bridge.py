@@ -762,6 +762,20 @@ def registered_devices(directory):
     return [devices.DEFAULT] + [device for device in registry if device != devices.DEFAULT]
 
 
+def follow_registry(directory, config, device):
+    """Point a running pass at its device's registered address and credential; keep them if unreadable."""
+    try:
+        saved = json.loads((directory / 'config.json').read_text(encoding='utf-8-sig'))
+        entry = devices.registry(saved).get(device)
+    except (OSError, ValueError):
+        return
+    if entry is None:
+        return
+    for key, value in (('ip', entry['ip']), ('token', devices.credential(saved, entry))):
+        if value is not None:
+            config[key] = value
+
+
 def launch_worker(directory, device=None):
     """Wake one worker instance per registered device, or only the named device."""
     options = {'stdin': subprocess.DEVNULL, 'stdout': subprocess.DEVNULL,
@@ -876,6 +890,7 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
         while True:
             if not primary and device not in registered_devices(directory):
                 return  # The device was removed; its instance stops without another request.
+            follow_registry(directory, config, device)
             if poller:
                 shared = poller.tick(now())
             else:

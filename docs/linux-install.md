@@ -198,9 +198,25 @@ id defaults to `panels`; choose another with `--device <id>`. The command
 refuses `wall`, an address another device already uses, and an existing id at a
 different address. Repeating it for the same id and address replaces only the
 credential and keeps the device's mode, layout and reservations. Enrollment never
-changes a registered address. If the Panels' address changes, remove them and
-enroll again, which clears their reservations, or keep the address fixed in the
-router.
+changes a registered address.
+
+If the Panels get a new address, for example after a new DHCP lease, move them
+without re-enrolling:
+
+```bash
+read -r -p 'New Light Panels private IPv4 address: ' PANELS_IP
+~/.local/share/codex-nanoleaf/nanoleaf device-address --device panels --ip "$PANELS_IP"
+unset PANELS_IP
+```
+
+The command asks the device at the new address, with the stored credential, to
+report NL22 Light Panels with the saved triangles in the same places. It refuses an address another
+device uses, a different device and an unreachable address, and then changes
+nothing. On success it changes only the registered address. The Panels keep their
+id, mode, layout, reservations and saved scene, and no light write is sent. No
+service needs a restart: a running worker sends to the new address from its next
+pass. The command moves registered Light Panels only; it refuses the Lines
+device `wall`.
 
 The new device starts in Free and receives nothing until you activate it.
 Activation shows only current task status; it replays no earlier wave or comet:
