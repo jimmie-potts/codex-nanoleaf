@@ -108,22 +108,26 @@ failure ends assembly immediately. A future view can call
 owns that behavior. The
 [wall Line identification specification](../openspec/specs/wall-line-identification/spec.md)
 defines numbered project/task badges, Shared pool identification, selection,
-pending labels, and the explicit Locate boundary. After selecting Lines, choose
-a project and click **Assign selected**. Choose Shared pool to release a reservation.
+pending labels, and the explicit Locate boundary. In Project layout, select Lines
+and choose a project under **Reserved for**; the choice applies at once to every
+selected Line, and Shared pool releases a reservation. Classic shows no
+reservation controls.
 The [current projects specification](../openspec/specs/wall-current-projects/spec.md)
 owns project visibility, activity ordering, saved-project access, and color editing.
 Use **Show saved projects** in the left column to find a project without current
 tasks or change its saved color.
 
-**Options** above the wall holds the secondary map controls in three labelled
-groups: Numbers (**Show all numbers**), Orientation (**Rotate**, **Flip H** and
-**Flip V**) and Assembly (**Replay assembly** and the two playback preferences).
+**Options** above the wall holds the secondary map controls in four labelled
+groups: Layout (**Classic** and **Project**, with **Coverage** shown only while
+Project is active), Numbers (**Show all numbers**), Orientation (**Rotate**,
+**Flip H** and **Flip V**) and Assembly (**Replay assembly** and the two playback
+preferences).
 Enter or Space opens it, Escape closes it and returns focus to Options, and a
 press elsewhere closes it. Opening the menu or toggling a browser-local
 preference sends no request; Rotate and Flip keep saving through the existing
-settings request. The mode, connection state, pending edits and alerts stay
-visible without opening it, and the selection card carries the only selection
-hint. The
+settings request, and a layout choice sends the same request. The mode,
+connection state, pending edits and alerts stay visible without opening it, and
+the context card carries the only selection hint. The
 [wall map hierarchy specification](../openspec/specs/wall-map-hierarchy/spec.md)
 owns the default screen and this menu.
 
@@ -142,7 +146,7 @@ summarizes them. Browsing does not mark tasks read or change their placement.
 The [task inspector specification](../openspec/specs/wall-task-inspector/spec.md)
 owns these controls and their polling, focus, and retirement behavior.
 
-Select a Codex Desktop task to find **Open in Codex** in its detail card. Legacy
+Select a Codex Desktop task to find **Open in Codex** in its context card. Legacy
 tasks get the link only when their UUID is in the configured Desktop title index;
 shared tasks need a Codex Desktop root-session UUID. Folded subagents link to
 their parent. CLI, Claude Code, unknown and malformed IDs have no link. The
@@ -158,8 +162,9 @@ writes Codex data.
 | Classic, the upgrade default | Automatic across all Lines | Whole-Line status colors |
 | Project | Its project's reserved Lines, then Shared overflow | Project identity on one half and status on the other |
 
-Switch layouts from the map. Mode, layout, colors, reservations, half
-choices, map orientation, and animation coverage survive restarts. Classic keeps
+Switch layouts from the map's Options menu or the `style` command. Mode, layout,
+colors, reservations, half choices, map orientation, and animation coverage
+survive restarts. Classic keeps
 your saved project settings for the next time you choose Project.
 
 Each task uses one eligible Line. Valid placements stay in place. Tasks never
@@ -181,20 +186,26 @@ existing priority. Changing a color does not restart pulses or replay completion
 Quiet uses steady colors at 10%. Free tracks tasks while the Nanoleaf app controls
 the lights.
 
-Use **Swap halves** on selected Lines if you prefer the project color on the other
-end. Line reservations use physical panel IDs rather than map order.
+In Project layout, use **Swap halves** on selected Lines if you prefer the project
+color on the other end. Line reservations use physical panel IDs rather than map
+order.
 
-The inspector shows task title, status, project, and time since the current turn
-started. Older tasks with no observed start time show "Start time unavailable."
+The context card names the selected Line, or lists several, then shows the task's
+title, status, project and time since the current turn started, and offers
+**Locate**. Older tasks with no observed start time show "Start time unavailable."
+Escape or a click on empty wall canvas clears the selection; in Free the disabled
+Locate explains that Work or Quiet is needed.
 The on-screen flow indicates task status; it does not replay physical outward
 waves or comets or mirror controller frames. Its clock begins at the connectors
 after assembly. Polls, palette changes, selection, and layout rebuilds preserve
 that clock. Physical pulse and completion epochs remain unchanged. Reduced
 motion keeps static modes distinguishable.
 The [wall mode presentation specification](../openspec/specs/wall-mode-presentation/spec.md)
-owns that behavior and the readout. Use the inspector's
-project override for unresolved tasks; it changes only the bridge's assignment.
-Choose "Use Codex assignment" to remove the override.
+owns that behavior and the readout. The map offers no per-task project override;
+tasks without an attributed project read "No project", and the
+[integration settings extension](../docs/integration-api.md) keeps the manual
+override for machine clients. The status-first default screen is recorded in
+[ADR 0013](../docs/decisions/0013-wall-map-status-first.md).
 
 Shared Codex tasks use local titles and projects from the same configured metadata
 reader. A hub label takes precedence over the local title. Project allocation uses

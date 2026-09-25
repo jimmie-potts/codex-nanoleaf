@@ -24,7 +24,7 @@ module.exports = async function(page, root) {
   const record = request => {if (request.method() !== 'GET') writes.push(new URL(request.url()).pathname)};
   const viewport = page.viewportSize();
   const summary = page.locator('#wallOptions > summary');
-  const menuControls = ['showNumbers', 'rotate', 'flipX', 'flipY', 'replay', 'assemblyOnOpen', 'assemblyOnEntry'];
+  const menuControls = ['classic', 'project', 'coverage', 'showNumbers', 'rotate', 'flipX', 'flipY', 'replay', 'assemblyOnOpen', 'assemblyOnEntry']; // the dense fixture is Project layout, so Coverage is in the tab order
   const geometry = () => page.evaluate(() => {
     const rect = selector => document.querySelector(selector).getBoundingClientRect();
     const head = rect('.canvas-head'), wall = rect('#wallHost');
@@ -73,7 +73,7 @@ module.exports = async function(page, root) {
     assert.deepEqual(ring, {focused: true, outlineStyle: 'solid', outlineColor: 'rgb(255, 255, 255)'}, 'Tab reaches Options with the shared focus ring');
     await page.keyboard.press('Enter');
     assert.equal(await isOpen(), true, 'Enter opens Options');
-    for (const name of ['Numbers', 'Orientation', 'Assembly']) assert.equal(await page.getByRole('group', {name}).count(), 1, `The ${name} group is labelled`);
+    for (const name of ['Layout', 'Numbers', 'Orientation', 'Assembly']) assert.equal(await page.getByRole('group', {name}).count(), 1, `The ${name} group is labelled`);
     const focused = [];
     for (const _ of menuControls) {await page.keyboard.press('Tab'); focused.push(await page.evaluate(() => document.activeElement.id))}
     assert.deepEqual(focused, menuControls, 'Tab reaches every secondary control in order');
@@ -172,14 +172,14 @@ module.exports = async function(page, root) {
       assert.equal(await page.evaluate(() => document.getElementById('wall').getAnimations({subtree: true}).filter(animation => animation.playState === 'running').length), 0, 'Reduced motion runs no wall animation');
     } finally {await page.emulateMedia({reducedMotion: null})}
 
-    // The #76 and #77 lists fit: a long-titled selected task and its override stay usable.
+    // The #76 and #77 lists fit: a long-titled selected task and, in Project layout, its reservation select stay usable.
     for (const [width, height] of [[1440, 1000], [390, 844]]) {
       current = dense; await page.setViewportSize({width, height}); await refresh(); await settle();
       await page.locator('#taskList [data-task="task-00"] .task-title').click(); await refresh();
       assert.match(await page.locator('#taskDetail').textContent(), /A long retained task title/, `${width}px: the selected task shows its details`);
-      const override = page.getByRole('combobox', {name: 'Task project override'});
-      await override.scrollIntoViewIfNeeded();
-      assert.equal(await override.isVisible(), true, `${width}px: the override control is usable`);
+      const reservation = page.locator('#assignProject');
+      await reservation.scrollIntoViewIfNeeded();
+      assert.equal(await reservation.isVisible(), true, `${width}px: the reservation control is usable in Project layout`);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `${width}px: long labels do not overflow`);
       if (width === 1440) assert.equal(await page.evaluate(() => new Set([...document.querySelectorAll('#taskList .task')].map(node => Math.round(node.getBoundingClientRect().left))).size), 2, 'The compact grid keeps two desktop columns');
       await page.evaluate(() => {selected.clear(); taskFocus = null; document.activeElement.blur(); render()});

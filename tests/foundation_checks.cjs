@@ -60,10 +60,10 @@ module.exports = async function(page, root) {
   assert.notEqual(deselected, selectionColor, 'A focused but deselected Line shows no selection ring');
   await page.evaluate(() => action('/api/settings', {style: 'classic'}));
   await page.waitForFunction(() => state.settings.style === 'classic');
-  assert.equal(await page.locator('#coverage').isDisabled(), true);
-  assert.ok(parseFloat(await page.locator('#coverage').evaluate(node => getComputedStyle(node).opacity)) < 1, 'A disabled coverage select looks disabled');
+  assert.equal(await page.locator('#coverage').evaluate(node => node.closest('#coverageOption').hidden), true, 'Coverage is hidden in Classic');
   await page.evaluate(() => action('/api/settings', {style: 'project'}));
   await page.waitForFunction(() => state.settings.style === 'project');
+  assert.equal(await page.locator('#coverage').evaluate(node => node.closest('#coverageOption').hidden), false, 'Coverage is available in Project');
 
   });
   await check('AC5: the mode reaches the wall', async () => {
@@ -74,9 +74,10 @@ module.exports = async function(page, root) {
   assert.equal(await page.locator('#wall').evaluate(node => getComputedStyle(node).filter), 'none', 'Work shows the wall at full strength');
 
   });
-  await check('AC6: one toolbar row holding Layout, Mode, and Animation coverage', async () => {
+  await check('AC6: one toolbar row holding Mode; Layout and Animation coverage sit in Options', async () => {
   assert.ok((await rect('header')).height <= 60, 'Header is a single toolbar row at 1440px');
-  assert.equal(await page.locator('header #coverage').count(), 1, 'Animation coverage sits in the toolbar');
+  assert.equal(await page.locator('header #coverage, header #classic, header #project').count(), 0, 'Layout and coverage have left the toolbar');
+  assert.equal(await page.locator('#wallOptions #coverage').count(), 1, 'Animation coverage sits in Options');
 
   });
   await check('AC7: number tags never overlap; Rotate and Flip stay on one row at 390px', async () => {
@@ -99,23 +100,23 @@ module.exports = async function(page, root) {
   await require('./wall_options.cjs').close(page);
 
   });
-  await check('AC9: a rejected project override never lingers in the inspector select', async () => {
+  await check('AC9: a rejected reservation never lingers in the context card select', async () => {
     await page.setViewportSize({width: 1440, height: 1000}); await settle();
     const snapshot = await page.evaluate(() => structuredClone(state));
-    snapshot.tasks.forEach(task => {task.started = snapshot.now - 7200; task.manual = null});
+    snapshot.settings = {...snapshot.settings, style: 'project'};
+    snapshot.lines.forEach(line => {line.project = null});
     const stateRoute = request => request.fulfill({json: snapshot});
-    const rejectRoute = request => request.fulfill({status: 400, json: {error: 'Unknown task.'}});
-    await page.route('**/api/state', stateRoute); await page.route('**/api/task', rejectRoute);
+    const rejectRoute = request => request.fulfill({status: 400, json: {error: 'Unknown project.'}});
+    await page.route('**/api/state', stateRoute); await page.route('**/api/assign', rejectRoute);
     try {
       await refresh();
-      const placed = snapshot.tasks.find(task => task.line);
-      await page.locator(`[data-line="${placed.line}"]`).click();
-      const override = page.locator('[aria-label="Task project override"]');
-      await override.focus(); await override.selectOption('b');
-      await page.waitForFunction(() => document.querySelector('#notice').textContent.includes('Unknown task'));
-      await override.blur(); await refresh(); await refresh();
-      assert.equal(await override.inputValue(), '', 'A rejected override returns the select to the saved assignment');
-    } finally {await page.unroute('**/api/task', rejectRoute); await page.unroute('**/api/state', stateRoute); await page.evaluate(() => {errorUntil = 0}); await refresh()}
+      await page.locator(`[data-line="${snapshot.lines[0].id}"]`).click();
+      const reservation = page.locator('#assignProject');
+      await reservation.focus(); await reservation.selectOption('b');
+      await page.waitForFunction(() => document.querySelector('#notice').textContent.includes('Unknown project'));
+      await reservation.blur(); await refresh(); await refresh();
+      assert.equal(await reservation.inputValue(), '', 'A rejected reservation returns the select to the saved value');
+    } finally {await page.unroute('**/api/assign', rejectRoute); await page.unroute('**/api/state', stateRoute); await page.evaluate(() => {errorUntil = 0; selected.clear()}); await refresh()}
   });
   await check('AC8: the connection indicator holds still between unchanged polls', async () => {
   await page.setViewportSize({width: 1440, height: 1000}); await settle();

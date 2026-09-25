@@ -1,9 +1,4 @@
-# wall-map-hierarchy Specification
-
-## Purpose
-Keep the wall map's default screen focused on the wall, the current mode, live status, alerts and the selected item, with secondary controls and repeated explanations available without crowding that view.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: The default screen leads with the wall and live status
 
@@ -48,6 +43,8 @@ The Line total SHALL appear only in the wall heading, the task total only in the
 #### Scenario: Lists from #76 and #77 fit
 - **WHEN** many long-titled tasks and long project names are shown and a task is selected at 390 or 1440 pixels
 - **THEN** the selected task, its details and, in Project layout, its reservation select remain usable without horizontal overflow, and the compact grid keeps its two desktop columns
+
+## ADDED Requirements
 
 ### Requirement: One context card with layout-conditional editing
 

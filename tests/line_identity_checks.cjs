@@ -84,7 +84,7 @@ module.exports = async function(page, root) {
       await wallLine(2).press('Enter');
       assert.equal(await project('a').evaluate(node => node.classList.contains('selected')), true, 'An idle reserved Line selects its owner');
       assert.equal(await page.locator('#taskList .task.selected').count(), 0);
-      await page.locator('#clear').click();
+      await page.keyboard.press('Escape');
       assert.equal(await page.locator('.line-badge.selected, .project.selected, .task.selected').count(), 0);
       assert.deepEqual(writes, [], 'Selecting Lines and tasks must not issue write requests');
       assert.deepEqual(await page.evaluate(() => state.tasks), snapshot.tasks, 'Selection preserves task state, including unread status');
