@@ -39,7 +39,7 @@ Completion and read evidence SHALL remain shared task records. Completion comets
 - **THEN** its indications clear on both devices, and a queued comet on either device is dropped
 
 ### Requirement: Per-device modes and scene restoration
-Each device SHALL persist its own Work, Quiet and Free selection, applied revision and error. Each device SHALL restore its own latest saved scene and brightness across takeover, idle, Quiet, Free and recoverable failure. Quiet SHALL use the steady 10 percent policy, and Work SHALL keep its brightness policy. A change to one device SHALL NOT clear the other device's effects, pending edits, mode or restoration state. After a successful Free handoff, the device SHALL receive no further requests. Display-cache clears and previews SHALL affect only their target device. `setup --reset` and shared-source switching SHALL state that they reset every device, and shared-source switching SHALL preserve bound placements on every device. Covers AC3.
+Each device SHALL persist its own Work, Quiet and Free selection, applied revision and error. Each device SHALL restore its own latest saved scene and brightness across takeover, idle, Quiet, Free and recoverable failure. Quiet SHALL use the steady 10 percent policy, and Work SHALL keep its brightness policy. A change to one device SHALL NOT clear the other device's effects, pending edits, mode or restoration state. After a successful Free handoff, the device SHALL receive no further requests except the single write of an explicit native power, brightness, scene or animation command on the original Lines device; Free SHALL NOT poll or send task lighting. Display-cache clears and previews SHALL affect only their target device. `setup --reset` and shared-source switching SHALL state that they reset every device, and shared-source switching SHALL preserve bound placements on every device. Covers AC3 and [issue #92](https://github.com/jimmie-potts/codex-nanoleaf/issues/92).
 
 #### Scenario: Mixed modes
 - **WHEN** Lines is in Work and Panels is switched to Free
@@ -99,3 +99,18 @@ A worker instance for a device other than the original Lines device SHALL stop w
 #### Scenario: Retry after removal
 - **WHEN** a Panels instance's pass failed and the device is then unregistered
 - **THEN** the instance stops instead of recording another error and retrying
+
+### Requirement: Requested animation playback
+The original Lines instance SHALL play a queued extension animation only while its mode is Free, as one journaled `PUT /effects` display write through its existing light transport, with no per-frame streaming and no brightness or power write. A pending mode command SHALL apply first; queued v1 controls and animations SHALL then run oldest first by admission. The worker SHALL encode status and animation effects with one shared frame encoder, and status payloads SHALL stay byte-identical. Every pattern SHALL use the saved Lines geometry, give both zones of a Line the same frames and stay within the extension's frame and byte bounds. Panels instances SHALL never play extension animations. Maps to [issue #92](https://github.com/jimmie-potts/codex-nanoleaf/issues/92) scope 2 and 3 and its encoder criterion.
+
+#### Scenario: Animation after the Free handoff
+- **WHEN** a Free mode command and an animation are both pending in one pass
+- **THEN** the Free handoff write happens first, the animation's display write follows, and the animation receipt ends `sent`
+
+#### Scenario: Pattern encoding on fixture layouts
+- **WHEN** each pattern renders on the 15-Line fixture and a two-Line layout
+- **THEN** every zone gets a positive-duration frame list within 20 frames, paired zones match, spatial patterns order their phases along the requested direction, and the request body is at most 8,192 bytes
+
+#### Scenario: Status encoding unchanged
+- **WHEN** a status display is encoded through the shared encoder
+- **THEN** its payload equals the payload produced before the encoder was extracted

@@ -495,6 +495,308 @@
         }
       },
       "valid": false
+    },
+    {
+      "name": "animation-minimal",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "pattern": "wave",
+          "colors": [
+            "#0044aa",
+            "#00AA66"
+          ]
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "animation-all-fields",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "pattern": "wave",
+          "colors": [
+            "#0044aa",
+            "#00AA66"
+          ],
+          "speed": "slow",
+          "direction": "outward",
+          "loop": false
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "animation-pulse-eight-colors",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "pattern": "pulse",
+          "colors": [
+            "#ffffff",
+            "#ffffff",
+            "#ffffff",
+            "#ffffff",
+            "#ffffff",
+            "#ffffff",
+            "#ffffff",
+            "#ffffff"
+          ],
+          "speed": "fast"
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "animation-unknown-pattern",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "pattern": "strobe",
+          "colors": [
+            "#0044aa",
+            "#00AA66"
+          ]
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "animation-no-colors",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "pattern": "wave",
+          "colors": []
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "animation-nine-colors",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "pattern": "wave",
+          "colors": [
+            "#ffffff",
+            "#ffffff",
+            "#ffffff",
+            "#ffffff",
+            "#ffffff",
+            "#ffffff",
+            "#ffffff",
+            "#ffffff",
+            "#ffffff"
+          ]
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "animation-short-color",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "pattern": "wave",
+          "colors": [
+            "#12345"
+          ]
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "animation-color-newline",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "pattern": "wave",
+          "colors": [
+            "#123456\n"
+          ]
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "animation-unknown-speed",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "pattern": "wave",
+          "colors": [
+            "#0044aa",
+            "#00AA66"
+          ],
+          "speed": "ludicrous"
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "animation-direction-on-pulse",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "pattern": "pulse",
+          "colors": [
+            "#ffffff"
+          ],
+          "direction": "left"
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "animation-unknown-direction",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "pattern": "wave",
+          "colors": [
+            "#0044aa",
+            "#00AA66"
+          ],
+          "direction": "north"
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "animation-loop-not-boolean",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "pattern": "wave",
+          "colors": [
+            "#0044aa",
+            "#00AA66"
+          ],
+          "loop": 1
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "animation-extra-field",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "pattern": "wave",
+          "colors": [
+            "#0044aa",
+            "#00AA66"
+          ],
+          "frames": []
+        }
+      },
+      "valid": false
     }
   ],
   "receipts": [
@@ -551,6 +853,87 @@
         "outcome": "cancelled",
         "priorEffects": "none",
         "physicalOutcome": "unknown"
+      },
+      "result": "stopped"
+    }
+  ],
+  "animationReceipts": [
+    {
+      "name": "queued",
+      "receipt": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "outcome": "queued",
+        "priorEffects": "none",
+        "physicalOutcome": "unknown"
+      },
+      "result": "pending"
+    },
+    {
+      "name": "sent",
+      "receipt": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "outcome": "sent",
+        "priorEffects": "confirmed-transmission",
+        "physicalOutcome": "unknown"
+      },
+      "result": "sent"
+    },
+    {
+      "name": "uncertain",
+      "receipt": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "outcome": "uncertain",
+        "priorEffects": "possible",
+        "physicalOutcome": "unknown",
+        "failure": {
+          "code": "uncertain-result"
+        }
+      },
+      "result": "uncertain"
+    },
+    {
+      "name": "failed",
+      "receipt": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "outcome": "failed",
+        "priorEffects": "none",
+        "physicalOutcome": "unknown",
+        "failure": {
+          "code": "request-expired"
+        }
+      },
+      "result": "refresh"
+    },
+    {
+      "name": "cancelled",
+      "receipt": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "outcome": "cancelled",
+        "priorEffects": "none",
+        "physicalOutcome": "unknown",
+        "failure": {
+          "code": "stale-generation"
+        }
       },
       "result": "stopped"
     }

@@ -146,6 +146,8 @@ def changed(db, mode=False, native=False):
         db.execute("DELETE FROM meta WHERE key='controller_hold_revision'")
         for sequence, in list(db.execute("SELECT sequence FROM controller_requests WHERE phase IN ('queued','attempting')")):
             finish(db,sequence,'cancelled','stale-generation')
+        import integration_api
+        integration_api.retire(db)
     event(db)
 
 
@@ -230,12 +232,12 @@ class Execution:
 
 
 def controls(db,revision):
-    """Queued one-shot general controls at this mode revision, oldest first."""
+    """Queued one-shot general controls at this mode revision as (created, sequence, command), oldest first."""
     if not present(db):return []
     result=[]
-    for sequence,request in db.execute("SELECT sequence,request FROM controller_requests WHERE phase='queued' AND mode_revision=? ORDER BY sequence",(revision,)):
+    for sequence,request,created in db.execute("SELECT sequence,request,created FROM controller_requests WHERE phase='queued' AND mode_revision=? ORDER BY sequence",(revision,)):
         command=json.loads(request)['command']
-        if command['kind'] in CONTROLS:result.append((sequence,command))
+        if command['kind'] in CONTROLS:result.append((created,sequence,command))
     return result
 
 

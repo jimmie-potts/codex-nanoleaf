@@ -5,7 +5,8 @@ export type ExchangeResult = {
     status: number;
     body: unknown;
 };
-export type Operation = 'snapshot' | 'command' | 'scenes';
+export type Operation = 'snapshot' | 'command' | 'scenes' | 'animations' | 'extension-command';
+const WRITES: readonly Operation[] = ['command', 'extension-command'];
 export class TransportFailure extends Error {
     constructor(readonly possible: boolean) { super('Controller exchange unavailable'); }
 }
@@ -28,7 +29,7 @@ export function safeJson(text: string): unknown {
     return result;
 }
 export async function exchange(config: Config, operation: Operation, token: string, request?: unknown): Promise<ExchangeResult> {
-    if (!Number.isInteger(config.controllerPort) || config.controllerPort < 1024 || config.controllerPort > 65535 || !(/^[A-Za-z0-9._-]{1,128}$/.test(config.deviceId)) || !(/^[A-Za-z0-9_-]{43,512}$/.test(token)) || !['snapshot', 'command', 'scenes'].includes(operation))
+    if (!Number.isInteger(config.controllerPort) || config.controllerPort < 1024 || config.controllerPort > 65535 || !(/^[A-Za-z0-9._-]{1,128}$/.test(config.deviceId)) || !(/^[A-Za-z0-9_-]{43,512}$/.test(token)) || !['snapshot', 'command', 'scenes', 'animations', 'extension-command'].includes(operation))
         throw new TransportFailure(false);
     let body: string;
     try {
@@ -50,8 +51,11 @@ function direct(config: Config, operation: Operation, token: string, body: strin
         let response: http.IncomingMessage | undefined;
         const path = operation === 'snapshot' ? `/controller/v1/snapshot?deviceId=${encodeURIComponent(config.deviceId)}`
             : operation === 'scenes' ? `/controller/integration/v1/snapshot?deviceId=${encodeURIComponent(config.deviceId)}`
-                : '/controller/v1/commands';
-        const req = http.request({ hostname: '127.0.0.1', port: config.controllerPort, method: operation === 'command' ? 'POST' : 'GET', path, agent: false, headers: { Host: `127.0.0.1:${config.controllerPort}`, Authorization: `Bearer ${token}`, ...(operation === 'command' ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } : {}) } }, res => {
+                : operation === 'animations' ? `/controller/integration/v1/animations?deviceId=${encodeURIComponent(config.deviceId)}`
+                    : operation === 'extension-command' ? '/controller/integration/v1/commands'
+                        : '/controller/v1/commands';
+        const write = WRITES.includes(operation);
+        const req = http.request({ hostname: '127.0.0.1', port: config.controllerPort, method: write ? 'POST' : 'GET', path, agent: false, headers: { Host: `127.0.0.1:${config.controllerPort}`, Authorization: `Bearer ${token}`, ...(write ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } : {}) } }, res => {
             response = res;
             let length = 0;
             const chunks: Buffer[] = [];
@@ -75,7 +79,7 @@ function direct(config: Config, operation: Operation, token: string, body: strin
         function finish(value?: ExchangeResult) { if (finished)
             return; finished = true; clearTimeout(timer); req.destroy(); response?.destroy(); value ? resolve(value) : reject(new TransportFailure(possible)); }
         req.on('error', () => finish());
-        req.on('socket', socket => socket.once('connect', () => { possible = operation === 'command'; }));
-        req.end(operation === 'command' ? body : undefined);
+        req.on('socket', socket => socket.once('connect', () => { possible = write; }));
+        req.end(write ? body : undefined);
     });
 }
