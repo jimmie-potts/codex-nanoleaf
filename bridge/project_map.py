@@ -9,6 +9,9 @@ import sqlite3
 import devices
 
 DEFAULT_SETTINGS=('classic','whole',0,0,0)
+# One task-light palette for every device. Only changed roles are stored.
+DEFAULT_PALETTE={'base':'#0a1866','working':'#00ff00','question':'#ffff00','blocked':'#ff0000','unread':'#9b30ff'}
+HEX=re.compile(r'#[0-9a-fA-F]{6}')
 
 
 def init(db):
@@ -16,6 +19,7 @@ def init(db):
     for statement in (
         'CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY,name TEXT,color TEXT,roots TEXT)',
         'CREATE TABLE IF NOT EXISTS task_info (session TEXT PRIMARY KEY,title TEXT,cwd TEXT,project TEXT,manual_project TEXT,turn TEXT,started REAL)',
+        'CREATE TABLE IF NOT EXISTS palette (role TEXT PRIMARY KEY,color TEXT NOT NULL)',
     ):
         db.execute(statement)
     for table in ('line_prefs','map_settings','map_pending','locate'):
@@ -31,6 +35,31 @@ def seed(db):
 def settings(db,device=devices.DEFAULT):
     row=db.execute('SELECT style,coverage,rotation,flip_x,flip_y FROM map_settings WHERE device=?',(device,)).fetchone()
     return dict(zip(('style','coverage','rotation','flip_x','flip_y'),row or DEFAULT_SETTINGS))
+
+
+def palette(db):
+    """The effective palette; a damaged row falls back to that role's default."""
+    saved={role:color.lower() for role,color in db.execute('SELECT role,color FROM palette')
+           if role in DEFAULT_PALETTE and isinstance(color,str) and HEX.fullmatch(color)}
+    return {**DEFAULT_PALETTE,**saved}
+
+
+def palette_rgb(value):
+    return {role:tuple(int(color[i:i+2],16) for i in (1,3,5)) for role,color in value.items()}
+
+
+def validate_palette(value):
+    """Check a palette write before anything is saved: 'default' or one to five role colors."""
+    if value=='default': return value
+    if (not isinstance(value,dict) or not value or any(role not in DEFAULT_PALETTE for role in value)
+            or any(not isinstance(color,str) or not HEX.fullmatch(color) for color in value.values())):
+        raise ValueError('Invalid palette.')
+    return {role:color.lower() for role,color in value.items()}
+
+
+def save_palette(db,value):
+    if value=='default': db.execute('DELETE FROM palette'); return
+    db.executemany('INSERT OR REPLACE INTO palette VALUES (?,?)',value.items())
 
 
 def rendering_snapshot(db,config,mode,mode_pending,error,instant):
@@ -223,6 +252,7 @@ def render_config(db,config,snapshot):
             if 0<=slot<len(snapshot) and snapshot[slot]}
     settings_value=settings(db,device)
     config['_style']=settings_value['style']; config['_coverage']=settings_value['coverage']
+    config['_palette']=palette_rgb(palette(db))
     # Project/status halves are a Lines feature; a triangle always shows its status.
     config['_signatures']=[(colors.get(active.get(i) or owner),signature) for i,(owner,signature) in enumerate(prefs)] if config.get('kind','lines')=='lines' else []
 
