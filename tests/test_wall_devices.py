@@ -187,6 +187,7 @@ class WallDeviceTest(unittest.TestCase):
         code, body = self.http(url, '/api/mode', {'mode': 'free', 'device': 'missing'})
         self.assertEqual(code, 400)
         self.assertIn('device', body['error'].lower())
+        self.assertEqual([d['id'] for d in body['devices']], ['wall', 'panels'])
         self.assertEqual(b.get_status(self.directory, 'panels')['mode'], 'quiet')
         self.assertEqual(b.get_status(self.directory)['mode'], 'work')
         code, body = self.http(url, '/api/mode', {'mode': 'free'})
@@ -216,6 +217,21 @@ class WallDeviceTest(unittest.TestCase):
             self.assertEqual(wall.settings(db)['coverage'], 'status')
             self.assertEqual(db.execute('SELECT line_id,signature,device FROM line_prefs').fetchall(), [('100:101', 1, 'wall')])
 
+    # AC2: eviction addresses the named device; the shared-input suite covers the eviction itself.
+    def test_eviction_is_routed_to_the_named_device(self):
+        self.write_registry(with_panels=True)
+        app = self.app()
+        calls = []
+        def evict(db, device, payload):
+            calls.append((device, payload))
+        with patch.object(b.shared_input, 'evict', evict):
+            app.update('/api/evict', {'id': 'task', 'evictionToken': 'x' * 64, 'device': 'panels'})
+            app.update('/api/evict', {'id': 'task', 'evictionToken': 'x' * 64})
+            with self.assertRaises(wall_server.UnknownDevice):
+                app.update('/api/evict', {'id': 'task', 'evictionToken': 'x' * 64, 'device': 'missing'})
+        self.assertEqual(calls, [('panels', {'id': 'task', 'evictionToken': 'x' * 64}),
+                                 ('wall', {'id': 'task', 'evictionToken': 'x' * 64})])
+
     # AC6: the HTTP surface keeps its checks, reads cached geometry only and never leaks a credential.
     def test_http_state_query_rejections_and_privacy(self):
         self.write_registry(with_panels=True)
@@ -238,6 +254,8 @@ class WallDeviceTest(unittest.TestCase):
         self.assertNotIn(PANELS_TOKEN, json.dumps(body))
         code, body = self.http(url, '/api/settings', {'rotation': 90, 'device': 'nope'})
         self.assertEqual(code, 400)
+        self.assertEqual([d['id'] for d in body['devices']], ['wall', 'panels'])
+        self.assertNotIn(PANELS_TOKEN, json.dumps(body))
         request = Request(url + '/api/settings', data=json.dumps({'rotation': 90, 'device': 'panels'}).encode(),
                           headers={'Content-Type': 'application/json', 'Origin': url})
         with self.assertRaises(HTTPError) as error:

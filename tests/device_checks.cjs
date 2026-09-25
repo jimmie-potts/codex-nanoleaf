@@ -46,6 +46,24 @@ module.exports = async function(page, root) {
     assert.equal(await page.locator('header .control').count(), 1, 'The header keeps the Mode group only');
     assert.equal(await page.locator('.canvas-head #device').count(), 1, 'The selector sits in the wall heading row');
     const linesBefore = await readState();
+    await options.open(page);
+    assert.equal(await page.locator('#assemblyOption').evaluate(node => node.hidden), false, 'The Assembly group is offered for the Lines');
+    await options.close(page);
+
+    // AC1: with only Lines registered the control is hidden and the page reads as before.
+    const linesOnly = structuredClone(linesBefore); linesOnly.devices = linesOnly.devices.filter(item => item.default);
+    const singleRoute = request => request.fulfill({json: linesOnly});
+    await page.route('**/api/state', singleRoute);
+    try {
+      await refresh(); await settle();
+      assert.equal(await page.locator('#deviceControl').evaluate(node => node.hidden), true, 'A Lines-only registry shows no Device control');
+      assert.equal(await page.locator('#deviceControl').isVisible(), false);
+      assert.doesNotMatch(await page.locator('.canvas-head').evaluate(node => node.innerText), /Device/, 'The heading row reads as before');
+      assert.equal(await page.locator('#wall.prism-scene .wall-line[data-line]').count(), 15, 'The Lines still draw through Prism');
+      assert.equal(await page.locator('#lineCount').textContent(), '15 Lines');
+    } finally {await page.unroute('**/api/state', singleRoute)}
+    await refresh(); await settle();
+    assert.equal(await page.locator('#deviceControl').evaluate(node => node.hidden), false, 'The control returns with the second device');
 
     // Switching is passive: only state polls, no Locate, no assembly on the Panels.
     writes.length = 0;
@@ -61,6 +79,7 @@ module.exports = async function(page, root) {
     assert.deepEqual(await page.locator('#wall .wall-triangle .tri-number').evaluateAll(nodes => nodes.map(node => node.textContent)), Array.from({length: 18}, (_, i) => String(i + 1)), 'Triangles are numbered in the reader\'s order');
     assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('#wall .wall-triangle')].map(node => node.dataset.line)), await page.evaluate(() => state.lines.map(line => line.id)), 'Triangle order follows the state');
     assert.equal(await page.locator('#numbersOption').evaluate(node => node.hidden), true, 'The Prism number option is hidden for triangles');
+    assert.equal(await page.locator('#assemblyOption').evaluate(node => node.hidden), true, 'The Assembly group is hidden for triangles');
     await page.waitForTimeout(1200);
     assert.deepEqual(writes, [], 'Switching devices and polling send no write');
     assert.equal(await runningAnimations(), 0, 'Triangles show static colours in Work');

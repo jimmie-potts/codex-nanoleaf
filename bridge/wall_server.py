@@ -272,7 +272,9 @@ def handler(app,token,instance=None):
                     app.b.set_mode(app.directory,payload['mode'],device=device); result={'ok':True}
                 else: result=app.update(self.path,payload)
                 self.respond(200,result)
-            except UnknownDevice: self.respond(400,{'error':UNKNOWN_DEVICE})
+            except UnknownDevice:
+                devices_list=getattr(app,'device_list',None)
+                self.respond(400,{'error':UNKNOWN_DEVICE,**({'devices':devices_list()} if devices_list else {})})
             except (ValueError,TypeError,KeyError): self.respond(400,{'error':'Invalid request. Check the selection and try again.'})
             except Exception: self.respond(503,{'error':'Could not save the change. Try again.'})
     return Handler
