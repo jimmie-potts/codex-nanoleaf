@@ -271,6 +271,28 @@ class WorkerTest(AnimationTest):
         self.assertEqual(self.receipt(req)['outcome'], 'sent')
         self.assertNotIn(('/effects', {'select': 'Cotton Candy'}), self.puts())  # The uncertain scene is not replayed.
 
+    def test_unsent_animation_restores_the_hold_like_unsent_v1_work(self):
+        hold = lambda: self.query("SELECT value FROM meta WHERE key='controller_hold_revision'")
+        revision = lambda: self.query("SELECT value FROM meta WHERE key='mode_revision'")
+        self.free()
+        def fail(_):
+            raise OSError('launch failed')
+        self.app = server.App(self.directory, b, launch=fail)
+        req, (code, receipt) = self.play()
+        self.assertEqual((code, receipt['outcome'], receipt['failure']), (503, 'failed', {'code': 'transport-failure'}))
+        self.assertEqual(hold(), revision())  # The admission's authorization does not outlive the failed launch.
+        self.app = server.App(self.directory, b, launch=lambda _: None)
+        req, (code, _) = self.play()
+        self.assertEqual((code, hold()), (202, []))
+        self.clock.sleep(31)
+        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+            db.execute('BEGIN IMMEDIATE')
+            integration_api.recover(db)  # The listener's maintenance expires unsent work.
+        self.assertEqual((self.receipt(req)['outcome'], self.receipt(req)['failure']), ('failed', {'code': 'request-expired'}))
+        self.assertEqual(hold(), revision())
+        self.run_worker()
+        self.assertEqual(self.animation_writes(), [])
+
 
 class HTTPTest(AnimationTest):
     def test_route_needs_credentials_and_serves_the_options(self):

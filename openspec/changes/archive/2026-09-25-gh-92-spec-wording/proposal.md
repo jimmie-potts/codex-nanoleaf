@@ -5,7 +5,7 @@ Independent review of [issue #92](https://github.com/jimmie-potts/codex-nanoleaf
 ## What Changes
 
 - `device-worker`: the Free handoff sentence now allows the single write of an explicit native control, scene or animation command, and still forbids polling and task writes.
-- `integration-settings-api`: admitting an animation clears a controller transport hold and authorizes another attempt, like a fresh v1 control. A new scenario covers it.
+- `integration-settings-api`: admitting an animation clears a controller transport hold and authorizes another attempt, like a fresh v1 control. An animation whose launch fails or that expires unsent restores the hold, like unsent v1 work. A new scenario covers the clear.
 
 ## Capabilities
 

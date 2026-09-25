@@ -182,7 +182,9 @@ animations then run in admission order. The worker records the attempt before
 the write and never sends it again. Like a fresh v1 control, admitting an
 animation clears a transport hold left by a failed or uncertain machine request
 and authorizes another attempt, as the
-[controller API](controller-api.md#state-recovery-and-limits) describes. A
+[controller API](controller-api.md#state-recovery-and-limits) describes. If the
+worker cannot be launched or the animation expires unsent, the hold returns, as
+it does for unsent v1 work. A
 power-off override does not suppress the animation, matching scene activation.
 
 | Outcome | Meaning | Prior effects |

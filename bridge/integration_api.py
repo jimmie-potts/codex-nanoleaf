@@ -242,16 +242,23 @@ def finish(db, sequence, outcome, code=None):
     return receipt
 
 
+def hold(db):
+    """Unsent animation work holds the installation again, as unsent shared v1 work does."""
+    revision = db.execute('SELECT value FROM meta WHERE key=?', (devices.meta_key('mode_revision'),)).fetchone()
+    db.execute("INSERT OR REPLACE INTO meta VALUES ('controller_hold_revision',?)", (revision[0] if revision else '0',))
+
+
 def recover(db, now=None, principal=None, cancel=False):
     if not state.present(db): return
     now = time.time() if now is None else now
     stopped = state.read(db).get('stopped')
-    for sequence, owner, created in list(db.execute("SELECT sequence,principal,created FROM integration_requests WHERE phase='queued'")):
+    for sequence, owner, created, raw in list(db.execute("SELECT sequence,principal,created,request FROM integration_requests WHERE phase='queued'")):
         active = db.execute('SELECT active FROM controller_credentials WHERE principal=?', (owner,)).fetchone()
         if stopped or active != (1,) or (cancel and (principal is None or owner == principal)):
             finish(db, sequence, 'cancelled', 'forbidden')
         elif now - created >= 30 or now < created:
             finish(db, sequence, 'failed', 'request-expired')
+            if json.loads(raw)['command']['kind'] == ANIMATION: hold(db)
 
 
 def queued_animations(db):
@@ -391,6 +398,7 @@ def admit(app, token, request, body_bytes=None, deadline=None, **checks):
             with admission_transaction(app.directory, None) as db:
                 row = db.execute('SELECT phase,receipt FROM integration_requests WHERE sequence=?', (sequence,)).fetchone()
                 receipt = finish(db, sequence, 'failed', 'transport-failure') if row[0] == 'queued' else json.loads(row[1])
+                if row[0] == 'queued' and request['command']['kind'] == ANIMATION: hold(db)
             return (503 if receipt['outcome'] == 'failed' else 200), receipt
         return 202, receipt
     except Failure as error:
