@@ -561,7 +561,7 @@ class IsolationTest(DeviceWorkerTest):
 
 
 class ProtectedApiTest(DeviceWorkerTest):
-    # AC7: machine requests, overrides and the hold stay on Lines.
+    # #43 AC7, kept by #113 for a registry without a Panels ledger: machine requests, overrides and the hold stay on Lines.
     def setUp(self):
         super().setUp()
         server.configure(self.directory, b, 'controller', 'wall', 'source')

@@ -2,6 +2,8 @@
 
 Status: Accepted for source implementation in [#43](https://github.com/jimmie-potts/codex-nanoleaf/issues/43).
 
+Amended: [ADR 0015](0015-per-device-controller-ledgers.md) replaces the "Single-owner work" rule below. Each device now owns its own controller ledger, and the `wall` instance keeps only the shared feed, the integration settings queue and requested animations. ADR 0015 also records that the Panels accept `display` version `2.0`.
+
 ## Context
 
 After [ADR 0009](0009-device-aware-state.md), every placement, comet, preference, pending edit, Locate, mode and saved scene is stored per device. The Linux installation from [ADR 0007](0007-linux-runtime-ownership.md) still ran one worker loop for the original Lines device (`wall`). That loop also owns work that must stay single:

@@ -151,9 +151,9 @@ class ControllerStateTest(unittest.TestCase):
         for observe in (self.app.snapshot,lambda:self.app.feed(None)[0]['snapshot']):
             before=self.app.snapshot();request=self.request('Quiet' if before['state']['desired']['mode']['value']=='Work' else 'Work')
             original=self.state.read;written=False
-            def read_then_write(db):
+            def read_then_write(db,*device):
                 nonlocal written
-                result=original(db)
+                result=original(db,*device)
                 if not written:
                     written=True
                     self.app.admit(self.token,request)

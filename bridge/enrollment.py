@@ -141,6 +141,8 @@ def purge(directory, b, device):
             db.execute('DELETE FROM ' + table + ' WHERE device=?', (device,))
         suffix = '@' + device
         db.execute('DELETE FROM meta WHERE substr(key, -?) = ?', (len(suffix), suffix))
+        import controller_state
+        controller_state.drop(db, device)  # Its controller ledger goes with it; the listener then forbids the ID.
     devices.save_device_layout(directory / 'layout.json', device, None, b.write_json)
     (directory / devices.scene_file(device)).unlink(missing_ok=True)
 
@@ -306,6 +308,9 @@ def leftovers(directory, b, device):
     with contextlib.closing(b.connect_state(directory)) as db:
         if db.execute('SELECT 1 FROM meta WHERE substr(key, -?) = ?', (len(suffix), suffix)).fetchone():
             return True
+        import controller_state
+        if controller_state.present(db, device):
+            return True
         return any(db.execute('SELECT 1 FROM ' + table + ' WHERE device=? LIMIT 1', (device,)).fetchone()
                    for table in devices.SCHEMAS)
 
@@ -386,6 +391,7 @@ def command(argv, b):
               f'(firmware {result["firmware"] or "unknown"}).')
         print('It starts in Free and receives nothing until you choose Work or Quiet:')
         print(f'  nanoleaf mode work --device {device}')
-    print('No service restart is needed: hooks and the worker read the device list each time they start, '
-          'and the wall map, controller and MCP stay on Lines.')
+    print('No service restart is needed: hooks, the worker and the wall map read the device list when they need it. '
+          'The controller and MCP reach the device only after `nanoleaf controller-configure` adds it; '
+          'see docs/controller-api.md.')
     return 0

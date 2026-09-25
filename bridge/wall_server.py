@@ -176,7 +176,12 @@ class App:
                 db.execute('BEGIN IMMEDIATE')
                 apply_operation(db,self.b,config,route,payload)
                 import controller_state
-                controller_state.changed(db)
+                # Shared project colours, task projects and the palette belong to the Lines ledger;
+                # everything else advances the ledger of the device the edit names.
+                shared=route in ('/api/project','/api/task') or (route=='/api/settings' and 'palette' in payload)
+                scoped=route not in ('/api/project','/api/task') and not (route=='/api/settings' and set(payload)<={'palette'})
+                for ledger in dict.fromkeys(([devices.DEFAULT] if shared else [])+([devices.device_of(config)] if scoped else [])):
+                    controller_state.changed(db,device=ledger)
                 self.b.mark_dirty(db)
         self.launch(self.directory)
         return {'ok':True}

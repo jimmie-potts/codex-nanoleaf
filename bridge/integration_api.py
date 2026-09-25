@@ -123,22 +123,51 @@ def authorize(app, db, token, device, scope, checks):
     decision = app.contract.authorize(app.facts(db, token, device, scope, **checks))['decision']
     if decision != 'allowed':
         raise Failure(decision)
-    if device != state.read(db)['identity']['deviceId']:
+    if state.device_for(db, device) is None:
         raise Failure('unknown-device')
     return state.credential(db, token)[0]
+
+
+def lines(db, device):
+    """Whether device names the Lines ledger; the extension's queue, edits and animations belong to it alone."""
+    return state.device_for(db, device) == devices.DEFAULT
+
+
+def scene_list(data):
+    # Scene names are the user's Nanoleaf app names; shared v1 carries only the opaque IDs.
+    return [dict(id=identity, **({'name': name} if len(name) <= state.MAX_LABEL else {}))
+            for identity, name in state.scenes(data)]
+
+
+def device_view(db, device):
+    """Read-only view for a device other than the Lines, in the extension's exact shape."""
+    data = state.read(db, device)
+    view, _, _ = projection(db, [])
+    view.update(identity=data['identity'], configurationRevision=data['revision'],
+                mode=state.snapshot(db, device)['state']['desired']['mode']['value'],
+                settings={k: v for k, v in wall.settings(db, device).items() if k in ('style', 'coverage')},
+                elements=[], wallPending=None)
+    del view['revision']
+    revision_data = dict(view, sourceGeneration=shared_input.state(db)['generation'])
+    view['revision'] = hashlib.sha256(state.encoded(revision_data).encode()).hexdigest()
+    view.update(nextRequestId=state.ticket(data, 0), pending=[], outcomes=[], scenes=scene_list(data))
+    view['capabilities'] = {op: {'supported': False, 'scope': 'control'} for op in OPERATIONS}
+    view['capabilities']['mode.set'] = {'supported': True, 'scope': 'control', 'route': '/controller/v1/commands'}
+    view['limits'] = dict(maxItems=MAX_ITEMS, maxPending=1, maxReceipts=MAX_RECEIPTS, maxBodyBytes=MAX_BODY)
+    return view
 
 
 def snapshot(app, token, device, **checks):
     with contextlib.closing(state.readonly(app.directory)) as db:
         principal = authorize(app, db, token, device, 'read', checks)
+        if not lines(db, device):
+            return device_view(db, state.device_for(db, device))
         view, _, _ = projection(db, groups(app.directory))
         sequence = db.execute('SELECT sequence FROM integration_meta WHERE id=1').fetchone()[0]
         view['nextRequestId'] = state.ticket(state.read(db), sequence)
         view['pending'] = [json.loads(r[0]) for r in db.execute("SELECT request FROM integration_requests WHERE phase IN ('queued','attempting') AND principal=?", (principal,))]
         view['outcomes'] = [json.loads(r[0]) for r in db.execute("SELECT receipt FROM integration_requests WHERE principal=? ORDER BY sequence DESC LIMIT 32", (principal,))]
-        # Scene names are the user's Nanoleaf app names; shared v1 carries only the opaque IDs.
-        view['scenes'] = [dict(id=identity, **({'name': name} if len(name) <= state.MAX_LABEL else {}))
-                          for identity, name in state.scenes(state.read(db))]
+        view['scenes'] = scene_list(state.read(db))
         view['capabilities'] = {op: {'supported': True, 'scope': 'control'} for op in OPERATIONS}
         view['capabilities']['mode.set'] = {'supported': True, 'scope': 'control', 'route': '/controller/v1/commands'}
         view['limits'] = dict(maxItems=MAX_ITEMS, maxPending=1, maxReceipts=MAX_RECEIPTS, maxBodyBytes=MAX_BODY)
@@ -149,6 +178,8 @@ def animations(app, token, device, **checks):
     """The animation option set with the identity values a play request needs, in one read."""
     with contextlib.closing(state.readonly(app.directory)) as db:
         authorize(app, db, token, device, 'read', checks)
+        if not lines(db, device):
+            raise Failure('unsupported-capability')  # Animations play only on the Lines.
         view, _, _ = projection(db, groups(app.directory))
         sequence = db.execute('SELECT sequence FROM integration_meta WHERE id=1').fetchone()[0]
         return dict(apiVersion=VERSION, identity=view['identity'], mode=view['mode'], revision=view['revision'],
@@ -243,9 +274,9 @@ def finish(db, sequence, outcome, code=None):
 
 
 def hold(db):
-    """Unsent animation work holds the installation again, as unsent shared v1 work does."""
+    """Unsent animation work holds the Lines again, as unsent shared v1 work does."""
     revision = db.execute('SELECT value FROM meta WHERE key=?', (devices.meta_key('mode_revision'),)).fetchone()
-    db.execute("INSERT OR REPLACE INTO meta VALUES ('controller_hold_revision',?)", (revision[0] if revision else '0',))
+    state.hold(db, devices.DEFAULT, revision[0] if revision else '0')
 
 
 def recover(db, now=None, principal=None, cancel=False):
@@ -343,7 +374,7 @@ def receipt(app, token, device, ticket, **checks):
     with contextlib.closing(state.readonly(app.directory)) as db:
         principal = authorize(app, db, token, device, 'read', checks)
         if not valid_ticket(ticket): raise Failure('invalid-request')
-        if ticket['epoch'] != state.read(db)['epoch']: raise Failure('request-expired')
+        if not lines(db, device) or ticket['epoch'] != state.read(db)['epoch']: raise Failure('request-expired')
         row = db.execute('SELECT principal,receipt FROM integration_requests WHERE sequence=?', (ticket['sequence'],)).fetchone()
         if not row: raise Failure('request-expired')
         if row[0] != principal: raise Failure('forbidden')
@@ -358,6 +389,7 @@ def admit(app, token, request, body_bytes=None, deadline=None, **checks):
             principal = authorize(app, db, token, device, 'control', checks)
             if (body_bytes is not None and body_bytes > MAX_BODY) or len(state.encoded(request).encode()) > MAX_BODY: raise Failure('capacity')
             validate(request)
+            if not lines(db, device): raise Failure('unsupported-capability')  # Read-only for other devices.
             data = state.read(db); ticket = request['requestId']; sequence = ticket['sequence']
             if request['controllerId'] != data['identity']['controllerId']: raise Failure('unknown-device')
             if ticket['epoch'] != data['epoch']: raise Failure('request-expired')
@@ -390,7 +422,7 @@ def admit(app, token, request, body_bytes=None, deadline=None, **checks):
                        (sequence, principal, state.encoded(request), state.encoded(receipt), 'queued', time.time(), view['revision']))
             if request['command']['kind'] == ANIMATION:
                 # Like a fresh v1 control, a native light request authorizes another attempt.
-                db.execute("DELETE FROM meta WHERE key='controller_hold_revision'")
+                state.release(db, devices.DEFAULT)
         try:
             app.launch(app.directory)
         except Exception:
@@ -411,7 +443,7 @@ def cancel(app, token, device, ticket, deadline=None, **checks):
         with admission_transaction(app.directory, deadline) as db:
             principal = authorize(app, db, token, device, 'control', checks)
             if not valid_ticket(ticket): raise Failure('invalid-request')
-            if ticket['epoch'] != state.read(db)['epoch']: raise Failure('request-expired')
+            if not lines(db, device) or ticket['epoch'] != state.read(db)['epoch']: raise Failure('request-expired')
             row = db.execute('SELECT principal,phase,receipt FROM integration_requests WHERE sequence=?', (ticket['sequence'],)).fetchone()
             if not row: raise Failure('request-expired')
             if row[0] != principal: raise Failure('forbidden')

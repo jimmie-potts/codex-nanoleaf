@@ -371,6 +371,7 @@ class FreeStartTest(EnrollmentTest):
         self.assertEqual(code, 0, err)
         self.assertIn('mode work --device panels', out)
         self.assertIn('No service restart is needed', out)
+        self.assertIn('nanoleaf controller-configure', out)
         self.assertEqual({k: self.config()[k] for k in ('wall_port', 'controller_port', 'mcp_port')},
                          {'wall_port': 8765, 'controller_port': 41231, 'mcp_port': 41230})
 
