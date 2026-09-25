@@ -18,3 +18,18 @@ test('total deadline bounds a trickle response without retry',async()=>{
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
  try{const start=Date.now();await assert.rejects(exchange({transport:'loopback-http',controllerPort:server.address().port,deviceId:'wall'},'command','a'.repeat(43),{}),error=>error.possible===true);assert.ok(Date.now()-start<9000);assert.equal(count,1);}finally{intervals.forEach(clearInterval);server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
 });
+
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { loadConfig } from '../dist/config.js';
+test('an installed configuration naming windows-http reaches the controller as loopback-http',async()=>{
+ const server=http.createServer((req,res)=>{res.writeHead(200,{'content-type':'application/json'});res.end('{"ok":true}');});
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+ const dir=await mkdtemp(join(tmpdir(),'nano-alias-'));
+ try{const credentialsFile=join(dir,'credentials.json');await writeFile(credentialsFile,'{"principals":[]}');
+  const file=join(dir,'config.json');await writeFile(file,JSON.stringify({enabled:true,port:41230,controllerPort:server.address().port,controllerId:'controller',deviceId:'wall',transport:'windows-http',credentialsFile}));
+  const config=await loadConfig(file);assert.equal(config.transport,'loopback-http');
+  assert.deepEqual(await exchange(config,'snapshot','a'.repeat(43)),{status:200,body:{ok:true}});
+ }finally{await rm(dir,{recursive:true,force:true});server.close();}
+});

@@ -52,7 +52,7 @@ documented in [the bridge guide](bridge/README.md) until migrated through review
 
 ## Installation
 
-For a fresh Linux or WSL installation, follow [the Linux setup guide](docs/linux-install.md). It uses Python 3.12 or newer with venv support and native Node 24/npm, generates three user systemd services, and prints the wall URL at `http://127.0.0.1:8765`. It imports no old project data. The operator stops this project's Windows owner before activating Linux hooks or services.
+For a fresh Linux or WSL installation, follow [the Linux setup guide](docs/linux-install.md). It uses Python 3.12 or newer with venv support and native Node 24/npm, generates three user systemd services, and prints the wall URL at `http://127.0.0.1:8765`. It imports no old project data.
 
 The Windows runtime, tray and PowerShell installer were retired from source in [ADR 0012](docs/decisions/0012-retire-windows-runtime.md); [the acceptance record](docs/hardware-validation.md) keeps the history.
 

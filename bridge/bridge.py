@@ -1,14 +1,12 @@
 """Local Codex lifecycle indicator. Python standard library only."""
 import argparse
 import contextlib
-import getpass
 import ipaddress
 import json
 import math
 import os
 from pathlib import Path
 import shlex
-import shutil
 import sqlite3
 import subprocess
 import sys
@@ -601,7 +599,7 @@ def set_mode(directory, mode, launch=None, now=time.time, device=devices.DEFAULT
 
 
 def get_status(directory, device=devices.DEFAULT):
-    # Tray polling never initializes or migrates a database.
+    # Status reads never initialize or migrate a database.
     with contextlib.closing(sqlite3.connect(
             (directory / 'status.sqlite').resolve().as_uri() + '?mode=ro', uri=True, timeout=0.2)) as db:
         state = control_state(db, device)
@@ -1445,41 +1443,6 @@ def setup(args):
         write_json(hooks_file, merge_hooks(original, '', remove=True))
         print('Removed Nanoleaf hooks. Restart Codex. Saved light credentials remain in', directory)
         return
-    print('Connect Codex status to Nanoleaf at 192.168.1.207.')
-    print('This installs local hooks; it preserves existing hooks and notification settings.')
-    token = getpass.getpass('Paste the working Nanoleaf auth_token (hidden): ').strip()
-    config = {'ip': '192.168.1.207', 'token': token}
-    info = light_request(config, 'GET')  # Validate before changing hook configuration.
-    print('Connected:', info.get('name', 'Nanoleaf'))
-    write_json(directory / 'layout.json', {'line_groups': pair_lines(info['panelLayout'])})
-    write_json(config_file, config)
-    installed_script = directory / 'bridge.py'
-    if Path(__file__).resolve() != installed_script.resolve():
-        shutil.copytree(Path(__file__).parent / 'vendor', directory / 'vendor', dirs_exist_ok=True)
-        for name in ('project_map.py', 'devices.py', 'wall_server.py', 'wall.html', 'prism.js', 'prism-adapters.js', 'prism-labels.js', 'controller_state.py', 'controller_server.py', 'controller_contract.py', 'requirements-controller.txt', 'README.md'):
-            shutil.copyfile(Path(__file__).with_name(name), directory / name)
-        shutil.copyfile(__file__, installed_script)
-    codex_dir.mkdir(parents=True, exist_ok=True)
-    if hooks_file.exists():
-        backup = hooks_file.with_name('hooks.nanoleaf-backup-' + str(time.time_ns()) + '.json')
-        shutil.copyfile(hooks_file, backup)
-    command = hook_command(installed_script)
-    write_json(hooks_file, merge_hooks(original, command))
-    with contextlib.closing(connect_state(directory)) as db, db:
-        db.execute('DELETE FROM comets')
-        db.execute('DELETE FROM sessions')
-        db.execute('DELETE FROM display_v3')
-        db.execute('DELETE FROM activity')
-        db.execute('DELETE FROM receipts')
-        db.execute('DELETE FROM slots')
-        db.execute('DELETE FROM waits')
-        mark_dirty(db)
-    print('Installed hooks in', hooks_file)
-    print('Review and trust the Nanoleaf hooks in the hook section of Codex Desktop Settings.')
-    print('Task Lines pulse green while working, yellow for a question during work, and red when blocked.')
-    print('Unread completions pulse blue until viewed. The first pulse of each state spreads outward.')
-    print('Choose scenes in the Nanoleaf app. The latest one returns after all indicators clear.')
-    print('If desktop hooks do not fire, report that here; installation alone is not verification.')
 
 
 def main():
@@ -1502,7 +1465,7 @@ def main():
     parser.add_argument('selection', nargs='?', choices=MODES + ('classic', 'project'))
     parser.add_argument('--json', action='store_true')
     parser.add_argument('--port', type=int, help='Wall-map loopback port; overrides the installation setting.')
-    parser.add_argument('--no-open', action='store_true', help='Print the wall-map URL without opening a browser.')
+    parser.add_argument('--no-open', action='store_true', help='Accepted for compatibility; the map never opens a browser.')
     parser.add_argument('--device', help='Registered device for mode, status, worker and device setup operations; defaults to the original Lines device.')
     group = parser.add_mutually_exclusive_group()
     for flag in ('check', 'demo', 'reset', 'uninstall', 'notify', 'refresh', 'comet'):

@@ -134,7 +134,7 @@ The controller SHALL consume a verified immutable contract artifact with a recor
 
 #### Scenario: Mode command supersedes a queued control
 
-- **WHEN** a browser, tray, CLI or native mode command commits while a general control is queued
+- **WHEN** a browser, CLI or native mode command commits while a general control is queued
 - **THEN** the queued control is cancelled with stale generation and is never sent
 
 ### Requirement: Brightness and power overrides persist until the next explicit mode command

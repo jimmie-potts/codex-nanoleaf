@@ -107,9 +107,10 @@ class MapCommandTest(unittest.TestCase):
         self.assertEqual(wall_server.map_url(self.directory), f'http://127.0.0.1:{port}')
         with patch.object(sys, 'argv', self.command('map', '--no-open')[1:]), \
                 patch.dict(sys.modules, {'bridge': b}), \
+                patch('webbrowser.open') as browser, \
                 contextlib.redirect_stdout(io.StringIO()) as output:
             b.main()
-        self.assertFalse(hasattr(wall_server, 'webbrowser'), 'the map never opens a browser')
+        browser.assert_not_called()
         self.assertEqual(output.getvalue().strip(), f'http://127.0.0.1:{port}')
         duplicate = subprocess.run(self.command('serve', '--port', str(port)),
                                    capture_output=True, text=True, timeout=5)

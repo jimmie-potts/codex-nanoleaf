@@ -8,9 +8,10 @@ The bridge began as a Windows program: Windows Python owned the SQLite state,
 a PowerShell tray started at sign-in, and WSL entry points forwarded every
 installed command to Windows because Linux and Windows SQLite locks on one
 mounted file do not exclude each other. [ADR 0005](0005-protected-controller-api.md),
-[ADR 0006](0006-local-mcp-hosting.md) and [ADR 0007](0007-linux-runtime-ownership.md)
-each kept that path for legacy Windows installations while adding the
-controller API, the MCP host and the fresh Linux installation.
+[ADR 0006](0006-local-mcp-hosting.md) made Windows the owner of the controller
+API and the MCP host's WSL helper route; [ADR 0007](0007-linux-runtime-ownership.md)
+kept that path for legacy Windows installations while adding the fresh Linux
+installation.
 
 Since [#55](https://github.com/jimmie-potts/codex-nanoleaf/issues/55) the Linux
 installation owns the lights; the legacy hooks were removed in

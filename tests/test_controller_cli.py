@@ -36,4 +36,3 @@ class ControllerCLITest(unittest.TestCase):
             self.assertNotIn('Windows',result.stderr)
             self.assertEqual(json.loads(result.stdout)['mode'],'work')
             self.assertTrue((state/'status.sqlite').exists())
-

@@ -2,7 +2,6 @@
 import colorsys
 import json
 import math
-import os
 from pathlib import Path
 import posixpath
 import re

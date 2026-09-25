@@ -3,7 +3,6 @@ import contextlib
 import errno
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
-import os
 from pathlib import Path
 import re
 import secrets
@@ -184,7 +183,7 @@ def handler(app,token,instance=None):
         def do_POST(self):
             origin=f'http://127.0.0.1:{self.server.server_port}'
             if not self.valid_host() or self.headers.get('Origin')!=origin or not secrets.compare_digest(self.headers.get('X-Wall-Token',''),token):
-                return self.respond(403,{'error':'Open the wall map from the tray.'})
+                return self.respond(403,{'error':'Open the wall map through nanoleaf map or its user service.'})
             try:
                 length=int(self.headers.get('Content-Length','0'))
                 if not 0<length<=65536 or self.headers.get('Content-Type')!='application/json': raise ValueError('Invalid request.')

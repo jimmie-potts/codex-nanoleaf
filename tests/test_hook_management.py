@@ -29,6 +29,7 @@ class HookManagementTests(unittest.TestCase):
                     {'hooks': [
                         {'type': 'command', 'command': 'trusted', 'statusMessage': 'mine'},
                         {'type': 'command', 'command': 'python3 /old/linux/bridge.py hook',
+                         'commandWindows': 'powershell.exe -EncodedCommand abc',
                          'timeout': 5, 'statusMessage': bridge.MARKER},
                     ]},
                     {'matcher': 'Bash', 'hooks': [
