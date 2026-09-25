@@ -896,7 +896,7 @@ function inspect(){
   $('locate').disabled=chosen.length!==1||state.mode==='free';
   $('locateHint').hidden=state.mode!=='free';$('locateHint').textContent=state.mode==='free'?'Switch to Work or Quiet to locate a Line.':'';
   const detail=$('taskDetail');
-  if(task&&detail.contains(document.activeElement)&&document.activeElement.dataset.task===task.id)return;
+  const refocusEvict=task&&document.activeElement?.dataset.evictTask===task.id;
   const fingerprint=JSON.stringify([chosen.length,project,task&&[task.id,task.title,task.status,task.project,task.manual,task.started,task.codexUrl,task.evictionToken],state.projects.map(p=>[p.id,p.name])]);
   if(fingerprint===detailFingerprint){
     // Keep the elapsed time in step without rebuilding the card.
@@ -911,9 +911,10 @@ function inspect(){
   for(const [key,value]of[['Project',projectName(task.project)],['Elapsed',elapsed(task.started)]]){const row=el('div',undefined,'kv'),node=el('span',value);if(key==='Elapsed')node.dataset.elapsed='';row.append(el('span',key),node);detail.append(row)}
   if(task.codexUrl){const link=el('a','Open in Codex','codex-link');link.href=task.codexUrl;detail.append(link)}
   if(task.evictionToken){
-    const evict=el('button','Evict task','field');evict.type='button';
+    const evict=el('button','Evict task','field');evict.type='button';evict.dataset.evictTask=task.id;
     evict.onclick=()=>action('/api/evict',{id:task.id,evictionToken:task.evictionToken});
     detail.append(evict,el('p','Clears this device only. New work can appear again.','small'));
+    if(refocusEvict)evict.focus({preventScroll:true});
   }
 }
 function pendingText(){

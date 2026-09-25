@@ -10,7 +10,9 @@
 
 ## 3. Delivery gates
 
-- [ ] 3.1 Complete the owning Hub issue's separately authorized installed and visible-device acceptance, synchronize the affected spec and archive after successful current lookups, then obtain final independent reviews and matching CI before eligible delivery.
+- [ ] 3.1 Record the owning Hub issue's separately authorized archive, retained-read and local-Evict acceptance and its approved [Hub #253](https://github.com/jimmie-potts/agent-device-hub/issues/253) qualification boundary; obtain successful specification/archive lookups and verify the affected delta against the current main specification.
+
+After applicable acceptance tasks are complete, synchronize the affected specification and archive this change before final independent Standards/Specification review. Matching CI, current UI approval, guarded merge and merged-main verification remain required. Native idle/shutdown emission and reopen/live-resume qualification are deferred only to the approved Hub #253 follow-up.
 
 ## 4. Installed-trial presentation corrections
 

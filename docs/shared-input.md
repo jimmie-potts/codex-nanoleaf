@@ -283,6 +283,13 @@ The saved envelope needs no database schema change. An older saved snapshot has 
 
 Source tests use synthetic state and fake transports. Installation and visible Line release remain separate acceptance on the owning Hub issue.
 
+Retirement depends on the owner receiving an end; the installed trial did not
+establish reliable Codex idle/shutdown emission. [Hub #253](https://github.com/jimmie-potts/agent-device-hub/issues/253)
+owns that investigation and subsequent reopen/resume qualification. Quitting
+Codex or waiting thirty minutes does not guarantee that every task disappears.
+The owner's existing evidence expiry remains its fallback; this consumer adds
+no timer or global clear.
+
 ## Retained idle tasks and Evict
 
 In shared mode, reading or acknowledging a completed task leaves its wall row

@@ -25,6 +25,11 @@ module.exports=async function(page,root){
     assert.ok(!await page.evaluate(id=>prism.snapshot().activity.includes(id),line.id),'Idle task keeps its Line without animation');
     await button.focus();await refresh();
     assert.equal(await button.evaluate(node=>node===document.activeElement),true,'Polling preserves keyboard focus');
+    task.status='unread';await refresh();await button.focus();
+    task.status='idle';await refresh();
+    assert.equal(await button.evaluate(node=>node===document.activeElement),true,'Reading a retained task preserves Evict focus');
+    task.evictionToken='c'.repeat(64);await refresh();
+    assert.equal(await button.evaluate(node=>node===document.activeElement),true,'A new task token preserves focus on the current Evict action');
     await page.screenshot({path:path.join(root,'test-results/task-eviction-desktop.png'),fullPage:true});
     await page.setViewportSize({width:390,height:844});await button.scrollIntoViewIfNeeded();
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
