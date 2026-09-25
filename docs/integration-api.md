@@ -179,7 +179,11 @@ The Lines worker plays it as one `PUT /effects` display write that the device
 loops or plays once. It sends no per-frame stream and no brightness or power
 write. A pending mode command applies first, and queued v1 controls and
 animations then run in admission order. The worker records the attempt before
-the write and never sends it again.
+the write and never sends it again. Like a fresh v1 control, admitting an
+animation clears a transport hold left by a failed or uncertain machine request
+and authorizes another attempt, as the
+[controller API](controller-api.md#state-recovery-and-limits) describes. A
+power-off override does not suppress the animation, matching scene activation.
 
 | Outcome | Meaning | Prior effects |
 | --- | --- | --- |

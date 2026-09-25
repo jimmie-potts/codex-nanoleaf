@@ -381,6 +381,9 @@ def admit(app, token, request, body_bytes=None, deadline=None, **checks):
             db.execute('UPDATE integration_meta SET sequence=? WHERE id=1', (sequence + 1,))
             db.execute('INSERT INTO integration_requests VALUES (?,?,?,?,?,?,?)',
                        (sequence, principal, state.encoded(request), state.encoded(receipt), 'queued', time.time(), view['revision']))
+            if request['command']['kind'] == ANIMATION:
+                # Like a fresh v1 control, a native light request authorizes another attempt.
+                db.execute("DELETE FROM meta WHERE key='controller_hold_revision'")
         try:
             app.launch(app.directory)
         except Exception:

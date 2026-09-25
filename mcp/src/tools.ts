@@ -14,7 +14,7 @@ const EXTENSION = 'nanoleaf.integration/1.0', MAX_SEQUENCE = 9007199254740991;
 const PATTERNS = ['wave', 'gradient', 'pulse', 'breathe', 'sparkle'], SPATIAL = ['wave', 'gradient'];
 const SPEEDS = ['slow', 'medium', 'fast'], DIRECTIONS = ['left', 'right', 'up', 'down', 'outward', 'inward'];
 const OUTCOMES = ['queued', 'sent', 'failed', 'uncertain', 'cancelled'], PRIOR_EFFECTS = ['none', 'confirmed-transmission', 'possible'];
-const FREE_FIRST = 'Animations play only in Free. Switch to Free with nanoleaf_mode_set, then call nanoleaf_animations_list again for a fresh requestId and expectedRevision.';
+const FREE_FIRST = 'Animations play only in Free. If nanoleaf_animations_list reports Work or Quiet, switch to Free with nanoleaf_mode_set, then list again for a fresh requestId and expectedRevision. If it already reports Free, the saved layout cannot place this pattern; choose a non-spatial pattern.';
 const HEX = (length: number) => new RegExp(`^[a-f0-9]{${length}}$`);
 const extensionTicket = { type: 'object' as const, additionalProperties: false, properties: { epoch: { type: 'string', pattern: '^[a-f0-9]{32}$' }, sequence: { type: 'integer', minimum: 0, maximum: MAX_SEQUENCE } }, required: ['epoch', 'sequence'] };
 const word = { type: 'string', pattern: '^[a-z]{1,32}$' }, count = { type: 'integer', minimum: 0, maximum: MAX_SEQUENCE };

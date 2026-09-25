@@ -62,7 +62,7 @@ test('a Work or Quiet rejection says to switch to Free first and switches nothin
  assert.equal(result.isError,true);
  const data=result.structuredContent.data;
  assert.equal(data.code,'unsupported-capability');assert.equal(data.priorEffects,'none');
- assert.match(data.message,/Free/);assert.match(data.message,/nanoleaf_mode_set/);assert.match(data.message,/nanoleaf_animations_list/);
+ assert.match(data.message,/Free/);assert.match(data.message,/nanoleaf_mode_set/);assert.match(data.message,/Work or Quiet/);assert.match(data.message,/non-spatial/);assert.match(data.message,/nanoleaf_animations_list/);
  assert.match(result.content[0].text,/nanoleaf_mode_set/);
  assert.deepEqual(calls,['extension-command']);
 });

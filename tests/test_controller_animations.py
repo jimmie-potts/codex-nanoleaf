@@ -236,6 +236,41 @@ class WorkerTest(AnimationTest):
         self.assertEqual(self.animation_writes(), [])
         self.assertEqual((self.receipt(req)['outcome'], self.receipt(req)['failure']), ('cancelled', {'code': 'stale-generation'}))
 
+    def test_revocation_or_disable_while_the_attempt_is_recorded_prevents_the_send(self):
+        interventions = {'revoke': lambda: server.revoke(self.directory, b, 'client'),
+                         'disable': lambda: server.command(['controller-disable', '--state-dir', str(self.directory)], b)}
+        for name, intervene in interventions.items():
+            with self.subTest(name=name):
+                self.setUp()
+                self.free()
+                req, _ = self.play()
+                record = integration_api.attempt
+                def racing(db, sequence):
+                    generation = record(db, sequence)
+                    intervene()  # Commits between the durable attempt and the send.
+                    return generation
+                with patch.object(integration_api, 'attempt', racing):
+                    self.run_worker()
+                self.assertEqual(self.animation_writes(), [])
+                self.assertEqual((self.receipt(req)['outcome'], self.receipt(req)['failure']), ('cancelled', {'code': 'forbidden'}))
+
+    def test_admission_clears_a_transport_hold_like_a_fresh_native_request(self):
+        self.run_worker()  # Work observation discovers the fake device's scenes.
+        scene = self.app.snapshot()['capabilities']['scenes']['sceneIds'][1]
+        self.free()
+        self.device.fail = lambda method, endpoint, payload: 'select' in (payload or {})
+        self.assertEqual(self.v1({'kind': 'scene.activate', 'sceneId': scene})[0], 202)
+        with self.assertRaises(OSError):
+            self.run_worker()
+        self.assertTrue(self.query("SELECT 1 FROM meta WHERE key='controller_hold_revision'"))
+        req, (code, _) = self.play()
+        self.assertEqual(code, 202)
+        self.assertEqual(self.query("SELECT 1 FROM meta WHERE key='controller_hold_revision'"), [])
+        self.device.calls.clear(); self.run_worker()
+        self.assertEqual(self.animation_writes(), [self.expected()])
+        self.assertEqual(self.receipt(req)['outcome'], 'sent')
+        self.assertNotIn(('/effects', {'select': 'Cotton Candy'}), self.puts())  # The uncertain scene is not replayed.
+
 
 class HTTPTest(AnimationTest):
     def test_route_needs_credentials_and_serves_the_options(self):
