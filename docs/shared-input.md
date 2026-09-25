@@ -75,10 +75,20 @@ identity from `shared-status` to `qualifiedSources`:
 {"provider":"claude","client":"code","hostId":"host-1","sourceId":"claude-1"}
 ```
 
-Configuration is refused while shared input is selected. Run
-`shared-select legacy`, then `shared-configure`, then `shared-select shared`.
+Configuration is refused while shared input is selected. Selecting legacy input
+requires the marked legacy hooks, so first restore them in each Codex home if
+they were removed after cutover (see [Task continuity and rollback](#task-continuity-and-rollback)):
+
+```sh
+nanoleaf hooks register --codex-home <path>
+nanoleaf shared-select legacy
+nanoleaf shared-configure --config /private/nanoleaf/shared-input.json
+nanoleaf shared-select shared
+```
+
 Selecting shared resynchronizes, so the newly declared source's existing
 sessions appear in their current state without replaying old waves or comets.
+Then remove the legacy hooks again as that section describes.
 
 ## Select input
 
