@@ -87,8 +87,8 @@ installation, agent launches, database migration or device tests.
 
 Source/CI, installation, real-client, transport and visible-light receipts remain
 separate. Physical acceptance needs an explicit device IP, permission for the
-sequence and an identified owner. Keep existing deployment backups/preferences
-and use the supported upgrade path, not fresh setup.
+sequence and an identified owner. Keep the existing state directory and preferences;
+the Linux installer prepares a fresh installation rather than upgrading one.
 
 [ADR 0003](decisions/0003-shared-agent-device-hub.md) records local adoption.
 The Linux runtime and local API specifications define the Linux port independently of future shared adoption.

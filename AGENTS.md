@@ -38,7 +38,7 @@ controller API or credential changes, read [the controller API guide](docs/contr
 - Keep credentials, databases, live task metadata, scene state, hook files, and installed backups out of Git. The browser must never receive the Nanoleaf token.
 - Preserve task pulse epochs, unread tracking, active comet source reservations, saved project preferences, and the user's mode and scene selection during changes.
 - Read Codex metadata through the existing reader. Do not write Codex's internal SQLite database or mark tasks read from the map.
-- Source changes and tests do not update the installed bridge. An explicitly requested fresh Linux installation may leave old Nanoleaf data unused; preserve unrelated hooks, applications, and Codex data. Read `docs/development.md` before installation or physical verification. Do not run fresh `setup` to upgrade an existing installation, because it clears task records.
+- Source changes and tests do not update the installed bridge. An explicitly requested fresh Linux installation may leave old Nanoleaf data unused; preserve unrelated hooks, applications, and Codex data. Read `docs/development.md` before installation or physical verification. A bare `setup` is refused; `setup --reset` clears task records and is never an upgrade step.
 
 ## Code Review Rules
 

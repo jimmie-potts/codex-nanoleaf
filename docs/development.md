@@ -117,7 +117,7 @@ outside product Git history and summarize their evidence in the PR.
 
 ## Upgrade the installed integration
 
-The Linux installer has no upgrade or rollback mechanism; [the Linux installation guide](linux-install.md) describes preparing a fresh installation and the operator's own retention of the current state directory. Do not use `bridge.py setup` for an upgrade. Fresh setup requests a credential, installs hooks, and clears task records. The `setup --refresh` command only redraws existing task state.
+The Linux installer has no upgrade or rollback mechanism; [the Linux installation guide](linux-install.md) describes preparing a fresh installation and the operator's own retention of the current state directory. A bare `bridge.py setup` is refused and points at the Linux installer. `setup --reset` clears task records and is never an upgrade step; `setup --refresh` only redraws existing task state.
 
 For physical checks, hold the installed worker lock before sending isolated test effects. Hook-triggered workers can restart during testing, so verify lock ownership. Keep test tasks and scene choices in temporary state, then restore the latest real mode, layout, tasks, and scene preference before releasing the lock. Record controller readback separately from human confirmation of physical orientation.
 

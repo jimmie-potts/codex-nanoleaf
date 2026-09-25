@@ -1379,7 +1379,6 @@ def append_hook_groups_json(raw, event, groups):
 def setup(args):
     directory = getattr(args, 'state_dir', None) or data_dir()
     directory.mkdir(parents=True, exist_ok=True)
-    config_file = directory / 'config.json'
     if args.check or args.demo or args.reset or args.notify or args.refresh or args.comet:
         # Previews, checks and refresh address one device; reset clears the shared tasks of every device.
         device = getattr(args, 'device', None) or devices.DEFAULT

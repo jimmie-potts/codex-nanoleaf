@@ -46,14 +46,13 @@ installation's private Linux state directly.
 
 Preview commands are disabled in Free. Refresh and reset respect the selected
 mode. Uninstall requests Free mode and removes the hooks.
-To roll back, stop this installation's services and worker.
-Restore the backed-up program files, then run `setup --refresh`. The older bridge
-ignores the extra database tables. Keep the current database if you want to retain
-task events received since the upgrade. Older program files do not know the
+To roll back to earlier source, stop this installation's services and worker,
+replace the copied runtime under the state directory with the earlier reviewed
+source, then run `setup --refresh`. Keep the current database to retain task
+events received since the change; older program files ignore newer tables. Older program files do not know the
 recorded native brightness level in `scene-state.json`; if a native override was
 active at rollback, choose a mode once so the older worker re-observes the scene
-rather than adopting that level as the remembered brightness. The backup includes a consistent database
-snapshot and copies of the credentials, layout, and scene preference for recovery.
+rather than adopting that level as the remembered brightness.
 
 
 Unused Lines stay blue while task indicators are showing. Each task keeps an assigned Line while it is active or
