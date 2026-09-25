@@ -13,7 +13,7 @@ Controller v1 commands pass through the vendored shared contract, and v1 snapsho
 - `animation.play` joins the extension as its one light operation. It uses the extension envelope, ticket sequence, single queued slot, replay, cancellation, revocation and expiry. Its receipts carry transport outcomes (`sent`, `failed`, `uncertain`, `cancelled`) with `physicalOutcome` `unknown`. Configuration edits keep their `applied` receipts.
 - The command is accepted only while the desired mode is Free, and every explicit mode command retires a queued one. The controller never switches mode for it.
 - The existing Lines worker plays it as one journaled `PUT /effects` display write through a frame encoder it shares with status effects. It records the attempt before the write and never sends it twice. It sends no per-frame stream.
-- Options and limits are served by `GET /controller/integration/v1/animations`. The 1.0 snapshot keeps its exact shape, so the installed hub needs no companion change.
+- Options and limits are served by `GET /controller/integration/v1/animations`. The 1.0 snapshot keeps its exact shape, so the installed hub needs no companion change. Animation requests and receipts appear only in the submitting principal's `pending` and `outcomes`, so this holds while the hub keeps its dedicated principal, separate from MCP credentials.
 - Effects stay inside the envelope already proven on the device: at most 20 frames per zone and an 8,192-byte request, below the 9,009-byte comet preview that passed live checks. The owner chose this over a live probe on 2026-09-25.
 
 ## Consequences

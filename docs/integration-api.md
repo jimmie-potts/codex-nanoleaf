@@ -191,7 +191,10 @@ the write and never sends it again.
 
 `physicalOutcome` stays `unknown`: `sent` is transport evidence, not visible
 output. The extension snapshot does not list `animation.play` and keeps its
-exact 1.0 shape, because the hub validates that shape exactly. Read the options
+exact 1.0 shape, because the hub validates that shape exactly. An animation
+request and its receipt appear only in the submitting principal's `pending` and
+`outcomes`. The hub's dedicated principal never submits one, so its snapshot is
+unchanged; keep MCP and hub credentials separate. Read the options
 from `GET /animations` instead. It returns `patterns` (each `{id, spatial}`),
 `speeds`, `directions`, `defaults` and `limits` (`minColors`, `maxColors`,
 `maxFramesPerZone` and `maxEffectBytes`), plus `mode`, `revision` and
