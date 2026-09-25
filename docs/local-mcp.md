@@ -1,6 +1,6 @@
 # Local Codex controls
 
-The optional MCP host exposes `nanoleaf_status` and `nanoleaf_mode_set` through the protected local controller. Modes are Work, Quiet and Free. Their existing brightness and scene policies remain unchanged. The [local MCP specification](../openspec/specs/local-mcp-bindings/spec.md) owns behavior; [issue #33](https://github.com/jimmie-potts/codex-nanoleaf/issues/33) owns source delivery and [ADR 0006](decisions/0006-local-mcp-hosting.md) records hosting.
+The optional MCP host exposes `nanoleaf_status`, `nanoleaf_mode_set`, `nanoleaf_scenes_list` and `nanoleaf_scene_activate` through the protected local controller. Modes are Work, Quiet and Free. Their existing brightness and scene policies remain unchanged. The [local MCP specification](../openspec/specs/local-mcp-bindings/spec.md) owns behavior; [issue #33](https://github.com/jimmie-potts/codex-nanoleaf/issues/33) owns source delivery, [issue #91](https://github.com/jimmie-potts/codex-nanoleaf/issues/91) owns the scene tools and [ADR 0006](decisions/0006-local-mcp-hosting.md) records hosting.
 
 Source delivery does not install, provision credentials, launch Codex or touch lights. [Issue #55](https://github.com/jimmie-potts/codex-nanoleaf/issues/55) owns separately authorized installation, client permission checks and physical acceptance. The commands below are instructions for that handoff.
 
@@ -56,7 +56,13 @@ codex mcp get nanoleaf
 
 CLI help was inspected for `--url` and `--bearer-token-env-var`. Templates and source fixtures do not prove that an installed client connected, displayed permission prompts or changed lights. Verify those outcomes during #55. See the [official MCP guide](https://learn.chatgpt.com/docs/extend/mcp?surface=cli) and [configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference).
 
-Read status first. Mode calls require its `nextRequestId`, `configurationRevision` and `generation` as `requestId`, `expectedConfigurationRevision` and `expectedGeneration`, plus `mode`. Targets come from server configuration. Tools do not accept URLs, file paths, device overrides, raw commands, power, arbitrary brightness, scenes or zones.
+Read status first. Mode calls require its `nextRequestId`, `configurationRevision` and `generation` as `requestId`, `expectedConfigurationRevision` and `expectedGeneration`, plus `mode`. Targets come from server configuration. Tools do not accept URLs, file paths, device overrides, raw commands, power, arbitrary brightness or zones.
+
+## List and play saved scenes
+
+`nanoleaf_scenes_list` needs the read scope and takes no arguments. It reads the `nanoleaf.integration/1.0` extension snapshot and returns each advertised scene as `{id, name?}`, where `id` is the opaque identifier also carried by the shared v1 `scenes` capability and `name` is the user's Nanoleaf app name, present only when it fits the 80-character label bound. Nothing else from that snapshot is exposed.
+
+`nanoleaf_scene_activate` needs the control scope and the same `requestId`, `expectedConfigurationRevision` and `expectedGeneration` as `nanoleaf_mode_set`, plus `sceneId` from that listing. Following hub ADR 0005, activation is a separate command from mode selection; the tool never switches the device to Free itself. The controller accepts `scene.activate` only while the device is already in Free; in Work or Quiet it returns the typed `unsupported-capability` failure before any device write, with a replayable receipt. An unknown or no-longer-advertised scene ID is rejected the same way, before dispatch. Switch to Free first with `nanoleaf_mode_set`, then activate the scene.
 
 ## Interpret results and recover
 

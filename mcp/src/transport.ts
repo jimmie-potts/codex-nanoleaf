@@ -5,7 +5,7 @@ export type ExchangeResult = {
     status: number;
     body: unknown;
 };
-export type Operation = 'snapshot' | 'command';
+export type Operation = 'snapshot' | 'command' | 'scenes';
 export class TransportFailure extends Error {
     constructor(readonly possible: boolean) { super('Controller exchange unavailable'); }
 }
@@ -28,7 +28,7 @@ export function safeJson(text: string): unknown {
     return result;
 }
 export async function exchange(config: Config, operation: Operation, token: string, request?: unknown): Promise<ExchangeResult> {
-    if (!Number.isInteger(config.controllerPort) || config.controllerPort < 1024 || config.controllerPort > 65535 || !(/^[A-Za-z0-9._-]{1,128}$/.test(config.deviceId)) || !(/^[A-Za-z0-9_-]{43,512}$/.test(token)) || !['snapshot', 'command'].includes(operation))
+    if (!Number.isInteger(config.controllerPort) || config.controllerPort < 1024 || config.controllerPort > 65535 || !(/^[A-Za-z0-9._-]{1,128}$/.test(config.deviceId)) || !(/^[A-Za-z0-9_-]{43,512}$/.test(token)) || !['snapshot', 'command', 'scenes'].includes(operation))
         throw new TransportFailure(false);
     let body: string;
     try {
@@ -48,7 +48,10 @@ function direct(config: Config, operation: Operation, token: string, body: strin
     return new Promise((resolve, reject) => {
         let finished = false, possible = false;
         let response: http.IncomingMessage | undefined;
-        const req = http.request({ hostname: '127.0.0.1', port: config.controllerPort, method: operation === 'snapshot' ? 'GET' : 'POST', path: operation === 'snapshot' ? `/controller/v1/snapshot?deviceId=${encodeURIComponent(config.deviceId)}` : '/controller/v1/commands', agent: false, headers: { Host: `127.0.0.1:${config.controllerPort}`, Authorization: `Bearer ${token}`, ...(operation === 'command' ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } : {}) } }, res => {
+        const path = operation === 'snapshot' ? `/controller/v1/snapshot?deviceId=${encodeURIComponent(config.deviceId)}`
+            : operation === 'scenes' ? `/controller/integration/v1/snapshot?deviceId=${encodeURIComponent(config.deviceId)}`
+                : '/controller/v1/commands';
+        const req = http.request({ hostname: '127.0.0.1', port: config.controllerPort, method: operation === 'command' ? 'POST' : 'GET', path, agent: false, headers: { Host: `127.0.0.1:${config.controllerPort}`, Authorization: `Bearer ${token}`, ...(operation === 'command' ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } : {}) } }, res => {
             response = res;
             let length = 0;
             const chunks: Buffer[] = [];
