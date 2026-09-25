@@ -10,10 +10,10 @@ export type Config = {
     controllerId: string;
     deviceId: string;
     credentialsFile: string;
-    transport: 'windows-http' | 'wsl-helper';
-    windowsPython?: string;
-    windowsHelper?: string;
+    transport: 'loopback-http';
 };
+// The installed Linux configuration may still name the transport by its earlier identifier.
+const transportAliases: Record<string, Config['transport']> = { 'loopback-http': 'loopback-http', 'windows-http': 'loopback-http' };
 export type Principal = {
     id: string;
     tokenSha256: string;
@@ -48,16 +48,12 @@ export async function boundedFile(path: string, max = 65536): Promise<string> {
 }
 export async function loadConfig(path: string): Promise<Config> {
     const value: unknown = JSON.parse(await boundedFile(path));
-    object(value, ['enabled', 'port', 'controllerPort', 'controllerId', 'deviceId', 'credentialsFile', 'transport'], ['windowsPython', 'windowsHelper']);
-    if (typeof value.enabled !== 'boolean' || ![value.port, value.controllerPort].every(p => Number.isInteger(p) && Number(p) >= 1024 && Number(p) <= 65535) || ![value.controllerId, value.deviceId].every(v => typeof v === 'string' && idPattern.test(v)) || typeof value.credentialsFile !== 'string' || !isAbsolute(value.credentialsFile) || value.credentialsFile.length > 4096 || !['windows-http', 'wsl-helper'].includes(String(value.transport)))
+    object(value, ['enabled', 'port', 'controllerPort', 'controllerId', 'deviceId', 'credentialsFile', 'transport']);
+    if (typeof value.enabled !== 'boolean' || ![value.port, value.controllerPort].every(p => Number.isInteger(p) && Number(p) >= 1024 && Number(p) <= 65535) || ![value.controllerId, value.deviceId].every(v => typeof v === 'string' && idPattern.test(v)) || typeof value.credentialsFile !== 'string' || !isAbsolute(value.credentialsFile) || value.credentialsFile.length > 4096)
         throw new Error('Invalid configuration');
-    if (value.transport === 'wsl-helper') {
-        if (typeof value.windowsPython !== 'string' || !isAbsolute(value.windowsPython) || value.windowsPython.length > 4096 || typeof value.windowsHelper !== 'string' || value.windowsHelper.length > 4096 || !(/^[A-Za-z]:[\\/]/.test(value.windowsHelper)))
-            throw new Error('Invalid Windows helper configuration');
-    }
-    else if (value.windowsPython !== undefined || value.windowsHelper !== undefined)
-        throw new Error('Unexpected helper configuration');
-    return value as Config;
+    if (typeof value.transport !== 'string' || !Object.hasOwn(transportAliases, value.transport))
+        throw new Error('Invalid transport configuration');
+    return { ...value, transport: transportAliases[value.transport] } as Config;
 }
 export class CredentialStore {
     constructor(private readonly config: Config) { }

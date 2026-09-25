@@ -1,9 +1,0 @@
-{
-  "enabled": false,
-  "port": 41230,
-  "controllerPort": 41231,
-  "controllerId": "local-controller",
-  "deviceId": "wall",
-  "transport": "windows-http",
-  "credentialsFile": "C:\\PRIVATE\\nanoleaf-mcp-credentials.json"
-}

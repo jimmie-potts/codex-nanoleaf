@@ -1,10 +1,10 @@
 # Nanoleaf task lights for Codex
 
-For a fresh Linux installation, use [the Linux setup guide](../docs/linux-install.md). The [Linux runtime specification](../openspec/specs/linux-runtime/spec.md) owns installation and service behavior. Linux uses `nanoleaf mode work`, `nanoleaf mode quiet`, and `nanoleaf mode free`; `nanoleaf map --no-open` prints the map URL. The hooks, CLI, wall map, and controller share Linux state and one on-demand light writer. The task and scene rules below apply to both operating systems.
+For a fresh Linux installation, use [the Linux setup guide](../docs/linux-install.md). The [Linux runtime specification](../openspec/specs/linux-runtime/spec.md) owns installation and service behavior. Linux uses `nanoleaf mode work`, `nanoleaf mode quiet`, and `nanoleaf mode free`; `nanoleaf map --no-open` prints the map URL. The hooks, CLI, wall map, and controller share Linux state and one on-demand light writer. The Windows tray and installer were retired from source in [ADR 0012](../docs/decisions/0012-retire-windows-runtime.md).
 
-The legacy Windows tray menu provides Work, Free, and Quiet modes. It starts at Windows
-sign-in and remembers the selected mode. The task animation described below is
-Work mode. Task tracking continues in every mode.
+Work, Free, and Quiet are selected from the wall map, the CLI, or a native client
+through the controller API. The selected mode is remembered. The task animation
+described below is Work mode. Task tracking continues in every mode.
 
 | Mode | Active indicators | Idle |
 | --- | --- | --- |
@@ -20,7 +20,7 @@ start those in the Nanoleaf apps.
 A native client of the [controller API](../docs/controller-api.md#general-controls)
 can also set power, brightness and, in Free only, a saved scene. Brightness and
 power set that way are overrides: they govern the bridge's writes in the current
-mode until the next explicit mode choice, including the same mode, from the tray,
+mode until the next explicit mode choice, including the same mode, from the
 CLI, wall map or a native client. While power is off the bridge writes nothing and
 keeps tracking tasks. In Work and Quiet the remembered scene brightness is never
 replaced by an override; in Free the bridge does not own the lights, so a
@@ -34,37 +34,25 @@ the fallback is steady blue at the mode's brightness. In Project layout, steady
 project signature colors can remain on their assigned halves in Free; task
 pulsing stops.
 
-A mode change normally appears within two seconds. The tray reports pending
-changes and failed light updates; it retries controller failures. Connection text
-describes the last update, not continuous connectivity testing. Free deliberately
-sends no controller requests after its handoff. "Exit tray only" closes the menu;
-the selected mode and hooks continue working. Windows may put the icon in the
-hidden-icons area beside the clock. The fixed tray icon uses a green center and blue
-Lines matching the wall arrangement. Live status remains in the tooltip and menu.
-If the icon file is missing or invalid, the tray uses the Windows information icon.
+A mode change normally appears within two seconds. The wall map's status readout
+reports pending changes and failed light updates; the worker retries controller
+failures. Connection text describes the last update, not continuous connectivity
+testing. Free deliberately sends no controller requests after its handoff.
 
-To add the tray to an existing installation without resetting tasks, run
-`install-modes.ps1` from this folder in Windows PowerShell. It backs up the installed
-program files and creates Start menu and Startup shortcuts. It preserves trusted
-hooks, credentials, scene preferences, and tracked tasks. The tray uses Windows
-Forms and the existing bundled Windows Python runtime; no additional packages
-are required.
-
-Use the installed `bridge.py mode work`, `bridge.py mode free`, or
-`bridge.py mode quiet` to switch from a terminal. `bridge.py status --json` reports
-`mode`, `pending`, and a sanitized `error`. `bridge.py tray` opens the tray control.
-Legacy Windows-installed WSL entry points forward these commands to Windows. Linux-installed commands use their private Linux state directly.
+Use the installed `nanoleaf mode work`, `nanoleaf mode free`, or
+`nanoleaf mode quiet` to switch from a terminal. `nanoleaf status --json` reports
+`mode`, `pending`, and a sanitized `error`. Installed commands use the
+installation's private Linux state directly.
 
 Preview commands are disabled in Free. Refresh and reset respect the selected
-mode. Uninstall requests Free mode and removes the tray shortcuts and hooks.
-To roll back, close the tray and stop this installation's worker and map server.
-Restore the backed-up program files, then run `setup --refresh`. The older bridge
-ignores the extra database tables. Keep the current database if you want to retain
-task events received since the upgrade. Older program files do not know the
+mode. Uninstall requests Free mode and removes the hooks.
+To roll back to earlier source, stop this installation's services and worker,
+replace the copied runtime under the state directory with the earlier reviewed
+source, then run `setup --refresh`. Keep the current database to retain task
+events received since the change; older program files ignore newer tables. Older program files do not know the
 recorded native brightness level in `scene-state.json`; if a native override was
 active at rollback, choose a mode once so the older worker re-observes the scene
-rather than adopting that level as the remembered brightness. The backup includes a consistent database
-snapshot and copies of the credentials, layout, and scene preference for recovery.
+rather than adopting that level as the remembered brightness.
 
 
 Unused Lines stay blue while task indicators are showing. Each task keeps an assigned Line while it is active or
@@ -96,8 +84,7 @@ returns with the scene.
 
 ## Project signatures and wall map
 
-On Linux, run `nanoleaf map --no-open` and open its printed URL. On Windows,
-choose **Open wall map** from the existing launcher. The map draws the saved
+Run `nanoleaf map --no-open` and open its printed URL in a browser. The map draws the saved
 physical Lines with faceted Prism crystal tubes, separate colored zones, bright
 cores, and diffuse light around the crystal. It uses local system fonts and
 updates task state once a second. In Work, each Line carrying a task sends light
@@ -171,7 +158,7 @@ writes Codex data.
 | Classic, the upgrade default | Automatic across all Lines | Whole-Line status colors |
 | Project | Its project's reserved Lines, then Shared overflow | Project identity on one half and status on the other |
 
-Switch layouts from the map or tray. Mode, layout, colors, reservations, half
+Switch layouts from the map. Mode, layout, colors, reservations, half
 choices, map orientation, and animation coverage survive restarts. Classic keeps
 your saved project settings for the next time you choose Project.
 
@@ -230,15 +217,14 @@ These desktop fields are implementation details and may need updating after a
 future Codex release.
 
 The map server uses bundled HTML, CSS, and JavaScript with no external assets.
-It listens only on `127.0.0.1`. Linux uses the configured fixed port, defaulting
-to `8765`; legacy Windows startup selects an available port. Requests must use its exact
+It listens only on `127.0.0.1` at the configured fixed port, defaulting
+to `8765`. Requests must use its exact
 local address; writes also require the page's origin and an unpredictable request
 token. The Nanoleaf credential never reaches the browser. `/api/state` reads map
 state; `/api/settings`, `/api/project`, `/api/assign`, `/api/task`, `/api/locate`, and
 `/api/mode` validate and save changes. All writes run in the installation's Python runtime, using the
 same operating system and private database as its hooks. Only the existing bridge worker sends light
-updates. The map server starts on demand and stays available until the next
-upgrade or uninstall. Exiting the tray leaves it running.
+updates. The map server runs as a user service and also starts on demand.
 
 ## Completion comets
 
@@ -371,23 +357,17 @@ itself. While any indicators remain, the worker watches scene changes and the
 saved unread indicator, and redraws only when needed. Once all indicators clear,
 it restores the scene and exits.
 
-On this PC, both WSL hooks and native Windows hooks use the bundled Windows
-Python runtime. This lets them share the same database locks; Windows and WSL
-locks on the same mounted file did not exclude each other during testing.
-A separate worker lock prevents competing animations. Hook calls do not wait
+Hooks run in WSL with the installation's Python and share its Linux database
+locks. A separate worker lock prevents competing animations. Hook calls do not wait
 for the animation to finish. Failed light requests remain retryable on the next
 task event. Missing lifecycle events or a crashed worker can still leave stale
 lighting; the reset control clears it.
 
 ## Installation and controls
 
-On this Windows PC, the installed bridge is in `%LOCALAPPDATA%\CodexNanoleaf`.
-For a fresh installation, run from the repository root in Windows PowerShell:
-
-```powershell
-$bridge = (Resolve-Path .\bridge\bridge.py).Path
-& "$env:USERPROFILE\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" $bridge setup
-```
+The installed bridge lives under `~/.local/share/codex-nanoleaf`. For a fresh
+installation, follow [the Linux setup guide](../docs/linux-install.md); the
+historical `setup` command below describes what registration does.
 
 Setup checks the token entered at its hidden prompt, discovers the layout, and
 adds seven handlers to the user hooks file. It backs up an existing hooks file and
@@ -431,7 +411,7 @@ brightness the bridge changed (Quiet's 10% or a native override) with the level 
 wrote. It survives worker restarts. No saved Nanoleaf scenes are added, edited, or
 deleted; a native scene choice selects an existing one.
 
-The regression suite (`python3 scripts/check.py`) passes in WSL and the bundled Windows Python. It covers
+The regression suite (`python3 scripts/check.py`) passes in WSL. It covers
 one outward pulse, spatial propagation, continuing local pulses, concurrent
 status changes, question/block distinctions, unread receipt handling, read-state
 failures, task assignments, migration, privacy, identical paired-zone frames in Classic,
@@ -450,8 +430,7 @@ keeps pulsing, a new scene choice becomes the restore target, and the last clear
 indicator restores that scene and its brightness. Test scene preferences were
 isolated from the installation and discarded afterward.
 The desktop unread indicator is readable on this PC; automated tests verify that
-removing an unread marker clears its pulse. A separate Windows/WSL check confirmed
-that both entry points respect the Windows worker lock.
+removing an unread marker clears its pulse.
 
 This firmware requires positive frame times, so the bridge uses those throughout.
 
@@ -461,14 +440,10 @@ References: [Codex hooks](https://learn.chatgpt.com/docs/hooks) and
 Mode tests cover persistent selection, silent Free operation, unread reconciliation,
 steady paired-zone colors, brightness restoration after restarts and failed requests,
 rapid switching, skipped old waves, preview cancellation, and missing-scene fallback.
-The tray is also exercised with a fake bridge to verify menu clicks and checked
-selections without changing the real lights.
 
 Live mode checks confirmed Quiet at 10%, Free handoff, and resumed Work pulses.
 An isolated scene check verified Quiet brightness restoration across restarts;
-test scenes did not change the installation's saved preference. The Startup
-shortcut was launched directly and duplicate tray launches kept one instance.
-A full Windows sign-out and sign-in was not performed.
+test scenes did not change the installation's saved preference.
 
 Comet tests cover frame colors and timing, queue order, duplicate events, early reads,
 source reservations, overflow, cancellation, mode changes, restart timing, failed
@@ -483,9 +458,8 @@ Project tests cover reserved capacity and Shared overflow, exhausted capacity,
 reassignment, both animation-coverage choices, half swaps, stable physical IDs,
 settings persistence, path matching, manual overrides, metadata failures, elapsed
 turn time, deferred edits, Locate timing, early reads, scene restoration, and HTTP
-host/origin/token checks. Browser checks use Windows Edge and exercise selection,
-colors, assignments, orientation, Locate, modes, layouts, and safe title rendering.
-The native tray test checks menu actions and selected-item marks with a fake bridge.
+host/origin/token checks. Browser checks exercise selection, colors, assignments,
+orientation, Locate, modes, layouts, and safe title rendering.
 
 Live Project checks passed on the installed controller. Readback verified distinct
 zones, half swapping, both coverage settings, protected red/yellow indicators,
@@ -549,8 +523,7 @@ apart, including startup. A transient failure can recover on a remaining
 attempt; exhaustion retains the old wall without continuous polling, including
 in Free mode. Restarting the map server permits a new bounded acquisition
 window. The geometry projection does not send light writes, change task epochs,
-or launch Windows helpers. Linux installation and multi-device support remain
-separate work.
+or launch helper processes.
 
 
 ## Prism source and packaging

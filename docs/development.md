@@ -1,6 +1,6 @@
 # Development and deployment
 
-The repository is the canonical source. Fresh Linux setup and service operation follow [the Linux installation guide](linux-install.md); its private runtime lives under `~/.local/share/codex-nanoleaf`. The legacy Windows installed program in `%LOCALAPPDATA%\CodexNanoleaf` is a separate deployment with private credentials, its own SQLite state, and the remembered Nanoleaf scene. The original scratch workspace is historical and should not be used for future changes.
+The repository is the canonical source. Fresh Linux setup and service operation follow [the Linux installation guide](linux-install.md); its private runtime lives under `~/.local/share/codex-nanoleaf`. The retired Windows installation and the original scratch workspace are historical and are not used for future changes.
 
 Follow [the SDLC guide](sdlc.md) for issue scope, planning, TDD, independent review,
 and merge criteria. It also defines when installation is part of a task.
@@ -11,7 +11,7 @@ Run `python3 scripts/check.py` from the root. Install the optional controller de
 
 Run `npm run test:browser` after map or API changes. It starts the synthetic demo on an available loopback port and shuts it down afterward. Screenshots are written to ignored `test-results/`. To inspect the map manually, run `python3 scripts/demo.py` and open its printed URL.
 
-Exercise Linux installation and device enrollment with isolated state and fake device transport; never enroll a personal device from a development checkout. `cd tests && python3 -m unittest test_enrollment` runs the focused enrollment tests; the operator commands are in [the Linux installation guide](linux-install.md#add-nl22-light-panels). Use Windows PowerShell for the legacy tray and Windows installer. `bridge/tray.ps1 -Check` verifies Windows Forms support and icon loading without starting a tray or worker. Run `tests/test_tray_icon.ps1` to check all six icon sizes with Windows, transparency, the blue/green palette, tray sizing, and missing or corrupt asset fallback. Run `tests/test_controller_install.ps1` for the Windows controller installer. Hosted CI has no Windows jobs. When a change touches the tray, the Windows installer, Windows forwarding, the Windows MCP clients, or other Windows-only behavior, run these PowerShell checks locally on Windows together with `python scripts/check.py`, `npm run check:workflow`, `npm run test:workflow`, and `npm run test:mcp`. Menu interaction still needs a Windows smoke check.
+Exercise Linux installation and device enrollment with isolated state and fake device transport; never enroll a personal device from a development checkout. `cd tests && python3 -m unittest test_enrollment` runs the focused enrollment tests; the operator commands are in [the Linux installation guide](linux-install.md#add-nl22-light-panels). Hosted CI runs the Python, browser, MCP and workflow checks on Linux; there are no platform-specific checks.
 
 ## Hosted CI
 
@@ -117,23 +117,19 @@ outside product Git history and summarize their evidence in the PR.
 
 ## Upgrade the installed integration
 
-Use `bridge/install-modes.ps1` from Windows PowerShell for an authorized upgrade. From WSL, a Windows process can access the source using its WSL UNC path. You can also copy the deployable `bridge` folder to a temporary Windows directory and run the installer there. Treat that copy as disposable staging and retain the WSL repository as the source. Pass `-SkipShortcuts` when upgrading an existing installation without write access to the Start Menu. This preserves both existing shortcuts, including their previous icons; the tray artwork and installed program files still update.
+The Linux installer has no upgrade or rollback mechanism; [the Linux installation guide](linux-install.md) describes preparing a fresh installation and the operator's own retention of the current state directory. A bare `bridge.py setup` is refused and points at the Linux installer. `setup --reset` clears task records and is never an upgrade step; `setup --refresh` only redraws existing task state.
 
-The installer copies the bridge database using Windows SQLite and backs up the configuration, geometry, scene state, and existing program files. It preserves trusted hooks and task records. It then restarts the exact installed worker, map server, and tray. The tray's refresh resumes the saved mode. Reopen the map from the tray after an upgrade because its local port may change.
-
-Do not use `bridge.py setup` for an upgrade. Fresh setup requests a credential, installs hooks, and clears task records. The `setup --refresh` command only redraws existing task state.
-
-For physical checks, hold the installed Windows worker lock before sending isolated test effects. Hook-triggered workers can restart during testing, so verify lock ownership. Keep test tasks and scene choices in temporary state, then restore the latest real mode, layout, tasks, and scene preference before releasing the lock. Record controller readback separately from human confirmation of physical orientation.
+For physical checks, hold the installed worker lock before sending isolated test effects. Hook-triggered workers can restart during testing, so verify lock ownership. Keep test tasks and scene choices in temporary state, then restore the latest real mode, layout, tasks, and scene preference before releasing the lock. Record controller readback separately from human confirmation of physical orientation.
 
 ## Current portability limits
 
-The runtime is a personal Windows/WSL integration. Fresh setup defaults to the original private LAN address, and the tray locates the existing Codex Windows runtime under the user profile. The Codex metadata reader uses current desktop JSON fields that may change in future releases. These behaviors are preserved from the working installation; this repository setup does not change device discovery or hook semantics.
+The runtime is a personal Linux integration on WSL. The Windows tray, PowerShell installer and WSL-to-Windows forwarding were retired in [ADR 0012](decisions/0012-retire-windows-runtime.md). The Codex metadata reader uses current desktop JSON fields that may change in future releases and reads them from the mounted Codex Desktop home read-only.
 
 The geometry fixture retains the tested arrangement with arbitrary panel IDs. It contains no controller credentials or task metadata. Actual panel IDs and saved project reservations remain in the installation.
 
 ## Source import evidence
 
-The starting implementation passed 100 tests in WSL and Windows. Prior physical readback covered split zones, overflow, both animation coverage choices, deferred comet edits, Quiet Locate, and scene restoration. Those historical results are context for the import. CI and new local runs provide evidence for later commits.
+The starting implementation passed 100 tests in WSL and, at the time, Windows. Prior physical readback covered split zones, overflow, both animation coverage choices, deferred comet edits, Quiet Locate, and scene restoration. Those historical results are context for the import. CI and new local runs provide evidence for later commits.
 
 ## Optional controller development
 

@@ -41,7 +41,7 @@ correcting an existing setup command includes the issue and PR workflow unless
 the user requests local edits only. Preparing planning documents during a design
 discussion stays within the planning boundary.
 
-Installing the Windows bridge or changing physical lights needs an explicit
+Installing the runtime or changing physical lights needs an explicit
 request. Keep source, installed, and physically verified claims separate.
 
 ## Define and prepare work
@@ -83,8 +83,7 @@ concurrency, persistence, or deployment. Routine implementation details need no 
 ## Scope defaults
 
 This is a personal project. Size each story for how it actually runs: one
-operator, the selected installation (the Linux runtime, with legacy Windows
-installations still supported where documented), and the Nanoleaf devices
+operator, the Linux installation, and the Nanoleaf devices
 explicitly registered there. Add hosts, users, services or automation only when
 the story needs them. These defaults never remove an already accepted capability.
 
@@ -212,7 +211,7 @@ large harness, brittle timing test, or test of wording merely to satisfy TDD.
 
 Run the commands in [the development guide](development.md). Run the full Python
 suite after Python changes, browser checks after map/API changes, and workflow
-checks after skill/OPSX changes. Windows and hardware checks depend on the changed
+checks after skill/OPSX changes. Hardware checks depend on the changed
 behavior and issue target. Run relevant checks after fixes; repeat broader checks
 only when changed code, failures, or unresolved concerns justify them. Required
 CI still runs for every PR.
@@ -366,13 +365,13 @@ later.
 
 ## Completion and installation handoff
 
-Record source revision, local checks, local Windows checks, and
-installation/physical status separately. Hosted CI has no Windows jobs. An
+Record source revision, local checks, and installation/physical status
+separately. An
 installed-feature issue remains open until its requested checks are satisfied.
 Source-only work does not invoke the installer. For an authorized upgrade,
 follow [the existing deployment procedure](development.md#upgrade-the-installed-integration)
 and coordinate with the installation owner. Preserve live tasks, scene choices,
-and the single Windows light writer.
+and the single light writer per device.
 
 ## Examples
 

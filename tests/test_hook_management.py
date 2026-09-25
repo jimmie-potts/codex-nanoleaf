@@ -73,8 +73,18 @@ class HookManagementTests(unittest.TestCase):
         backups = list(self.home.glob('hooks.nanoleaf-backup-*.json'))
         self.assertEqual(len(backups), 1)
         self.assertEqual(backups[0].read_bytes(), before)
-        if bridge.os.name != 'nt':
-            self.assertEqual(backups[0].stat().st_mode & 0o777, 0o600)
+        self.assertEqual(backups[0].stat().st_mode & 0o777, 0o600)
+
+    def test_hook_command_is_one_linux_command_without_a_windows_variant(self):
+        import shlex
+        import sys
+        command = bridge.hook_command(Path('/opt/nanoleaf/bridge.py'), state_dir=Path('/state'))
+        self.assertIsInstance(command, str)
+        self.assertEqual(shlex.split(command), [sys.executable, '/opt/nanoleaf/bridge.py', 'hook', '--state-dir', '/state'])
+        registered = bridge.merge_hooks({}, command)
+        for group in registered['hooks']['Stop']:
+            for handler in group['hooks']:
+                self.assertNotIn('commandWindows', handler)
 
     def test_repeated_remove_and_register_are_idempotent(self):
         bridge.manage_hooks(self.home, 'remove', script=Path('/opt/nanoleaf/bridge.py'))
@@ -236,7 +246,6 @@ class HookManagementTests(unittest.TestCase):
         class Bridge:
             os = bridge.os
             has_legacy_hooks = staticmethod(lambda _: False)
-            windows_path = staticmethod(lambda value: value)
         with patch.object(shared_input, 'source_config', side_effect=AssertionError('must refuse before reading state')):
             with self.assertRaises(shared_input.FeedError) as raised:
                 shared_input.select_source(self.home, Bridge(), 'legacy')

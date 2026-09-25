@@ -3,8 +3,8 @@
 #
 # Changes made:
 # - Changed GitHub runs-on labels to their Depot equivalents
-# - Removed the Windows matrix entries and Windows-only steps; Depot CI provides
-#   only Linux sandboxes, so Windows PowerShell checks run locally
+# - Removed the Windows matrix entries and Windows-only steps; the Windows
+#   runtime was retired from source (#131) and Depot CI provides Linux sandboxes
 # - Added the ten-minute timeout to the MCP job
 
 name: Checks

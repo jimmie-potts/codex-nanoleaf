@@ -11,7 +11,7 @@ and any requested installation checks pass.
 - [ ] `python3 scripts/check.py` passes.
 - [ ] For wall-map changes, `npm run test:browser` passes.
 - [ ] For workflow/skill/OPSX changes, `npm run check:workflow` and `npm run test:workflow` pass.
-- [ ] Windows or hardware validation is recorded when relevant.
+- [ ] Hardware validation is recorded when relevant.
 
 Record actual commands and results. For TDD, include the check that failed before
 the implementation, its failure reason, and the same check passing afterward.
@@ -35,7 +35,6 @@ reviews and CI do not replace that approval; changed UI needs renewed approval.
 Describe any migration, deployment, or scene/brightness effect. State when the change is source-only.
 
 - Source revision and validation:
-- Windows validation:
 - Installation status and owner:
 - Physical/controller verification:
 
