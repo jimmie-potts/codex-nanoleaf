@@ -17,6 +17,7 @@ import urllib.request
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import devices
+import effects
 import project_map as wall
 import shared_input
 
@@ -337,7 +338,7 @@ def effect_payload(config, snapshot, instant, loop):
     locate = config.get('_locate')
     animated = bool(any(snapshot) or comet or locate) and not quiet
     delays = [travel_delays(config, source) for source in range(len(groups))]
-    data = [sum(len(zones) for zones in groups)]
+    zones = []
     for index, pair in enumerate(groups):
         ticks = [1] + list(range(2, PULSE_TICKS, 2)) + [PULSE_TICKS] if animated else [1]
         if comet: ticks = list(range(1, PULSE_TICKS + 1))
@@ -346,18 +347,11 @@ def effect_payload(config, snapshot, instant, loop):
             for tick in ticks:
                 instant_at = instant + tick / 10
                 color = zone_color(config, snapshot, index, half, instant_at, delays)
-                frames.append((*color, 0, tick - previous))
+                frames.append((*color, tick - previous))
                 previous = tick
-            data.extend([panel, len(frames)])
-            for step in frames: data.extend(step)
-    write = {'command': 'display', 'version': '2.0',
-             'animType': 'custom' if animated else 'static',
-             'animData': ' '.join(map(str, data)), 'loop': bool(loop and animated and not comet and not locate),
-             'colorType': 'HSB', 'palette': [{'hue': 0, 'saturation': 0, 'brightness': 100}]}
-    if config.get('kind', 'lines') == 'lines':
-        # Lines address their two logical zones; the Light Panels API defines no such flag.
-        write['logicalPanelsEnabled'] = True
-    return {'write': write}
+            zones.append((panel, frames))
+    return {'write': effects.display(zones, animated, loop and animated and not comet and not locate,
+                                     lines=config.get('kind', 'lines') == 'lines')}
 
 
 def render(config, snapshot, instant, loop):
@@ -426,9 +420,9 @@ class SceneRestorer:
             self.state = updated
 
     def observe(self):
-        effects = self.request(self.config, 'GET', '/effects')
-        names = effects.get('effectsList')
-        selected = effects.get('select')
+        listing = self.request(self.config, 'GET', '/effects')
+        names = listing.get('effectsList')
+        selected = listing.get('select')
         if (not isinstance(names, list) or any(not isinstance(name, str) for name in names)
                 or not isinstance(selected, str)):
             raise ValueError('Invalid scene list from controller.')
@@ -845,12 +839,14 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
                 return False
             raise
         import controller_state
+        import integration_api
         held_at = lambda db, revision: primary and controller_state.held(db, revision)
         current_overrides = lambda db: controller_state.overrides(db) if primary else {'power': None, 'brightness': None}
         if primary:
             with contextlib.closing(connect()) as db, db:
                 db.execute('BEGIN IMMEDIATE')
                 controller_state.recover(db, attempts=True)
+                integration_api.recover_attempts(db)
                 if controller_state.held(db, control_state(db)['revision']) and not shared_input.selected(db):
                     return
         config = load_config(directory, device)
@@ -952,7 +948,6 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
                 if not shared_input.selected(db): reconcile_read_state(db, unread, started)
                 prune_comets(db, started, mode, device)
                 if primary:
-                    import integration_api
                     integration_api.process(db, projection, config, now=started)
                 if wall.apply_pending(db, device): mark_dirty(db)
                 config['_locate'] = wall.locate_state(db, config, started, mode)
@@ -989,9 +984,26 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
                         update_display(db, config, snapshot, started, loop, guarded_sender)
                     if execution:
                         execution.complete()
+                def queued_content():
+                    # Native one-shot writes and Free animations, in admission order across both ledgers.
+                    if not primary:
+                        return []
+                    queue = [(created, sequence, command, False) for created, sequence, command in controller_state.controls(db, control['revision'])]
+                    if mode == 'free':
+                        queue += [(created, sequence, command, True) for created, sequence, command in integration_api.queued_animations(db)]
+                    return sorted(queue, key=lambda item: item[0])
                 def apply_controls():
-                    # Native one-shot writes, each journaled under its own request, oldest first.
-                    for sequence, command in controller_state.controls(db, control['revision']) if primary else ():
+                    for _, sequence, command, animation in queued_content():
+                        if animation:
+                            active_execution[0] = None  # Journaled in the extension ledger, not a v1 request.
+                            try:
+                                payload = effects.render(command, config['line_groups'], config.get('line_positions'))
+                            except effects.Rejected as error:
+                                integration_api.finish(db, sequence, 'failed', error.code)
+                                continue
+                            generation = integration_api.attempt(db, sequence)
+                            integration_api.play(db, sequence, generation, lambda: controller_request(config, 'PUT', '/effects', payload))
+                            continue
                         target = controller_state.control_payload(controller_state.read(db), command)
                         if target is None:
                             controller_state.finish(db, sequence, 'failed', 'unsupported-capability')
@@ -1017,7 +1029,7 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
                     return
                 if control_state(db, device)['revision'] != control['revision']:
                     continue
-                if current_overrides(db) != overrides or (primary and controller_state.controls(db, control['revision'])):
+                if current_overrides(db) != overrides or queued_content():
                     continue  # A control admitted mid-apply keeps its wake-up and runs next pass.
                 db.execute('INSERT OR REPLACE INTO meta VALUES (?, ?)', (key('mode_applied'), str(control['revision'])))
                 db.execute('DELETE FROM meta WHERE key IN (?, ?)', ('dirty', key('control_error')))

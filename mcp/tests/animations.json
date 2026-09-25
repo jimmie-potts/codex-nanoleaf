@@ -1,0 +1,61 @@
+{
+ "apiVersion": "nanoleaf.integration/1.0",
+ "identity": {
+  "deviceId": "light",
+  "controllerId": "controller",
+  "sourceId": "source",
+  "controllerEpoch": "runtime-1"
+ },
+ "mode": "Free",
+ "revision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+ "nextRequestId": {
+  "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "sequence": 3
+ },
+ "patterns": [
+  {
+   "id": "wave",
+   "spatial": true
+  },
+  {
+   "id": "gradient",
+   "spatial": true
+  },
+  {
+   "id": "pulse",
+   "spatial": false
+  },
+  {
+   "id": "breathe",
+   "spatial": false
+  },
+  {
+   "id": "sparkle",
+   "spatial": false
+  }
+ ],
+ "speeds": [
+  "slow",
+  "medium",
+  "fast"
+ ],
+ "directions": [
+  "left",
+  "right",
+  "up",
+  "down",
+  "outward",
+  "inward"
+ ],
+ "defaults": {
+  "speed": "medium",
+  "direction": "right",
+  "loop": true
+ },
+ "limits": {
+  "minColors": 1,
+  "maxColors": 8,
+  "maxFramesPerZone": 20,
+  "maxEffectBytes": 8192
+ }
+}

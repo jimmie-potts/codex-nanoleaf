@@ -18,11 +18,13 @@ even blocked tasks cannot interrupt it. Free does not launch music or Screen Mir
 start those in the Nanoleaf apps.
 
 A native client of the [controller API](../docs/controller-api.md#general-controls)
-can also set power, brightness and, in Free only, a saved scene. Brightness and
+can also set power, brightness and, in Free only, a saved scene or a
+[requested animation](../docs/integration-api.md#requested-animations). Brightness and
 power set that way are overrides: they govern the bridge's writes in the current
 mode until the next explicit mode choice, including the same mode, from the
-CLI, wall map or a native client. While power is off the bridge writes nothing and
-keeps tracking tasks. In Work and Quiet the remembered scene brightness is never
+CLI, wall map or a native client. While power is off the bridge sends no indicator,
+restoration or preview writes and keeps tracking tasks; an explicit native control,
+scene or animation still sends its one write. In Work and Quiet the remembered scene brightness is never
 replaced by an override; in Free the bridge does not own the lights, so a
 brightness set there becomes the preference like a change made in the Nanoleaf app.
 
@@ -37,7 +39,9 @@ pulsing stops.
 A mode change normally appears within two seconds. The wall map's status readout
 reports pending changes and failed light updates; the worker retries controller
 failures. Connection text describes the last update, not continuous connectivity
-testing. Free deliberately sends no controller requests after its handoff.
+testing. After its handoff, Free sends controller requests only for a native
+client's explicit commands: one write each for power, brightness, a scene or an
+animation.
 
 Use the installed `nanoleaf mode work`, `nanoleaf mode free`, or
 `nanoleaf mode quiet` to switch from a terminal. `nanoleaf status --json` reports
@@ -627,6 +631,8 @@ reservations, task-project overrides and saved colors through the protected
 controller. It has separate versioned requests and configuration receipts; shared
 controller v1 mode commands remain unchanged. Pure reads exclude local titles and
 paths. The existing worker applies edits on the installation's native database.
+Its one light command, the Free-only [`animation.play`](../docs/integration-api.md#requested-animations),
+is played by the same worker with transport receipts.
 Source delivery does not enable the listener, switch task input or change an installation.
 
 Desktop tasks removed by the shared owner release their local task state and Lines. Snapshot 1.1 generation changes also reset a recreated task after missed removal; see [shared input](../docs/shared-input.md#ended-desktop-tasks) for version requirements, preserved project settings and installation order. Native mode selection remains independent.

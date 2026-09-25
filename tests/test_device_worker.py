@@ -561,6 +561,24 @@ class ProtectedApiTest(DeviceWorkerTest):
         self.assertIn(55, lines_levels)
         self.assertEqual(self.app.snapshot()['state']['pending'], [])
 
+    def test_extension_animations_play_only_on_lines(self):
+        import integration_api
+        from types import SimpleNamespace
+        clock = patch.object(integration_api, 'time', SimpleNamespace(time=self.clock.now))
+        clock.start(); self.addCleanup(clock.stop)
+        for device in ('wall', 'panels'):
+            self.mode('free', device); self.run_worker(device)
+        view = self.app.integration_animations(self.token, 'wall')
+        request = dict(apiVersion=integration_api.VERSION, controllerId='controller', deviceId='wall', requestId=view['nextRequestId'],
+                       expectedRevision=view['revision'], command={'kind': 'animation.play', 'pattern': 'pulse', 'colors': ['#ff00ff']})
+        self.assertEqual(self.app.integration_admit(self.token, request)[0], 202)
+        self.fake.panels.calls.clear(); self.run_worker('panels')
+        self.assertEqual(self.effects(self.fake.panels), [])
+        self.assertEqual(self.query("SELECT phase FROM integration_requests"), [('queued',)])
+        self.run_worker('wall')
+        self.assertEqual(len([p for p in self.effects(self.fake.lines) if p['write']['animType'] == 'custom']), 1)
+        self.assertEqual(self.query("SELECT phase FROM integration_requests"), [('done',)])
+
     def test_lines_hold_does_not_stop_panels(self):
         self.command({'kind': 'mode.set', 'mode': 'Quiet'})
         self.fake.lines.fail = lambda method, endpoint, payload: method == 'PUT'

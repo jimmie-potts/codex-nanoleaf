@@ -102,6 +102,10 @@ class App:
         import integration_api
         return integration_api.snapshot(self,token,device,**checks)
 
+    def integration_animations(self,token,device,**checks):
+        import integration_api
+        return integration_api.animations(self,token,device,**checks)
+
     def integration_admit(self,token,request,body_bytes=None,deadline=None,**checks):
         import integration_api
         return integration_api.admit(self,token,request,body_bytes,deadline,**checks)
@@ -266,6 +270,8 @@ def make_server(app,port=0):
                 if permitted!='allowed':return self.failure(permitted)
                 if parts.path=='/controller/integration/v1/snapshot' and set(query)=={'deviceId'}:
                     return self.respond(200,app.integration_snapshot(token,device,**checks))
+                if parts.path=='/controller/integration/v1/animations' and set(query)=={'deviceId'}:
+                    return self.respond(200,app.integration_animations(token,device,**checks))
                 if parts.path=='/controller/integration/v1/receipt' and set(query)=={'deviceId','epoch','sequence'}:
                     import integration_api
                     ticket=dict(epoch=query['epoch'],sequence=int(query['sequence']))

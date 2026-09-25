@@ -106,4 +106,6 @@ reservations, task-project overrides and saved colors through the protected
 controller. It has separate versioned requests and configuration receipts; shared
 controller v1 mode commands remain unchanged. Pure reads exclude local titles and
 paths. The existing worker applies edits on the installation's native database.
+Its one light command, the Free-only [`animation.play`](integration-api.md#requested-animations),
+is played by the same worker with transport receipts.
 Source delivery does not enable the listener, switch task input or change an installation.

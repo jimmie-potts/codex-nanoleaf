@@ -1,6 +1,6 @@
 # Local Codex controls
 
-The optional MCP host exposes `nanoleaf_status`, `nanoleaf_mode_set`, `nanoleaf_scenes_list` and `nanoleaf_scene_activate` through the protected local controller. Modes are Work, Quiet and Free. Their existing brightness and scene policies remain unchanged. The [local MCP specification](../openspec/specs/local-mcp-bindings/spec.md) owns behavior; [issue #33](https://github.com/jimmie-potts/codex-nanoleaf/issues/33) owns source delivery, [issue #91](https://github.com/jimmie-potts/codex-nanoleaf/issues/91) owns the scene tools and [ADR 0006](decisions/0006-local-mcp-hosting.md) records hosting.
+The optional MCP host exposes `nanoleaf_status`, `nanoleaf_mode_set`, `nanoleaf_scenes_list`, `nanoleaf_scene_activate`, `nanoleaf_animations_list` and `nanoleaf_animation_play` through the protected local controller. Modes are Work, Quiet and Free. Their existing brightness and scene policies remain unchanged. The [local MCP specification](../openspec/specs/local-mcp-bindings/spec.md) owns behavior; [issue #33](https://github.com/jimmie-potts/codex-nanoleaf/issues/33) owns source delivery, [issue #91](https://github.com/jimmie-potts/codex-nanoleaf/issues/91) owns the scene tools, [issue #92](https://github.com/jimmie-potts/codex-nanoleaf/issues/92) owns the animation tools and [ADR 0006](decisions/0006-local-mcp-hosting.md) records hosting.
 
 Source delivery does not install, provision credentials, launch Codex or touch lights. [Issue #55](https://github.com/jimmie-potts/codex-nanoleaf/issues/55) owns separately authorized installation, client permission checks and physical acceptance. The commands below are instructions for that handoff.
 
@@ -63,6 +63,14 @@ Read status first. Mode calls require its `nextRequestId`, `configurationRevisio
 `nanoleaf_scenes_list` needs the read scope and takes no arguments. It reads the `nanoleaf.integration/1.0` extension snapshot and returns each advertised scene as `{id, name?}`, where `id` is the opaque identifier also carried by the shared v1 `scenes` capability and `name` is the user's Nanoleaf app name, present only when it fits the 80-character label bound. Nothing else from that snapshot is exposed.
 
 `nanoleaf_scene_activate` needs the control scope and the same `requestId`, `expectedConfigurationRevision` and `expectedGeneration` as `nanoleaf_mode_set`, plus `sceneId` from that listing. Following hub ADR 0005, activation is a separate command from mode selection; the tool never switches the device to Free itself. The controller accepts `scene.activate` only while the device is already in Free; in Work or Quiet it returns the typed `unsupported-capability` failure before any device write, with a replayable receipt. An unknown or no-longer-advertised scene ID is rejected the same way, before dispatch. Switch to Free first with `nanoleaf_mode_set`, then activate the scene.
+
+## Play animations
+
+`nanoleaf_animations_list` needs the read scope and takes no arguments. It returns the controller's [animation options](integration-api.md#requested-animations): the patterns and whether each takes a direction, the speeds, directions, defaults and limits. It also returns the current `mode`, `revision` and `nextRequestId`. It reads without touching tasks or lights.
+
+`nanoleaf_animation_play` needs the control scope. It takes `requestId` (the listing's `nextRequestId`), `expectedRevision` (the listing's `revision`), `pattern` and 1 to 8 `#rrggbb` `colors`, plus optional `speed`, `loop` and, for `wave` and `gradient` only, `direction`. It sends one `animation.play` extension command with those values unchanged and adds no defaults of its own. The tool never switches mode. In Work or Quiet the controller rejects the command as `unsupported-capability` before any write, and the tool's failure carries a message saying to switch to Free with `nanoleaf_mode_set` and list the options again. To play "a slow blue-green ocean wave", call `nanoleaf_mode_set` with Free, call `nanoleaf_animations_list`, then play `wave` with `["#0044aa", "#00aa66"]` at `slow`.
+
+The receipt comes from the extension. `queued` or `sent` does not establish visible light output; `uncertain` may have reached the device and is never retried. A mode command before the worker plays it cancels a queued animation.
 
 ## Interpret results and recover
 
