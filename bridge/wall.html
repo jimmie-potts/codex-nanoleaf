@@ -281,6 +281,10 @@
   .legend .halves { display: none; align-items: center; gap: 7px; }
   body[data-style="project"] .legend .halves { display: inline-flex; }
   .legend .halves i { display: inline-block; width: 24px; height: 8px; border-radius: 4px; background: linear-gradient(90deg, #ad8dff 50%, var(--wall-base) 50%); box-shadow: 0 0 0 1px rgba(215, 227, 255, .28); }
+  body[data-kind="panels"] .legend .halves { display: none; }
+  .legend .reserved-edge { display: none; align-items: center; gap: 7px; }
+  body[data-kind="panels"][data-style="project"] .legend .reserved-edge { display: inline-flex; }
+  .legend .reserved-edge i { display: inline-block; width: 14px; height: 12px; clip-path: polygon(50% 0, 100% 100%, 0 100%); background: #ad8dff; }
 
   .wall-line { cursor: pointer; outline: none; }
   .wall-line .hit { fill: transparent; pointer-events: all; }
@@ -299,6 +303,17 @@
   .connector-hex { fill: var(--connector-fill); stroke: var(--connector-edge); stroke-width: 3.5; stroke-linejoin: round; }
   .connector-ring { fill: none; stroke: var(--connector-ring); stroke-width: 2; }
   .wall-line .sheen { stroke: #ffffff; stroke-width: 3; stroke-linecap: round; opacity: .22; fill: none; pointer-events: none; }
+  /* One device at a time: the Device control sits beside the wall heading and hides while only Lines is registered. */
+  .wall-head { display: flex; align-items: center; gap: 12px; min-width: 0; }
+  .wall-head h2 { white-space: nowrap; }
+  .device-control { display: flex; align-items: center; gap: 8px; flex: none; }
+  .device-control select { font-size: 12px; padding: 4px 8px; }
+  @media (max-width: 680px) {
+    .wall-head { gap: 8px; }
+    .device-control { gap: 0; }
+    .device-control .label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+    .device-control select { padding: 3px 6px; }
+  }
   /* Secondary map controls live under one Options menu so the wall keeps the room. */
   .wall-options { position: relative; flex: none; }
   .wall-options > summary { cursor: pointer; list-style: none; padding: 5px 10px; border: 1px solid var(--btn-edge); border-radius: var(--radius); background: var(--btn-bg); font-size: 12px; color: var(--text); white-space: nowrap; transition: background var(--dur-fast), border-color var(--dur-fast), color var(--dur-fast); }
@@ -356,12 +371,27 @@
   @keyframes pulseCore { 0% { opacity: var(--core-min); } 20% { opacity: 1; } 30% { opacity: 1; } 50% { opacity: var(--core-min); } 100% { opacity: var(--core-min); } }
   .wall-line.locating .outline { animation: locate 1s ease-out; }
   @keyframes locate { 0%, 55% { stroke: #ffffff; stroke-width: 30; } 100% { stroke: var(--selection); stroke-width: 24; } }
+  /* Light Panels: plain triangles with static status colours. The edge carries selection, focus, pending and Locate. */
+  .wall-triangle { cursor: pointer; outline: none; }
+  .wall-triangle .tri-face { fill: var(--wall-base); transition: fill var(--dur-fast); }
+  body[data-mode="work"] .wall-triangle[data-status]:not([data-status="idle"]) .tri-face { filter: drop-shadow(0 0 6px currentColor); }
+  .wall-triangle .tri-edge { fill: none; stroke: var(--wall-track); stroke-width: 4; stroke-linejoin: round; transition: stroke var(--dur-fast); }
+  .wall-triangle.reserved .tri-edge { stroke: var(--tri-project); stroke-width: 5; }
+  .wall-triangle.selected .tri-edge { stroke: var(--selection); stroke-width: 7; stroke-dasharray: var(--selection-dash); animation: var(--selection-anim); }
+  .wall-triangle:focus-visible:not(.selected) .tri-edge { stroke: var(--focus); stroke-width: 7; }
+  .wall-triangle.selected:focus-visible .tri-edge { filter: drop-shadow(0 0 3px var(--focus)) drop-shadow(0 0 3px var(--focus)); }
+  .wall-triangle.pending .tri-edge { stroke: var(--pending); stroke-dasharray: 7 5; animation: none; }
+  .wall-triangle.locating .tri-edge { animation: locateTriangle 1s ease-out; }
+  @keyframes locateTriangle { 0%, 55% { stroke: #ffffff; stroke-width: 12; } 100% { stroke: var(--selection); stroke-width: 7; } }
+  .wall-triangle .tri-number { fill: #e7f5ff; font-family: var(--font-num); font-weight: 600; font-variant-numeric: tabular-nums; text-anchor: middle; dominant-baseline: central; pointer-events: none; paint-order: stroke; stroke: rgba(5, 7, 13, .85); stroke-width: 3px; }
+  body[data-mode="quiet"] .wall-triangle .tri-face { opacity: var(--dim-quiet); }
   @keyframes march { to { stroke-dashoffset: -40; } }
   @media (prefers-reduced-motion: reduce) {
     #wall * { animation: none !important; }
     /* Without motion, a stronger static halo still separates Work from Quiet. */
     body[data-mode="work"] .wall-line[data-status] .glow { opacity: min(1, calc(var(--glow-opacity) * 1.4)); }
     .wall-line.locating .outline { stroke: #ffffff; stroke-width: 30; }
+    .wall-triangle.locating .tri-edge { stroke: #ffffff; stroke-width: 12; }
   }
 }
 /* Prism keeps its crystal material separate from the stable input regions. */
@@ -396,14 +426,17 @@ body[data-mode="quiet"] #wall.prism-scene, body[data-mode="free"] #wall.prism-sc
   </aside>
   <section class="canvas">
     <div class="canvas-head">
-      <h2 id="wallTitle" tabindex="-1">The wall <span class="small" id="lineCount"></span></h2>
+      <div class="wall-head">
+        <h2 id="wallTitle" tabindex="-1">The wall <span class="small" id="lineCount"></span></h2>
+        <div class="device-control" id="deviceControl" hidden><label class="label" for="device">Device</label><select id="device" title="Show and edit one registered device at a time"></select></div>
+      </div>
       <details class="wall-options" id="wallOptions">
         <summary title="Number display, map orientation and assembly playback">Options</summary>
         <div class="wall-options-menu">
           <div class="option-group" role="group" aria-labelledby="layoutLabel"><span class="label" id="layoutLabel">Layout</span><div class="group"><button type="button" id="classic">Classic</button><button type="button" id="project">Project</button></div><div id="coverageOption" hidden><label class="label" for="coverage">Coverage</label><select id="coverage" aria-label="Animation coverage" title="Waves and comets return to the project color after passing. Both halves lets them cover the project half; Status half only keeps project identity steady."><option value="whole">Both halves</option><option value="status">Status half only</option></select></div></div>
           <div class="option-group" id="numbersOption" role="group" aria-labelledby="numbersLabel"><span class="label" id="numbersLabel">Numbers</span><button type="button" id="showNumbers" aria-pressed="false" title="Show every physical Line number on this browser only">Show all numbers</button></div>
           <div class="option-group" role="group" aria-labelledby="orientationLabel"><span class="label" id="orientationLabel">Orientation</span><div class="group"><button type="button" id="rotate" title="Rotate map 90 degrees">Rotate</button><button type="button" id="flipX">Flip H</button><button type="button" id="flipY">Flip V</button></div></div>
-          <div class="option-group" role="group" aria-labelledby="assemblyLabel"><span class="label" id="assemblyLabel">Assembly</span><button type="button" id="replay" title="Replay the opening assembly. Decorative only; it changes nothing on the lights.">Replay assembly</button><label><input type="checkbox" id="assemblyOnOpen"> Play on opening</label><label><input type="checkbox" id="assemblyOnEntry"> Play on view entry</label></div>
+          <div class="option-group" id="assemblyOption" role="group" aria-labelledby="assemblyLabel"><span class="label" id="assemblyLabel">Assembly</span><button type="button" id="replay" title="Replay the opening assembly. Decorative only; it changes nothing on the lights.">Replay assembly</button><label><input type="checkbox" id="assemblyOnOpen"> Play on opening</label><label><input type="checkbox" id="assemblyOnEntry"> Play on view entry</label></div>
           <details class="color-options" id="colorOptions">
             <summary title="Task-light colors for every registered device"><span class="label" id="colorsLabel">Colors</span><span class="color-strip" id="colorStrip" aria-hidden="true"></span></summary>
             <div class="color-body" role="group" aria-labelledby="colorsLabel">
@@ -424,6 +457,7 @@ body[data-mode="quiet"] #wall.prism-scene, body[data-mode="free"] #wall.prism-sc
       <span><i class="dot" style="background:var(--wall-unread)"></i>Unread</span>
       <span><i class="dot" style="background:var(--wall-base)"></i>Unused or read</span>
       <span class="halves"><i></i>Project half · status half</span>
+      <span class="reserved-edge"><i></i>Reserved for a project</span>
     </div>
   </section>
   <aside id="inspector">
@@ -461,6 +495,34 @@ const token='__CSRF__', $=id=>document.getElementById(id), svgNS='http://www.w3.
 let state=null, selected=new Set(), projectFingerprint='', taskFingerprint='', taskFocus=null, wallFingerprint='', detailFingerprint='', errorUntil=0, refreshing=false;
 let showSavedProjects=false;
 let showAllTasks=false;
+// One device at a time. An empty id means the server's default, the original Lines device, which needs no URL parameter.
+let device=new URLSearchParams(location.search).get('device')||'', deviceList=[], deviceEpoch=0, deviceOptions='';
+function stateUrl(){return device?'/api/state?device='+encodeURIComponent(device):'/api/state'}
+function withDevice(payload){return device?{...payload,device}:payload}
+function kindOf(){return state?.kind||'lines'}
+// Lines keep their product name; a Light Panels element is a triangle.
+function noun(){return kindOf()==='panels'?'Triangle':'Line'}
+function nounLower(){return kindOf()==='panels'?'triangle':'Line'}
+function nounPlural(){return kindOf()==='panels'?'triangles':'Lines'}
+function drawDevices(){
+  const key=JSON.stringify([deviceList,device]);if(key===deviceOptions)return;deviceOptions=key;
+  const select=$('device'),fallback=deviceList.find(d=>d.default)?.id||'',current=deviceList.find(d=>d.id===(device||fallback));
+  select.replaceChildren(...deviceList.map(d=>{const option=el('option',d.name);option.value=d.id;return option}));
+  if(!current&&device){const option=el('option',device);option.value=device;option.disabled=true;select.prepend(option)}
+  select.value=current?current.id:device;
+  $('deviceControl').hidden=deviceList.length<2&&!!current;
+}
+function switchDevice(id){
+  const target=deviceList.find(d=>d.id===id);if(!target)return;
+  device=target.default?'':target.id;deviceEpoch++;
+  const url=new URL(location.href);if(device)url.searchParams.set('device',device);else url.searchParams.delete('device');history.replaceState(null,'',url);
+  // Choosing a device answers a sticky error such as an unknown device in the URL.
+  errorUntil=0;endAssembly();selected.clear();taskFocus=null;resetWallViews();refresh();
+}
+function resetWallViews(){
+  wallFingerprint=projectFingerprint=taskFingerprint=detailFingerprint=lastReadout='';
+  if(prism){prism.destroy();prism=null;prismGeometryKey='';$('wallHost').innerHTML='<svg id="wall" role="group" aria-label="Nanoleaf wall map"></svg>'}
+}
 const statusColors={working:'var(--wall-working)',question:'var(--wall-question)',blocked:'var(--wall-blocked)',unread:'var(--wall-unread)',idle:'var(--wall-base)',base:'var(--wall-base)'};
 const modeNotes={work:['Work · indicators on','Task indicators pulse on the wall at 30% brightness. The map’s inward light flow follows task status.'],quiet:['Quiet · steady at 10%','Steady task colors without pulses or outward waves.'],free:['Free · lights released','The lights follow the Nanoleaf app. The map shows saved task assignments.']};
 const showAllNumbersKey='wall.numbers.showAll';
@@ -469,7 +531,7 @@ try{showAllNumbers=localStorage.getItem(showAllNumbersKey)==='1'}catch{}
 function syncNumberControl(){const button=$('showNumbers');button.setAttribute('aria-pressed',String(showAllNumbers));button.textContent=showAllNumbers?'Hide idle numbers':'Show all numbers';prism?.showAllNumbers(showAllNumbers)}
 function el(tag,text,cls){const node=document.createElement(tag);if(text!==undefined)node.textContent=text;if(cls)node.className=cls;return node}
 function message(text,error=false){$('notice').textContent=text;$('notice').style.display=text?'block':'none';$('notice').classList.toggle('error',error);if(error)errorUntil=Date.now()+6000}
-async function action(path,payload){endAssembly();try{const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-Wall-Token':token},body:JSON.stringify(payload)});const data=await r.json();if(!r.ok)throw Error(data.error);errorUntil=0;await refresh()}catch(e){message(e.message,true)}}
+async function action(path,payload){endAssembly();try{const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-Wall-Token':token},body:JSON.stringify(withDevice(payload))});const data=await r.json();if(!r.ok)throw Error(data.error);errorUntil=0;await refresh()}catch(e){message(e.message,true)}}
 function projectName(id){return state.projects.find(p=>p.id===id)?.name||'No project'}
 function choose(id,multi=false){if(!lineById(id))return;if(!multi)selected.clear();if(multi&&selected.has(id))selected.delete(id);else selected.add(id);taskFocus=null;const owners=state.lines.filter(l=>selected.has(l.id)).map(l=>l.project||'');if(owners.length&&owners.every(p=>p===owners[0]))$('assignProject').value=owners[0];drawWall();inspect();drawTasks();highlightAssociations()}
 function selectOptions(select,sharedLabel){const fingerprint=JSON.stringify([sharedLabel,state.projects.map(p=>[p.id,p.name])]);if(select.dataset.options===fingerprint)return;select.dataset.options=fingerprint;const value=select.value;select.replaceChildren();let opt=el('option',sharedLabel);opt.value='';select.append(opt);for(const p of state.projects){opt=el('option',p.name);opt.value=p.id;select.append(opt)}select.value=value}
@@ -485,7 +547,7 @@ function lineBadge(line,kind,label,showShared=false){
   const shared=showShared&&!line.project, task=lineTask(line);
   const badge=el('button',line.number+(shared?' · Shared':''),'line-badge '+kind);
   badge.type='button';badge.dataset.lineId=line.id;badge.dataset.lineNumber=line.number;
-  const description=`Line ${line.number} · ${label}${shared?' · Shared':''}${task?' · '+projectName(task.project)+' · '+task.title:''}`;
+  const description=`${noun()} ${line.number} · ${label}${shared?' · Shared':''}${task?' · '+projectName(task.project)+' · '+task.title:''}`;
   badge.setAttribute('aria-label',description);badge.title=description;
   badge.onclick=e=>{e.stopPropagation();choose(line.id,e.ctrlKey||e.metaKey||e.shiftKey)};
   return badge;
@@ -650,6 +712,45 @@ function drawStandardWall(){
   // Number clicks must win over every Line's transparent hit stroke.
   root.append(numbers);sizeLineNumbers();anchorPulses();
 }
+// Light Panels: one plain triangle per element from the cached geometry, static status colours, numbers in the reader's order.
+function drawTriangleWall(){
+  if(prism){prism.destroy();prism=null;prismGeometryKey='';$('wallHost').innerHTML='<svg id="wall" role="group" aria-label="Nanoleaf wall map"></svg>'}
+  prismError='';prismLabelError='';$('numbersOption').hidden=true;
+  const fingerprint=JSON.stringify([state.lines,state.tasks.map(t=>[t.id,t.status,t.project,t.title]),state.projects.map(p=>[p.id,p.name,p.color]),state.settings,state.pending,[...selected]]);
+  if(fingerprint===wallFingerprint)return;wallFingerprint=fingerprint;
+  const root=$('wall'),focused=root.contains(document.activeElement)?document.activeElement.dataset.line:null;
+  root.replaceChildren();if(!state.lines.length)return;
+  const all=state.lines.flatMap(l=>l.points.map(transform)),xs=all.map(p=>p[0]),ys=all.map(p=>p[1]);
+  const minX=Math.min(...xs)-30,minY=Math.min(...ys)-30,maxX=Math.max(...xs)+30,maxY=Math.max(...ys)+30;
+  root.setAttribute('viewBox',`${minX} ${minY} ${maxX-minX} ${maxY-minY}`);
+  for(const line of state.lines){
+    const points=line.points.map(transform),task=lineTask(line);
+    const cx=points.reduce((sum,p)=>sum+p[0],0)/3,cy=points.reduce((sum,p)=>sum+p[1],0)/3;
+    // A small inset leaves the seam between neighbouring panels visible.
+    const inset=points.map(([x,y])=>[cx+(x-cx)*.93,cy+(y-cy)*.93].map(v=>v.toFixed(2)).join(',')).join(' ');
+    const color=statusColors[task?.status]||statusColors.base;
+    const owner=state.settings.style==='project'&&line.project?state.projects.find(p=>p.id===line.project):null;
+    const group=document.createElementNS(svgNS,'g');
+    group.setAttribute('class','wall-line wall-triangle'+(selected.has(line.id)?' selected':'')+(state.pending?.lines?.[line.id]?' pending':'')+(owner?' reserved':''));
+    group.setAttribute('tabindex','0');group.setAttribute('role','button');group.dataset.line=line.id;if(task)group.dataset.status=task.status;
+    group.style.color=color;if(owner)group.style.setProperty('--tri-project',owner.color);
+    const label=`${noun()} ${line.number} · ${lineDescription(line)}`;
+    group.setAttribute('aria-label',label);const title=document.createElementNS(svgNS,'title');title.textContent=label;group.append(title);
+    const face=document.createElementNS(svgNS,'polygon');face.setAttribute('class','tri-face');face.setAttribute('points',inset);face.style.fill=color;
+    const edge=document.createElementNS(svgNS,'polygon');edge.setAttribute('class','tri-edge');edge.setAttribute('points',inset);
+    const number=document.createElementNS(svgNS,'text');number.setAttribute('class','tri-number');number.setAttribute('x',cx);number.setAttribute('y',cy);number.textContent=line.number;
+    group.append(face,edge,number);
+    group.onclick=e=>choose(line.id,e.ctrlKey||e.metaKey||e.shiftKey);
+    group.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();choose(line.id,e.ctrlKey||e.metaKey||e.shiftKey)}};
+    root.append(group);if(focused===line.id)group.focus({preventScroll:true});
+  }
+  sizeTriangleNumbers();
+}
+function sizeTriangleNumbers(){
+  const scale=$('wall').getScreenCTM()?.a;if(!scale)return;
+  const px=Math.max(11,parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--number-size'))||12);
+  for(const text of $('wall').querySelectorAll('.tri-number'))text.style.fontSize=px/scale+'px';
+}
 // Persistent Prism wall. The app owns colors, identity, commands and selection.
 let prism=null, prismGeometryKey='', prismError='', prismLabelError='';
 function zoneColors(line){
@@ -663,6 +764,7 @@ function zoneColors(line){
   return colors;
 }
 function drawWall(){
+  if(kindOf()==='panels')return drawTriangleWall();
   if(!window.Prism||!window.PrismAdapters||!state?.lines.length){
     prismError=state?.lines.length&&(!window.Prism||!window.PrismAdapters)?'Prism artwork unavailable. Showing standard Lines. Repair the app installation to restore the crystal artwork.':'';
     $('numbersOption').hidden=true;
@@ -740,7 +842,7 @@ function setAssemblyPref(name,on){try{if(on)localStorage.removeItem(assemblyPref
 function geometryKey(){return JSON.stringify([state.connector_layout,state.lines.map(l=>[l.id,l.points]),state.settings.rotation,state.settings.flip_x,state.settings.flip_y])}
 function reducedMotion(){return !!window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches}
 function playAssembly(reason){
-  if(assembly.active||!state?.lines.length)return false;
+  if(assembly.active||!state?.lines.length||kindOf()!=='lines')return false;
   if(!['opening','entry','replay'].includes(reason))return false;
   if(reason==='opening'&&!assemblyPref('opening'))return false;
   if(reason==='entry'&&!assemblyPref('entry'))return false;
@@ -818,6 +920,7 @@ function anchorPulses(){
     if((animation.animationName==='pulse'||animation.animationName==='pulseCore')&&animation.startTime!==0)animation.startTime=0;
 }
 function sizeLineNumbers(){
+  if(kindOf()==='panels')return sizeTriangleNumbers();
   if(prism)return sizePrismNumbers();
   const scale=$('wall').getScreenCTM()?.a;if(!scale)return;
   const px=parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--number-size'))||12;
@@ -841,8 +944,8 @@ function taskRow(t){
   title.title=t.title;
   const dot=el('span',undefined,'dot');dot.dataset.status=t.status;
   const placement=el('div',undefined,'task-placement'),line=lineById(t.line);
-  if(line){const badge=lineBadge(line,'in-use','Current task placement');badge.textContent='Line '+line.number;badge.dataset.focusKey=JSON.stringify([t.id,'line']);placement.append(badge)}
-  else placement.append(el('span','Waiting for a Line','small'));
+  if(line){const badge=lineBadge(line,'in-use','Current task placement');badge.textContent=noun()+' '+line.number;badge.dataset.focusKey=JSON.stringify([t.id,'line']);placement.append(badge)}
+  else placement.append(el('span','Waiting for a '+nounLower(),'small'));
   const meta=el('div',undefined,'task-meta');meta.append(statusBadge(t.status),el('span',projectName(t.project)));
   row.append(dot,title,placement,meta);
   row.onclick=()=>{selected=new Set(lineById(t.line)?[t.line]:[]);taskFocus=t.id;drawWall();inspect();drawTasks();highlightAssociations()};
@@ -868,7 +971,7 @@ function drawTasks(){
   if(retained&&(showAllTasks||limit>0)&&!visible.includes(retained)){if(!showAllTasks&&visible.length===limit)visible.pop();visible.push(retained);visible.sort((a,b)=>priority(a)-priority(b)||a.id.localeCompare(b.id))}
   const statuses=['blocked','question','working','unread',...(state.tasks.some(t=>t.status==='idle')?['idle']:[])];
   $('taskStatusCounts').textContent=statuses.map(status=>state.tasks.filter(t=>t.status===status).length+' '+status).join(' · ');
-  $('waiting').textContent=state.tasks.filter(t=>!lineById(t.line)).length+' waiting for a Line';
+  $('waiting').textContent=state.tasks.filter(t=>!lineById(t.line)).length+' waiting for a '+nounLower();
   // The Tasks heading carries the total; this line says how many of them are on screen.
   $('taskSummary').textContent=(filter!=='all'||query?`${matches.length} match filter · `:'')+`${visible.length} shown`+(outsideFilter?' · 1 focused task outside filter':'');
   $('showAllTasks').textContent=showAllTasks?'Show fewer tasks':'Show all tasks';
@@ -916,28 +1019,31 @@ function inspect(){
   // One context card: the Line or Lines, then the task once, then the actions that act in this layout and mode.
   const chosen=state.lines.filter(l=>selected.has(l.id)).sort((a,b)=>a.number-b.number),project=state.settings.style==='project';
   const task=state.tasks.find(t=>t.id===(taskFocus||(chosen.length===1?chosen[0].task:null))),waiting=!chosen.length&&!!task&&!lineById(task.line);
-  $('selectionTitle').textContent=chosen.length===1?'Line '+chosen[0].number:chosen.length?'Lines '+chosen.map(l=>l.number).join(', '):waiting?'Waiting for a Line':'Select a Line';
+  const kind=kindOf();
+  $('selectionTitle').textContent=chosen.length===1?noun()+' '+chosen[0].number:chosen.length?(kind==='panels'?'Triangles ':'Lines ')+chosen.map(l=>l.number).join(', '):waiting?'Waiting for a '+nounLower():'Select a '+nounLower();
   // The hint never repeats the task: it counts several Lines, or says how to select when nothing is chosen.
-  const hint=chosen.length>1?chosen.length+' physical Lines selected.':chosen.length||waiting?'':'Click a Line on the wall or a numbered badge to see its task. Ctrl/⌘ or Shift selects several.';
+  const hint=chosen.length>1?chosen.length+(kind==='panels'?' triangles selected.':' physical Lines selected.'):chosen.length||waiting?'':'Click a '+nounLower()+' on the wall or a numbered badge to see its task. Ctrl/⌘ or Shift selects several.';
   $('selectionHint').textContent=hint;$('selectionHint').hidden=!hint;
   $('selectionBody').hidden=!chosen.length;
-  $('swap').hidden=!project;
+  // Halves are a Lines feature; a triangle is one zone.
+  $('swap').hidden=!project||kind!=='lines';
   // Reserved for shows the selected Lines' reservation and applies on change; it resyncs from polled state unless it is being edited.
   const reservation=$('reservation'),owners=new Set(chosen.map(l=>l.project||''));
   reservation.hidden=!(project&&chosen.length);
   if(!reservation.hidden){
     const select=$('assignProject');selectOptions(select,'Shared pool');
+    select.title=kind==='panels'?'Only this project\'s tasks use the triangle, and its outline shows the project colour. Shared pool lets any task use it.':'Only this project\'s tasks use the Line, and it shows the project colour on one half. Shared pool lets any task use it.';
     let mixed=select.querySelector('option[value="mixed"]');
     if(owners.size>1){if(!mixed){mixed=el('option','Several reservations');mixed.value='mixed';mixed.disabled=true;select.prepend(mixed)}}
     else if(mixed)mixed.remove();
     if(document.activeElement!==select)select.value=owners.size>1?'mixed':[...owners][0];
   }
-  $('locate').textContent=chosen.length===1?'Locate Line '+chosen[0].number:'Locate';
+  $('locate').textContent=chosen.length===1?'Locate '+noun()+' '+chosen[0].number:'Locate';
   $('locate').disabled=chosen.length!==1||state.mode==='free';
-  $('locateHint').hidden=state.mode!=='free';$('locateHint').textContent=state.mode==='free'?'Switch to Work or Quiet to locate a Line.':'';
+  $('locateHint').hidden=state.mode!=='free';$('locateHint').textContent=state.mode==='free'?'Switch to Work or Quiet to locate a '+nounLower()+'.':'';
   const detail=$('taskDetail');
   const refocusEvict=task&&document.activeElement?.dataset.evictTask===task.id;
-  const fingerprint=JSON.stringify([chosen.length,project,task&&[task.id,task.title,task.status,task.project,task.manual,task.started,task.codexUrl,task.evictionToken],state.projects.map(p=>[p.id,p.name])]);
+  const fingerprint=JSON.stringify([chosen.length,project,kind,task&&[task.id,task.title,task.status,task.project,task.manual,task.started,task.codexUrl,task.evictionToken],state.projects.map(p=>[p.id,p.name])]);
   if(fingerprint===detailFingerprint){
     // Keep the elapsed time in step without rebuilding the card.
     const clock=detail.querySelector('[data-elapsed]');if(clock&&task)clock.textContent=elapsed(task.started);
@@ -946,7 +1052,7 @@ function inspect(){
   detailFingerprint=fingerprint;
   if(detail.contains(document.activeElement))$('tasksTitle').focus({preventScroll:true});
   detail.replaceChildren();
-  if(!task){if(chosen.length)detail.append(el('p',chosen.length>1?'Select one Line to inspect its task.':'No task on this Line.','small'));return}
+  if(!task){if(chosen.length)detail.append(el('p',chosen.length>1?'Select one '+nounLower()+' to inspect its task.':'No task on this '+nounLower()+'.','small'));return}
   const head=el('div',undefined,'detail-head');head.append(el('h3',task.title),statusBadge(task.status));detail.append(head);
   for(const [key,value]of[['Project',projectName(task.project)],['Elapsed',elapsed(task.started)]]){const row=el('div',undefined,'kv'),node=el('span',value);if(key==='Elapsed')node.dataset.elapsed='';row.append(el('span',key),node);detail.append(row)}
   if(task.codexUrl){const link=el('a','Open in Codex','codex-link');link.href=task.codexUrl;detail.append(link)}
@@ -961,14 +1067,14 @@ function pendingText(){
   const p=state.pending,parts=[];
   if(p.settings?.style)parts.push(p.settings.style+' layout');
   for(const [id,edit] of Object.entries(p.lines||{})){
-    const line=lineById(id);let text=line?'Line '+line.number:'Line unavailable';
+    const line=lineById(id);let text=line?noun()+' '+line.number:noun()+' unavailable';
     if(Object.hasOwn(edit,'project'))text+=' → '+(edit.project?projectName(edit.project):'Shared pool');
     if(Object.hasOwn(edit,'signature'))text+=' · half swap';
     parts.push(text);
   }
   for(const [id,project] of Object.entries(p.tasks||{})){
     const task=state.tasks.find(t=>t.id===id),line=lineById(task?.line);
-    const source=line?`Line ${line.number} · ${task.title}`:task?`${task.title} (${task.line?'Line unavailable':'Waiting for a Line'})`:'Unavailable task';
+    const source=line?`${noun()} ${line.number} · ${task.title}`:task?`${task.title} (${task.line?noun()+' unavailable':'Waiting for a '+nounLower()})`:'Unavailable task';
     parts.push(source+' → '+(project?projectName(project):'Use Codex assignment'));
   }
   return 'After this comet: '+parts.join(' · ');
@@ -979,14 +1085,19 @@ function render(){
   if(taskFocus){const task=state.tasks.find(t=>t.id===taskFocus);if(!task){taskFocus=null;selected.clear()}else selected=new Set(lineById(task.line)?[task.line]:[])}
   if(document.body.dataset.mode!==state.mode)document.body.dataset.mode=state.mode;
   if(document.body.dataset.style!==state.settings.style)document.body.dataset.style=state.settings.style;
+  if(document.body.dataset.kind!==kindOf())document.body.dataset.kind=kindOf();
+  deviceList=Array.isArray(state.devices)?state.devices:deviceList;drawDevices();
+  $('taskFilter').querySelector('option[value="waiting"]').textContent='Waiting for a '+nounLower();
   for(const id of ['classic','project']){const on=id===state.settings.style;$(id).classList.toggle('active',on);$(id).setAttribute('aria-pressed',String(on))}
   for(const id of ['work','free','quiet']){const on=id===state.mode;$(id).classList.toggle('active',on);$(id).setAttribute('aria-pressed',String(on))}
-  $('coverage').value=state.settings.coverage;$('coverageOption').hidden=state.settings.style!=='project';
+  $('coverage').value=state.settings.coverage;$('coverageOption').hidden=state.settings.style!=='project'||kindOf()!=='lines';
+  // Assembly is the Lines' Prism sequence; the triangle view has none to replay.
+  $('assemblyOption').hidden=kindOf()!=='lines';
   $('flipX').setAttribute('aria-pressed',String(!!state.settings.flip_x));$('flipY').setAttribute('aria-pressed',String(!!state.settings.flip_y));
-  $('lineCount').textContent=state.lines.length+' Lines';$('taskCount').textContent=state.tasks.length;
+  $('lineCount').textContent=state.lines.length+' '+nounPlural();$('taskCount').textContent=state.tasks.length;
   if(assembly.active&&geometryKey()!==assembly.key)endAssembly();
   drawColors();drawProjects();drawWall();inspect();drawTasks();highlightAssociations();anchorPulses();
-  if(!assembly.seen&&state.lines.length){assembly.seen=true;playAssembly('opening')}
+  if(!assembly.seen&&state.lines.length&&kindOf()==='lines'){assembly.seen=true;playAssembly('opening')}
   const busy=state.pending?pendingText():state.mode_pending?'Mode change pending.':'';if($('busy').textContent!==busy)$('busy').textContent=busy;
   $('connection').textContent='Live';$('connection').classList.remove('offline');
   readout();
@@ -1093,7 +1204,17 @@ function readout(){
     node.append(part);
   });
 }
-async function refresh(){if(refreshing)return;refreshing=true;try{const r=await fetch('/api/state');const data=await r.json();if(!r.ok)throw Error(data.error);state=data;render()}catch(e){endAssembly();$('connection').textContent='Disconnected · retrying';$('connection').classList.add('offline');message(e.message,true)}finally{refreshing=false}}
+async function refresh(){
+  if(refreshing)return;refreshing=true;const epoch=deviceEpoch;
+  try{
+    const r=await fetch(stateUrl());const data=await r.json();
+    if(epoch!==deviceEpoch)return; // a device switch superseded this poll
+    if(!r.ok){if(Array.isArray(data.devices)){deviceList=data.devices;drawDevices()}throw Error(data.error)}
+    state=data;render();
+  }catch(e){if(epoch!==deviceEpoch)return;endAssembly();$('connection').textContent='Disconnected · retrying';$('connection').classList.add('offline');message(e.message,true)}
+  finally{refreshing=false}
+}
+$('device').onchange=()=>switchDevice($('device').value);
 for(const id of ['classic','project'])$(id).onclick=()=>action('/api/settings',{style:id});for(const mode of ['work','free','quiet'])$(mode).onclick=()=>action('/api/mode',{mode});$('coverage').onchange=()=>action('/api/settings',{coverage:$('coverage').value});$('assignProject').onchange=()=>{const value=$('assignProject').value;if(value==='mixed')return;action('/api/assign',{lines:Object.fromEntries([...selected].map(id=>[id,{project:value||null}]))})};$('swap').onclick=()=>action('/api/assign',{lines:Object.fromEntries(state.lines.filter(l=>selected.has(l.id)).map(l=>[l.id,{signature:1-l.signature}]))});$('locate').onclick=()=>{const id=[...selected][0],group=$('wall').querySelector(`[data-line="${id}"]`);if(group){group.classList.remove('locating');void group.getBBox();group.classList.add('locating');setTimeout(()=>group.classList.remove('locating'),1000)}action('/api/locate',{line:id})};$('rotate').onclick=()=>action('/api/settings',{rotation:(state.settings.rotation+90)%360});$('flipX').onclick=()=>action('/api/settings',{flip_x:1-state.settings.flip_x});$('flipY').onclick=()=>action('/api/settings',{flip_y:1-state.settings.flip_y});new ResizeObserver(sizeLineNumbers).observe($('wallHost'));refresh();setInterval(refresh,1000);
 buildColors();
 $('showNumbers').onclick=()=>{showAllNumbers=!showAllNumbers;try{showAllNumbers?localStorage.setItem(showAllNumbersKey,'1'):localStorage.removeItem(showAllNumbersKey)}catch{}syncNumberControl()};

@@ -13,6 +13,8 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'bridge'))
 import bridge as b
+import devices
+import panels
 import wall_server
 import project_map as wall
 
@@ -27,6 +29,9 @@ def main():
     config = {'ip': '192.0.2.1', 'token': 'FAKE_DEMO_TOKEN', 'line_groups': groups,
               'line_positions': [[sum(zones[p][axis] for p in pair)/2 for axis in ('x','y')] for pair in groups],
               'zone_geometry': {'positionData': raw['layout']['positionData'], 'orientation': raw['globalOrientation']['value']}}
+    # The synthetic NL22 Light Panels sit beside the Lines so the Device selector can be exercised.
+    panels_entry = panels.read_layout(json.loads((ROOT / 'tests/fixtures/nl22-panels-fixture.json').read_text())['panelLayout'])
+    panels_config = dict(devices.projection(panels_entry), device='panels')
 
     def no_device(*args, **kwargs):
         raise RuntimeError('The demo cannot contact a light controller.')
@@ -34,14 +39,25 @@ def main():
 
     def update(directory):
         with contextlib.closing(b.connect_state(directory)) as db, db:
-            b.prune_comets(db, time.time(), b.control_state(db)['mode'])
-            wall.apply_pending(db)
-            b.dashboard(db, config, time.time())
-            db.execute("INSERT OR REPLACE INTO meta VALUES ('mode_applied',?)", (str(b.control_state(db)['revision']),))
+            for target in (config, panels_config):
+                device = devices.device_of(target)
+                b.prune_comets(db, time.time(), b.control_state(db, device)['mode'], device)
+                wall.apply_pending(db, device)
+                b.dashboard(db, target, time.time())
+                db.execute('INSERT OR REPLACE INTO meta VALUES (?,?)',
+                           (devices.meta_key('mode_applied', device), str(b.control_state(db, device)['revision'])))
     b.launch_worker = update
 
     with tempfile.TemporaryDirectory(prefix='codex-nanoleaf-demo-') as temporary:
         directory = Path(temporary)
+        # The map reads the registry and the saved layout on every request, as the installation's map does.
+        b.write_json(directory / 'config.json', {
+            'ip': '192.0.2.1', 'token': 'FAKE_DEMO_TOKEN', 'panelsToken': 'FAKE_DEMO_PANELS',
+            'devices': {'wall': {'kind': 'lines', 'ip': '192.0.2.1', 'token_ref': 'token'},
+                        'panels': {'kind': 'panels', 'ip': '192.0.2.2', 'token_ref': 'panelsToken'}}})
+        devices.save_layout(directory / 'layout.json', {
+            'wall': devices.lines_entry(groups, config['line_positions'], {'zone_geometry': config['zone_geometry']}),
+            'panels': panels_entry})
         with contextlib.closing(b.connect_state(directory)) as db, db:
             db.executemany('INSERT INTO projects VALUES (?,?,?,?)', [
                 ('a','Notification Service','#ad8dff','[]'), ('b','Daily Trader','#39d8bb','[]'), ('c','NBA GM','#f4ad68','[]')])
