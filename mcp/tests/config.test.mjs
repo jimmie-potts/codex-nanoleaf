@@ -13,7 +13,7 @@ test('private credential replacement revokes new authentication and dispatch', a
   const credentialsFile=join(dir,'credentials.json');
   await writeFile(credentialsFile,JSON.stringify({principals:[row]}));
   const configFile=join(dir,'config.json');
-  await writeFile(configFile,JSON.stringify({enabled:true,port:41230,controllerPort:41231,controllerId:'controller',deviceId:'wall',transport:'windows-http',credentialsFile}));
+  await writeFile(configFile,JSON.stringify({enabled:true,port:41230,controllerPort:41231,controllerId:'controller',deviceId:'wall',transport:'loopback-http',credentialsFile}));
   const config=await loadConfig(configFile), store=new CredentialStore(config);
   assert.equal((await store.authenticate(token)).id,'alice');
   assert.equal((await store.forDispatch('alice','control')).upstreamToken,upstreamToken);
@@ -31,7 +31,7 @@ test('configuration fails closed on unknown keys and duplicate credentials', asy
  await writeFile(file,' '.repeat(65537));assert.equal(await store.authenticate(token),null);
  await writeFile(file,'{');assert.equal(await store.authenticate(token),null);
  await rm(file);assert.equal(await store.authenticate(token),null);
- await writeFile(file,JSON.stringify({enabled:true,port:41230,controllerPort:41231,controllerId:'c',deviceId:'d',transport:'windows-http',credentialsFile:file,url:'http://example.com'}));await assert.rejects(loadConfig(file));
+ await writeFile(file,JSON.stringify({enabled:true,port:41230,controllerPort:41231,controllerId:'c',deviceId:'d',transport:'loopback-http',credentialsFile:file,url:'http://example.com'}));await assert.rejects(loadConfig(file));
  }finally{await rm(dir,{recursive:true,force:true});}
 });
 
@@ -39,4 +39,13 @@ test('non-regular credential path rejects before reading',async()=>{await assert
 test('FIFO configuration is rejected without waiting for a writer',{skip:process.platform==='win32'},async()=>{
  const {execFileSync}=await import('node:child_process');const dir=await mkdtemp(join(tmpdir(),'nano-fifo-'));
  try{const file=join(dir,'config');execFileSync('mkfifo',[file]);await assert.rejects(Promise.race([boundedFile(file),new Promise((_,reject)=>setTimeout(()=>reject(new Error('FIFO wait')),300))]),error=>!error.message.includes('FIFO wait'));}finally{await rm(dir,{recursive:true,force:true});}
+});
+test('loopback transport accepts its name and the retired windows-http alias, and rejects helpers', async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'nano-mcp-'));try{
+ const credentialsFile=join(dir,'credentials.json');await writeFile(credentialsFile,JSON.stringify({principals:[row]}));
+ const file=join(dir,'config.json');
+ const base={enabled:true,port:41230,controllerPort:41231,controllerId:'controller',deviceId:'wall',credentialsFile};
+ for(const transport of ['loopback-http','windows-http']){await writeFile(file,JSON.stringify({...base,transport}));assert.equal((await loadConfig(file)).transport,'loopback-http');}
+ for(const value of [{...base,transport:'wsl-helper',windowsPython:'/mnt/c/python.exe',windowsHelper:'C:\\helper.py'},{...base,transport:'loopback-http',windowsPython:'/usr/bin/python3'},{...base,transport:'loopback-http',windowsHelper:'helper.py'},{...base,transport:'http'}]){await writeFile(file,JSON.stringify(value));await assert.rejects(loadConfig(file));}
+ }finally{await rm(dir,{recursive:true,force:true});}
 });

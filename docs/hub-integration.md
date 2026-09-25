@@ -20,7 +20,7 @@ of monitored Claude compatibility.
 
 [#54](https://github.com/jimmie-potts/codex-nanoleaf/issues/54) ports the existing services and private state to Linux; [#55](https://github.com/jimmie-potts/codex-nanoleaf/issues/55) owns installed and physical acceptance. [Hub #43](https://github.com/jimmie-potts/agent-device-hub/issues/43) coordinates architecture and guide synchronization. See [ADR 0007](decisions/0007-linux-runtime-ownership.md).
 
-This fresh install keeps the existing reducer and separate processes. Hooks, CLI, map, and controller share Linux SQLite. The existing worker remains the sole light writer; MCP calls the controller directly over loopback HTTP. Desktop/browser clients can remain on Windows and configured JSON metadata stays read-only. Stop the Windows owner before activating Linux hooks or services. No old state is imported; no rollback tooling, new hook API, combined daemon, or shared-monitoring adoption is part of this port.
+This fresh install keeps the existing reducer and separate processes. Hooks, CLI, map, and controller share Linux SQLite. The existing worker remains the sole light writer; MCP calls the controller directly over loopback HTTP. Desktop/browser clients can remain on Windows and configured JSON metadata stays read-only. No old state is imported; no rollback tooling, new hook API, combined daemon, or shared-monitoring adoption is part of this port.
 
 The shared adoption requirements below describe separate future work. Their export/import and rollback requirements do not apply to the fresh Linux installation.
 
@@ -75,7 +75,7 @@ authentication without weakening the wall page's Host/Origin/edit-token checks.
 Reads cannot advance effect queues, assign Lines, clear notices or command lights.
 The browser never receives the Nanoleaf credential.
 
-Do not share the Windows SQLite file with a Linux/WSL process. Shared core hosting
+Runtime SQLite stays on the Linux filesystem. Shared core hosting
 moves through an explicit quiesced export/import with one owner and rollback;
 controller state remains private to the selected installation.
 
@@ -87,8 +87,8 @@ installation, agent launches, database migration or device tests.
 
 Source/CI, installation, real-client, transport and visible-light receipts remain
 separate. Physical acceptance needs an explicit device IP, permission for the
-sequence and an identified owner. Keep existing deployment backups/preferences
-and use the supported upgrade path, not fresh setup.
+sequence and an identified owner. Keep the existing state directory and preferences;
+the Linux installer prepares a fresh installation rather than upgrading one.
 
 [ADR 0003](decisions/0003-shared-agent-device-hub.md) records local adoption.
 The Linux runtime and local API specifications define the Linux port independently of future shared adoption.
@@ -97,7 +97,7 @@ The Linux runtime and local API specifications define the Linux port independent
 
 The [controller API guide](controller-api.md) records the pinned Hub #4 release, the mode, power, brightness and scene capabilities, local route wrappers, optional Python dependencies and source validation. Native reads use a separate pure projection. This adoption does not activate shared ingestion, a personal listener or physical previews.
 
-The optional [local MCP host](local-mcp.md) supports Windows and WSL through the protected controller. Source delivery and separately authorized installed-client/light acceptance remain distinct.
+The optional [local MCP host](local-mcp.md) reaches the protected controller over loopback HTTP. Source delivery and separately authorized installed-client/light acceptance remain distinct.
 
 ## Machine integration settings
 

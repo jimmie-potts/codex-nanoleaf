@@ -42,30 +42,6 @@ The machine endpoint SHALL be opt-in, bind loopback by default, require its exac
 - **WHEN** a body, request deadline, concurrent request or pending queue limit is exceeded
 - **THEN** the endpoint returns a bounded typed error before a new effect, and pre-admission capacity rejection consumes no identity
 
-### Requirement: Supported modes preserve existing ownership
-
-The controller SHALL advertise Work, Quiet and Free as supported modes, power as supported, brightness as supported with the typed 0 to 100 bound, and scenes as supported with the discovered saved-scene identities bounded to 256 IDs; media, zones and preview SHALL remain unsupported. Accepted mode requests SHALL use the installation's existing state coordination and single light worker on its owning operating system. Existing mode brightness, scene restoration, pulse timing, unread behavior, project reservations SHALL remain intact; legacy Windows installations SHALL retain their WSL forwarding boundary. This requirement maps to issue #28's worker-ownership and unavailable-preview criteria and to [issue #64](https://github.com/jimmie-potts/codex-nanoleaf/issues/64) AC1; the retained baseline is the [bridge guide](../../../bridge/README.md).
-
-#### Scenario: A client requests Quiet
-
-- **WHEN** an authorized fresh command requests Quiet
-- **THEN** the existing worker applies the current Quiet policy and the API does not independently send a light request
-
-#### Scenario: A client requests unsupported brightness or preview
-
-- **WHEN** a client inspects capabilities, requests a brightness outside 0 to 100, or requests a media, zone or preview operation
-- **THEN** power, brightness and scenes are declared supported with their typed constraints, the out-of-range brightness fails validation, media, zones and preview are explicitly unavailable, and the unsupported operation is rejected through the shared contract without a new effect
-
-#### Scenario: Installed WSL command dispatch
-
-- **WHEN** a WSL controller command targets the legacy Windows installation
-- **THEN** it forwards to Windows before opening controller state, or fails without state changes when Windows is unavailable
-
-#### Scenario: Linux-owned controller command
-
-- **WHEN** a controller command targets the fresh Linux installation
-- **THEN** it uses only that installation's Linux state and worker without Windows forwarding
-
 ### Requirement: Read-only snapshot and resynchronization
 
 Discovery, snapshot and feed retrieval SHALL cause no state migration, task metadata synchronization, allocation, unread acknowledgment, queue advancement, worker launch or device request. Feed history SHALL be bounded and revisioned in its own epoch namespace. Retained cursors SHALL return later events in order; invalid, expired, foreign-epoch or future cursors SHALL return one current resync. This requirement maps to issue #28's pure-read and bounded replay criteria.
@@ -158,7 +134,7 @@ The controller SHALL consume a verified immutable contract artifact with a recor
 
 #### Scenario: Mode command supersedes a queued control
 
-- **WHEN** a browser, tray, CLI or native mode command commits while a general control is queued
+- **WHEN** a browser, CLI or native mode command commits while a general control is queued
 - **THEN** the queued control is cancelled with stale generation and is never sent
 
 ### Requirement: Brightness and power overrides persist until the next explicit mode command
@@ -227,3 +203,22 @@ Snapshots SHALL report desired power and brightness as known only while an overr
 
 - **WHEN** a client reads the snapshot after an explicit mode command clears the overrides
 - **THEN** desired power and brightness are unknown again and the desired mode reflects the command
+
+### Requirement: Supported modes preserve Linux ownership
+
+The controller SHALL advertise Work, Quiet and Free as supported modes, power as supported, brightness as supported with the typed 0 to 100 bound, and scenes as supported with the discovered saved-scene identities bounded to 256 IDs; media, zones and preview SHALL remain unsupported. Accepted mode requests SHALL use the installation's existing Linux state coordination and single light worker. Existing mode brightness, scene restoration, pulse timing, unread behavior, project reservations SHALL remain intact. Installed commands SHALL open only the installation's own Linux state; no command SHALL forward to another operating system. This requirement maps to issue #28's worker-ownership and unavailable-preview criteria, to [issue #64](https://github.com/jimmie-potts/codex-nanoleaf/issues/64) AC1 and to [issue #131](https://github.com/jimmie-potts/codex-nanoleaf/issues/131) AC1 and AC2; the retained baseline is the [bridge guide](../../../bridge/README.md).
+
+#### Scenario: A client requests Quiet
+
+- **WHEN** an authorized fresh command requests Quiet
+- **THEN** the existing worker applies the current Quiet policy and the API does not independently send a light request
+
+#### Scenario: A client requests unsupported brightness or preview
+
+- **WHEN** a client inspects capabilities, requests a brightness outside 0 to 100, or requests a media, zone or preview operation
+- **THEN** power, brightness and scenes are declared supported with their typed constraints, the out-of-range brightness fails validation, media, zones and preview are explicitly unavailable, and the unsupported operation is rejected through the shared contract without a new effect
+
+#### Scenario: Linux-owned controller command
+
+- **WHEN** a controller command targets the Linux installation
+- **THEN** it uses only that installation's Linux state and worker, and the installed command surface contains no forwarding entry point

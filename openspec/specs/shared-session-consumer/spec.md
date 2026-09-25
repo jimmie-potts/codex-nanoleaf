@@ -117,7 +117,7 @@ Inspection SHALL report source selection, owner, consumer health and sanitized i
 - **THEN** it receives selected source, neutral identities, connection, last revision/update, evidence age, uncertainty and fixed errors without mutations or credential/path disclosure
 
 ### Requirement: Source qualification evidence
-The delivery SHALL exercise released fixtures and isolated Linux fake-feed/worker paths, measure bounded consumer overhead, preserve legacy Windows routing where affected, and distinguish source evidence from installed, integrated performance and optical acceptance. This covers #29 verification and performance criteria.
+The delivery SHALL exercise released fixtures and isolated Linux fake-feed/worker paths, measure bounded consumer overhead, and distinguish source evidence from installed, integrated performance and optical acceptance. This covers #29 verification and performance criteria; the legacy Windows routing clause was retired under [issue #131](https://github.com/jimmie-potts/codex-nanoleaf/issues/131).
 
 #### Scenario: Consumer qualification
 - **WHEN** source acceptance is evaluated

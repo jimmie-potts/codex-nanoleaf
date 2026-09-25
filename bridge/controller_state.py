@@ -1,4 +1,4 @@
-"""Standard-library controller ledger in the existing Windows-owned database."""
+"""Standard-library controller ledger in the installation's existing database."""
 import contextlib
 import hashlib
 import hmac
@@ -134,7 +134,7 @@ def finish(db,sequence,outcome,failure=None):
 
 
 def changed(db, mode=False, native=False):
-    """Called inside the owning browser/tray/native desired-state transaction."""
+    """Called inside the owning browser/CLI/native desired-state transaction."""
     if not present(db):return
     data=read(db)
     if data['revision']>=9007199254740991 or data['generation']>=9007199254740991:

@@ -1,5 +1,9 @@
 # Local Codex acceptance, 2026-09-08
 
+Historical record. It documents the retired Windows installation and its WSL
+helper route; [ADR 0012](decisions/0012-retire-windows-runtime.md) removed both
+from source, and the Linux installation is the only supported runtime.
+
 The repository owner completed the authorized Windows upgrade and local Codex
 acceptance for [issue #34](https://github.com/jimmie-potts/codex-nanoleaf/issues/34).
 Both native Windows and same-machine WSL Codex controlled the installed Windows

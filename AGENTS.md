@@ -1,6 +1,6 @@
 # Working on Codex Nanoleaf
 
-This repository maps Codex task status to Nanoleaf Lines. A fresh Linux installation keeps its runtime and private state under `~/.local/share/codex-nanoleaf`. Legacy Windows installations use `%LOCALAPPDATA%\CodexNanoleaf`. Source delivery does not change either installation.
+This repository maps Codex task status to Nanoleaf Lines. The Linux installation keeps its runtime and private state under `~/.local/share/codex-nanoleaf`. Source delivery does not change the installation. The Windows runtime was retired from source ([ADR 0012](docs/decisions/0012-retire-windows-runtime.md)).
 
 ## Development
 
@@ -11,9 +11,9 @@ controller contract; Local MCP bindings adopt the shared module; shared monitori
 controller API or credential changes, read [the controller API guide](docs/controller-api.md).
 
 - Read `README.md` for setup and commands. Before changing lights, task allocation, hooks, or scene handling, read `bridge/README.md` for the existing behavior contract.
-- Run `python3 scripts/check.py` from the repository root after Python changes. On Windows, use `python scripts/check.py`. The suite uses isolated state and must pass without a device or Codex credentials.
+- Run `python3 scripts/check.py` from the repository root after Python changes. The suite uses isolated state and must pass without a device or Codex credentials.
 - After changing the map or its API, also run `npm run test:browser`. Use `python3 scripts/demo.py` for manual UI work. It uses synthetic tasks and never sends light requests.
-- For changes to the tray or Windows installer, validate with Windows PowerShell. For Linux installer changes, exercise isolated Linux setup with fake device transport. Report separately whether Windows and physical-light checks ran; an isolated test does not prove a device update succeeded.
+- For Linux installer changes, exercise isolated Linux setup with fake device transport. Report separately whether physical-light checks ran; an isolated test does not prove a device update succeeded.
 - After workflow, skill, or OpenSpec changes, run `npm run check:workflow` and `npm run test:workflow` from the root after `npm ci`. Both must exit zero. An empty specification inventory is allowed during bootstrap and must be reported as empty.
 
 ## Development workflow
@@ -34,11 +34,11 @@ controller API or credential changes, read [the controller API guide](docs/contr
 
 ## Runtime boundaries
 
-- Keep one active installation and one light-writing worker per device. Fresh Linux hooks, CLI, wall map, and controller share Linux SQLite; MCP calls the controller over direct loopback HTTP. Legacy Windows installations retain Windows Python forwarding. Never share runtime SQLite across Windows and Linux, because their locks do not exclude each other. Before Linux setup or service work, read [the Linux installation guide](docs/linux-install.md) and its ownership/acceptance boundaries.
+- Keep one active installation and one light-writing worker per device. Hooks, CLI, wall map, and controller share Linux SQLite; MCP calls the controller over direct loopback HTTP. Runtime SQLite never lives on a Windows-mounted path; the runtime reads Codex Desktop's mounted JSON read-only. Before Linux setup or service work, read [the Linux installation guide](docs/linux-install.md) and its ownership/acceptance boundaries.
 - Keep credentials, databases, live task metadata, scene state, hook files, and installed backups out of Git. The browser must never receive the Nanoleaf token.
 - Preserve task pulse epochs, unread tracking, active comet source reservations, saved project preferences, and the user's mode and scene selection during changes.
 - Read Codex metadata through the existing reader. Do not write Codex's internal SQLite database or mark tasks read from the map.
-- Source changes and tests do not update the installed bridge. An explicitly requested fresh Linux installation may leave old Nanoleaf data unused; preserve unrelated hooks, applications, and Codex data. Stop the Windows owner before registering active Linux hooks or enabling services. For an authorized Windows upgrade, use `bridge/install-modes.ps1`, which backs up state and preserves tasks and trusted hooks. Read `docs/development.md` before installation or physical verification. Do not run fresh `setup` to upgrade an existing installation, because it clears task records.
+- Source changes and tests do not update the installed bridge. An explicitly requested fresh Linux installation may leave old Nanoleaf data unused; preserve unrelated hooks, applications, and Codex data. Read `docs/development.md` before installation or physical verification. A bare `setup` is refused; `setup --reset` clears task records and is never an upgrade step.
 
 ## Code Review Rules
 

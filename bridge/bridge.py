@@ -1,15 +1,12 @@
 """Local Codex lifecycle indicator. Python standard library only."""
 import argparse
-import base64
 import contextlib
-import getpass
 import ipaddress
 import json
 import math
 import os
 from pathlib import Path
 import shlex
-import shutil
 import sqlite3
 import subprocess
 import sys
@@ -45,18 +42,10 @@ MARKER = 'nanoleaf-codex-status-v1'
 INPUT_TOOLS = {'request_user_input', 'request_user_input_async', 'request_permissions'}
 
 
-def windows_path(value):
-    if value.startswith('/mnt/') and len(value) > 7 and value[6] == '/':
-        return value[5].upper() + ':\\' + value[7:].replace('/', '\\')
-    return value
-
-
 def data_dir():
     adjacent = Path(__file__).resolve().parent
     if (adjacent / 'config.json').exists():
         return adjacent
-    if os.name == 'nt':
-        return Path(os.environ['LOCALAPPDATA']) / 'CodexNanoleaf'
     return Path.home() / '.local' / 'share' / 'codex-nanoleaf'
 
 
@@ -234,8 +223,6 @@ def unread_reader(config):
     """Read the desktop's unread indicator, never write to its saved state."""
     if config.get('desktop_state_path'):
         path = Path(config['desktop_state_path'])
-    elif os.name == 'nt':
-        path = Path(os.environ.get('USERPROFILE', str(Path.home()))) / '.codex' / '.codex-global-state.json'
     else:
         path = Path(os.environ.get('CODEX_HOME', str(Path.home() / '.codex'))) / '.codex-global-state.json'
     stamp, cached = None, None
@@ -612,7 +599,7 @@ def set_mode(directory, mode, launch=None, now=time.time, device=devices.DEFAULT
 
 
 def get_status(directory, device=devices.DEFAULT):
-    # Tray polling never initializes or migrates a database.
+    # Status reads never initialize or migrate a database.
     with contextlib.closing(sqlite3.connect(
             (directory / 'status.sqlite').resolve().as_uri() + '?mode=ro', uri=True, timeout=0.2)) as db:
         state = control_state(db, device)
@@ -777,11 +764,7 @@ def registered_devices(directory):
 def launch_worker(directory, device=None):
     """Wake one worker instance per registered device, or only the named device."""
     options = {'stdin': subprocess.DEVNULL, 'stdout': subprocess.DEVNULL,
-               'stderr': subprocess.DEVNULL, 'close_fds': True}
-    if os.name == 'nt':
-        options['creationflags'] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
-    else:
-        options['start_new_session'] = True
+               'stderr': subprocess.DEVNULL, 'close_fds': True, 'start_new_session': True}
     for target in [device] if device else registered_devices(directory):
         subprocess.Popen([sys.executable, str(Path(__file__).resolve()), 'worker',
                           '--state-dir', str(directory.resolve()), '--device', target], **options)
@@ -1064,21 +1047,10 @@ class PreviewCancelled(Exception):
 
 def hook_command(script, state_dir=None):
     state_args = ['--state-dir', str(state_dir)] if state_dir is not None else []
-    if os.name == 'nt':
-        # Select PowerShell explicitly, regardless of Codex's command shell.
-        quote = lambda text: "'" + str(text).replace("'", "''") + "'"
-        source = '& ' + quote(sys.executable) + ' ' + quote(script) + ' hook'
-        if state_args:
-            source += ' --state-dir ' + quote(state_dir)
-        encoded = base64.b64encode(source.encode('utf-16le')).decode('ascii')
-        windows = 'powershell.exe -NoProfile -NonInteractive -EncodedCommand ' + encoded
-        drive, rest = str(script).split(':', 1)
-        wsl_script = '/mnt/' + drive.lower() + rest.replace('\\', '/')
-        return shlex.join(['python3', wsl_script, 'hook', *state_args]), windows
-    return shlex.join([sys.executable, str(script), 'hook', *state_args]), None
+    return shlex.join([sys.executable, str(script), 'hook', *state_args])
 
 
-def merge_hooks(original, command, remove=False, windows_command=None):
+def merge_hooks(original, command, remove=False):
     result = json.loads(json.dumps(original))
     hooks = result.setdefault('hooks', {})
     for name in EVENTS:
@@ -1095,8 +1067,6 @@ def merge_hooks(original, command, remove=False, windows_command=None):
             handler = {'type': 'command', 'command': command,
                        'timeout': 3 if name in ('SessionEnd', 'Interrupt') else 5,
                        'statusMessage': MARKER}
-            if windows_command:
-                handler['commandWindows'] = windows_command
             clean.append({'hooks': [handler]})
         if clean:
             hooks[name] = clean
@@ -1108,8 +1078,7 @@ def merge_hooks(original, command, remove=False, windows_command=None):
 def write_json(path, value):
     temporary = path.with_suffix(path.suffix + '.tmp')
     temporary.write_text(json.dumps(value, indent=2) + '\n', encoding='utf-8')
-    if os.name != 'nt':
-        temporary.chmod(0o600)
+    temporary.chmod(0o600)
     temporary.replace(path)
 
 
@@ -1137,7 +1106,7 @@ def manage_hooks(codex_home, operation, script, state_dir=None):
     hooks_file = codex_home / 'hooks.json'
     original_bytes = hooks_file.read_bytes() if hooks_file.exists() else None
     original = parse_hooks_json(original_bytes)
-    command, windows_command = hook_command(Path(script), state_dir=state_dir)
+    command = hook_command(Path(script), state_dir=state_dir)
     saved = original if has_legacy_hooks_value(original) else None
     saved_bytes = original_bytes if saved is not None else None
     if operation == 'register' and saved is None:
@@ -1156,7 +1125,7 @@ def manage_hooks(codex_home, operation, script, state_dir=None):
             return False
         rendered = remove_marked_hooks_json(original_bytes)
     else:
-        fresh = merge_hooks({}, command, windows_command=windows_command)
+        fresh = merge_hooks({}, command)
         groups_by_event = marked_groups(fresh)
         if saved is not None:
             groups_by_event.update(marked_groups(saved))
@@ -1410,7 +1379,6 @@ def append_hook_groups_json(raw, event, groups):
 def setup(args):
     directory = getattr(args, 'state_dir', None) or data_dir()
     directory.mkdir(parents=True, exist_ok=True)
-    config_file = directory / 'config.json'
     if args.check or args.demo or args.reset or args.notify or args.refresh or args.comet:
         # Previews, checks and refresh address one device; reset clears the shared tasks of every device.
         device = getattr(args, 'device', None) or devices.DEFAULT
@@ -1463,7 +1431,7 @@ def setup(args):
             launch_worker(directory)
         return
     codex_base = os.environ.get('CODEX_HOME', str(Path.home() / '.codex'))
-    codex_dir = Path(windows_path(codex_base) if os.name == 'nt' else codex_base)
+    codex_dir = Path(codex_base)
     hooks_file = codex_dir / 'hooks.json'
     original = json.loads(hooks_file.read_text(encoding='utf-8-sig')) if hooks_file.exists() else {}
     if args.uninstall:
@@ -1471,66 +1439,12 @@ def setup(args):
             # Removing the hooks hands every registered device back to the Nanoleaf app.
             for device in registered_devices(directory):
                 set_mode(directory, 'free', device=device)
-        remover = directory / 'remove-modes.ps1'
-        if os.name == 'nt' and remover.exists():
-            subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-File', str(remover)], check=True)
         write_json(hooks_file, merge_hooks(original, '', remove=True))
         print('Removed Nanoleaf hooks. Restart Codex. Saved light credentials remain in', directory)
         return
-    print('Connect Codex status to Nanoleaf at 192.168.1.207.')
-    print('This installs local hooks; it preserves existing hooks and notification settings.')
-    token = getpass.getpass('Paste the working Nanoleaf auth_token (hidden): ').strip()
-    config = {'ip': '192.168.1.207', 'token': token}
-    info = light_request(config, 'GET')  # Validate before changing hook configuration.
-    print('Connected:', info.get('name', 'Nanoleaf'))
-    write_json(directory / 'layout.json', {'line_groups': pair_lines(info['panelLayout'])})
-    write_json(config_file, config)
-    installed_script = directory / 'bridge.py'
-    if Path(__file__).resolve() != installed_script.resolve():
-        shutil.copytree(Path(__file__).parent / 'vendor', directory / 'vendor', dirs_exist_ok=True)
-        for name in ('project_map.py', 'devices.py', 'wall_server.py', 'wall.html', 'prism.js', 'prism-adapters.js', 'prism-labels.js', 'tray.ps1', 'remove-modes.ps1', 'install-modes.ps1', 'backup_install.py', 'controller_state.py', 'controller_server.py', 'controller_contract.py', 'requirements-controller.txt', 'README.md'):
-            shutil.copyfile(Path(__file__).with_name(name), directory / name)
-        shutil.copyfile(__file__, installed_script)
-    codex_dir.mkdir(parents=True, exist_ok=True)
-    if hooks_file.exists():
-        backup = hooks_file.with_name('hooks.nanoleaf-backup-' + str(time.time_ns()) + '.json')
-        shutil.copyfile(hooks_file, backup)
-    command, windows_command = hook_command(installed_script)
-    write_json(hooks_file, merge_hooks(original, command, windows_command=windows_command))
-    with contextlib.closing(connect_state(directory)) as db, db:
-        db.execute('DELETE FROM comets')
-        db.execute('DELETE FROM sessions')
-        db.execute('DELETE FROM display_v3')
-        db.execute('DELETE FROM activity')
-        db.execute('DELETE FROM receipts')
-        db.execute('DELETE FROM slots')
-        db.execute('DELETE FROM waits')
-        mark_dirty(db)
-    print('Installed hooks in', hooks_file)
-    print('Review and trust the Nanoleaf hooks in the hook section of Codex Desktop Settings.')
-    print('Task Lines pulse green while working, yellow for a question during work, and red when blocked.')
-    print('Unread completions pulse blue until viewed. The first pulse of each state spreads outward.')
-    print('Choose scenes in the Nanoleaf app. The latest one returns after all indicators clear.')
-    print('If desktop hooks do not fire, report that here; installation alone is not verification.')
 
 
 def main():
-    # Windows and WSL SQLite locks on the same mounted file do not exclude
-    # each other. Installed WSL hooks delegate before opening any state files,
-    # so all live state writes and workers use Windows Python and its locks.
-    if os.name != 'nt' and sys.argv[1:2] and (sys.argv[1].startswith('shared-') or sys.argv[1] in ('hook', 'hooks', 'worker', 'setup', 'mode', 'status', 'tray', 'map', 'serve', 'style', 'map-status', 'controller-configure', 'controller-token', 'controller-revoke', 'controller-serve', 'controller-status', 'controller-disable')):
-        installed = Path(__file__).resolve()
-        if installed.parent.name == 'CodexNanoleaf' and installed.parent.parent.name == 'Local':
-            account = installed.parent.parents[2]
-            runtime = account / '.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe'
-            if not runtime.is_file():
-                print('Nanoleaf Windows runtime is unavailable; no state was changed.', file=sys.stderr)
-                if sys.argv[1] == 'hook':
-                    print('{}')
-                return
-            command = [str(runtime), windows_path(str(installed)),
-                       *(windows_path(arg) for arg in sys.argv[1:])]
-            raise SystemExit(subprocess.call(command))
     if sys.argv[1:2] and sys.argv[1].startswith('shared-'):
         from types import SimpleNamespace
         return shared_input.command(sys.argv[1:], SimpleNamespace(**globals()))
@@ -1545,18 +1459,18 @@ def main():
         from types import SimpleNamespace
         raise SystemExit(enrollment.command(sys.argv[1:], SimpleNamespace(**globals())))
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('mode', choices=['setup', 'hook', 'worker', 'mode', 'status', 'tray', 'map', 'serve', 'style', 'map-status'])
+    parser.add_argument('mode', choices=['setup', 'hook', 'worker', 'mode', 'status', 'map', 'serve', 'style', 'map-status'])
     parser.add_argument('--state-dir', type=Path, help=argparse.SUPPRESS)
     parser.add_argument('selection', nargs='?', choices=MODES + ('classic', 'project'))
     parser.add_argument('--json', action='store_true')
     parser.add_argument('--port', type=int, help='Wall-map loopback port; overrides the installation setting.')
-    parser.add_argument('--no-open', action='store_true', help='Print the wall-map URL without opening a browser.')
+    parser.add_argument('--no-open', action='store_true', help='Accepted for compatibility; the map never opens a browser.')
     parser.add_argument('--device', help='Registered device for mode, status, worker and device setup operations; defaults to the original Lines device.')
     group = parser.add_mutually_exclusive_group()
     for flag in ('check', 'demo', 'reset', 'uninstall', 'notify', 'refresh', 'comet'):
         group.add_argument('--' + flag, action='store_true')
     args = parser.parse_args()
-    if os.name != 'nt' and args.mode == 'setup' and not any(
+    if args.mode == 'setup' and not any(
             getattr(args, flag) for flag in ('check', 'demo', 'reset', 'uninstall', 'notify', 'refresh', 'comet')):
         parser.error('Use bridge/install_linux.py from the reviewed source checkout for a fresh Linux installation.')
     directory = args.state_dir or data_dir()
@@ -1593,13 +1507,6 @@ def main():
         except Exception:
             print(json.dumps({'mode': None, 'pending': True, 'error': 'Local status unavailable.'}))
             sys.exit(1)
-        return
-    if args.mode == 'tray':
-        if os.name != 'nt':
-            parser.error('The tray control runs on Windows.')
-        subprocess.Popen(['powershell.exe', '-NoProfile', '-STA', '-WindowStyle', 'Hidden',
-                          '-File', str(Path(__file__).with_name('tray.ps1'))],
-                         creationflags=subprocess.CREATE_NO_WINDOW)
         return
     if args.mode == 'worker':
         feed = {}
