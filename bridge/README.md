@@ -57,30 +57,34 @@ rather than adopting that level as the remembered brightness.
 
 The following read/Line-release policy describes legacy input; [shared input](../docs/shared-input.md#retained-idle-tasks-and-evict) retains idle tasks until owner removal or local eviction.
 
-Unused Lines stay blue while task indicators are showing. Each task keeps an assigned Line while it is active or
-has an unread completion. That Line stays in the task's status color as its
-brightness pulses. In Classic layout, both lighting zones of a physical Line receive the same animation.
+Each task keeps an assigned Line while it is active or has an unread completion.
+That Line stays in the task's status color as its brightness pulses. Unused Lines
+and Lines of read or interrupted tasks show the Base color while task indicators
+are showing. In Classic layout, both lighting zones of a physical Line receive the
+same animation.
 
-| Task state | Its assigned Line |
+| Task state | Its assigned Line, with the default palette |
 | --- | --- |
-| Working | Pulses between dim and bright green |
-| Has an asynchronous question and continues working | Pulses between dim and bright yellow |
-| Blocked on input or approval | Pulses between dim and bright red |
-| Completed but unread | Queues one completion comet, then pulses blue until Codex marks it read |
-| Completed and read, interrupted, or unused while other indicators remain | Steady blue |
+| Working | Pulses in the Working color (green) |
+| Has an asynchronous question and continues working | Pulses in the Question color (yellow) |
+| Blocked on input or approval | Pulses in the Blocked color (red) |
+| Completed but unread | Queues one completion comet, then pulses in the Unread color (violet) until Codex marks it read |
+| Completed and read, interrupted, or unused while other indicators remain | Steady in the Base color (dim blue) |
 | No active, blocked, or unread tasks remain | The remembered scene plays again |
+
+Choose each color under **Options > Colors** in the wall map, from suggested
+swatches or a custom color. **Reset colors** restores the defaults. One palette
+covers every registered device. The map warns when two roles look alike but still
+saves the choice. The [task-light colors specification](../openspec/specs/task-light-colors/spec.md)
+owns the palette, its defaults and where each color applies, including pulses,
+outward waves, Quiet, comets, Project halves and status priority.
 
 A pulse takes 2 seconds. The first pulse after a working, question, or blocked status change radiates outward
 from that task's Line, reaching nearby pieces before distant ones. Afterward,
-only its assigned Line pulses. Completion uses the comet described below instead of a blue outward wave.
-Every status pulses between 20% and 100% of its
-color's brightness. Green, yellow, and red task Lines stay in their assigned hue
-between flashes. After an outward wave passes, other Lines return to their own
-status color, or steady blue if unused.
+only its assigned Line pulses. Completion uses the comet described below instead of an outward wave.
 
 Each task has its own pulse start time. Ordinary tool activity and changes in
-other tasks do not restart its outward pulse. When outward animations overlap,
-red takes priority over yellow, green, and blue. Completed markers no longer stay
+other tasks do not restart its outward pulse. Completed markers no longer stay
 green. Task indicators use 30% overall brightness. The remembered brightness
 returns with the scene.
 
@@ -177,7 +181,8 @@ active comet's source, the map shows the pending change and applies it when that
 comet finishes. Several edits made during a comet are combined.
 
 In Project layout, an unused reserved Line keeps its project half colored and its
-status half blue while any indicators remain. Empty Shared Lines stay blue. Once
+status half in the Base color while any indicators remain. Empty Shared Lines use
+the Base color. Once
 all indicators and active comets clear, the whole wall returns to the remembered
 scene. The existing mode and scene brightness rules still apply.
 
@@ -234,7 +239,7 @@ It listens only on `127.0.0.1` at the configured fixed port, defaulting
 to `8765`. Requests must use its exact
 local address; writes also require the page's origin and an unpredictable request
 token. The Nanoleaf credential never reaches the browser. `/api/state` reads map
-state; `/api/settings`, `/api/project`, `/api/assign`, `/api/task`, `/api/locate`, and
+state, including the effective palette; `/api/settings`, which also saves the palette, `/api/project`, `/api/assign`, `/api/task`, `/api/locate`, and
 `/api/mode` validate and save changes. All writes run in the installation's Python runtime, using the
 same operating system and private database as its hooks. Only the existing bridge worker sends light
 updates. The map server runs as a user service and also starts on demand.
@@ -243,13 +248,13 @@ updates. The map server runs as a user service and also starts on demand.
 
 In Work mode, each newly completed turn queues a 2-second comet from its assigned
 Line. A white head travels outward by distance, reaching the farthest Line after
-1.4 seconds. A blue tail fades over the remaining 0.6 seconds. In Classic layout, both zones of each
+1.4 seconds. A tail in the Unread color fades over the remaining 0.6 seconds. In Classic layout, both zones of each
 Line stay identical, and overall brightness stays at 30%.
 
 Comets play one at a time in completion order. Red and yellow task Lines remain
 visible, and red/yellow outward waves take precedence wherever they pass. Green
-and blue indicators briefly show the comet, then return to their current state.
-Queued completions keep their ordinary unread blue pulse while waiting.
+and unread indicators briefly show the comet, then return to their current state.
+Queued completions keep their ordinary unread pulse while waiting.
 
 Reading a queued task skips its comet. Reading one during playback lets that comet
 finish before its source Line is reused or the idle scene returns. A new turn or
@@ -263,7 +268,7 @@ are not restarted. Failed light requests follow the same rule.
 
 `setup --comet` previews one comet from the middle Line, then restores live status.
 It is available only in Work and creates no fake task records. Mode changes
-interrupt the preview. The ordinary status demo still previews local blue pulses.
+interrupt the preview. The ordinary status demo still previews local pulses in the current palette.
 
 ## Scene restoration
 
@@ -273,14 +278,14 @@ while indicators are showing, the bridge remembers that choice, then restores
 the task display within about one to two seconds. Changing scenes does not restart
 the tasks' outward pulses.
 
-Reading one completed task returns its Line to steady blue while other indicators
+Reading one completed task returns its Line to the steady Base color while other indicators
 remain. When the last running, blocked, or unread task clears, the bridge reselects
 the remembered scene for the entire setup and restores its brightness. The scene's
 animation may restart. While idle, the bridge leaves your scene running, so you can
 change it normally in the Nanoleaf app.
 
 The initial target is the next scene you choose in the Nanoleaf app. Until a scene
-has been remembered, blue is the fallback. Blue also remains the fallback if you
+has been remembered, steady blue is the fallback, whatever the Base color. Blue also remains the fallback if you
 delete the remembered scene from the controller. The bridge never saves its own
 temporary task animation as your scene preference.
 
@@ -299,8 +304,8 @@ blocked; the agent may still be handling the failure.
 
 The bridge reads Codex Desktop's saved unread-task indicator from
 `.codex-global-state.json`. It does not modify that file or mark tasks read. Once
-an observed unread task disappears from that indicator, its Line returns to steady
-blue, or the scene returns if it was the last indicator. For a newly completed response that never becomes unread, the bridge allows
+an observed unread task disappears from that indicator, its Line returns to the
+steady Base color, or the scene returns if it was the last indicator. For a newly completed response that never becomes unread, the bridge allows
 five seconds for the desktop to save its status before treating it as already viewed.
 Missing, malformed, or unavailable read status leaves the notification active.
 The reader accepts the version 1 `electron-thread-read-state-v1` marker and
@@ -396,7 +401,7 @@ Use the installed `bridge.py` with these arguments:
 | `style classic` / `style project` | Switch layout without losing project preferences |
 | `map-status` | Read mode, layout, coverage, and pending changes as JSON |
 | `setup --check` | Check connectivity, physical Line count, and remembered scene |
-| `setup --demo` | Preview green, yellow, red, and unread blue pulses from the middle Line, then restore live status |
+| `setup --demo` | Preview working, question, blocked, and unread pulses in the current palette from the middle Line, then restore live status |
 | `setup --comet` | Preview one completion comet in Work, then restore live status |
 | `setup --notify` | Preview one outward green pulse and a local pulse, then restore live status |
 | `setup --refresh` | Redraw current task states |

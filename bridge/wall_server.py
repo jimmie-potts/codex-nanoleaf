@@ -91,7 +91,7 @@ class App:
                 for line,(project,signature) in zip(lines,prefs):
                     line.update(project=project,signature=signature,task=next((t['id'] for t in tasks if t['line']==line['id']),None))
                 control=self.b.control_state(db,device)
-                result={'settings':wall.settings(db,device),'mode':control['mode'],'pending':wall.pending(db,device),
+                result={'settings':wall.settings(db,device),'palette':wall.palette(db),'mode':control['mode'],'pending':wall.pending(db,device),
                         'error':control['error'],'mode_pending':control['revision']!=control['applied'],
                         'device':device,'projects':projects,'lines':lines,'tasks':tasks,'now':time.time(),
                         'connector_layout':connectors,
@@ -134,8 +134,11 @@ def apply_operation(db,b,config,route,payload):
         b.shared_input.evict(db,device,payload)
     elif route=='/api/settings':
         checks={'style':('classic','project'),'coverage':('whole','status'),'rotation':(0,90,180,270),'flip_x':(0,1),'flip_y':(0,1)}
-        if not payload or any(k not in checks or v not in checks[k] for k,v in payload.items()): raise ValueError('Invalid setting.')
-        patch={'settings':payload}
+        settings={k:v for k,v in payload.items() if k!='palette'}
+        if not payload or any(k not in checks or v not in checks[k] for k,v in settings.items()): raise ValueError('Invalid setting.')
+        # The palette covers every device and moves no comet source, so it applies at once.
+        if 'palette' in payload: wall.save_palette(db,wall.validate_palette(payload['palette']))
+        if settings: patch={'settings':settings}
     elif route=='/api/assign':
         values=payload.get('lines')
         if not isinstance(values,dict) or not values: raise ValueError('Select at least one Line.')

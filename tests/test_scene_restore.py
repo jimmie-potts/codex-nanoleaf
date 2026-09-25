@@ -115,7 +115,7 @@ class SceneTest(unittest.TestCase):
             self.assertFalse(manager.observe())
             self.assertEqual(self.saved()['scene'], {'name': 'Beach Waves', 'brightness': 43})
 
-    def test_first_viewed_task_goes_blue_and_only_last_read_restores_scene(self):
+    def test_first_viewed_task_goes_to_base_and_only_last_read_restores_scene(self):
         self.event('UserPromptSubmit', 'a')
         self.event('UserPromptSubmit', 'b')
         def finish_a():
@@ -133,7 +133,8 @@ class SceneTest(unittest.TestCase):
         self.assertTrue(between_reads)
         for panels in between_reads:
             self.assertEqual({tuple(f[:3]) for f in panels[100]}, {b.BASELINE})
-            self.assertIn((5, 12, 51), {tuple(f[:3]) for f in panels[102]})
+            dim = tuple(round(c * b.MIN_BRIGHTNESS) for c in b.COLORS['unread'])
+            self.assertIn(dim, {tuple(f[:3]) for f in panels[102]})
         restorations = [when for when, method, _, payload in self.device.calls
                         if method == 'PUT' and payload.get('select') == 'Beach Waves']
         self.assertEqual(len(restorations), 1)

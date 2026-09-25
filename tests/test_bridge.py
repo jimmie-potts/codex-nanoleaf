@@ -516,11 +516,11 @@ class BridgeTest(unittest.TestCase):
         self.assertEqual(self.statuses()['a'],'unread')
         self.assertEqual(len(self.query('SELECT * FROM receipts')),1)
 
-    def test_blue_completion_pulses_locally_without_legacy_wave(self):
+    def test_unread_completion_pulses_locally_without_legacy_wave(self):
         snapshot=[('unread',0)]+[None]*14
         delays=[b.travel_delays(self.config,i) for i in range(15)]
-        self.assertEqual(b.pixel_color(snapshot,0,0.5,delays),b.BASELINE)
-        self.assertEqual(b.pixel_color(snapshot,0,1.5,delays),(5,12,51))
+        self.assertEqual(b.pixel_color(snapshot,0,0.5,delays),b.COLORS['unread'])
+        self.assertEqual(b.pixel_color(snapshot,0,1.5,delays),tuple(round(c*b.MIN_BRIGHTNESS) for c in b.COLORS['unread']))
         rgb=b.pixel_color(snapshot,14,1,delays)
         self.assertEqual(rgb,b.BASELINE)
         for later_pulse in (3,5):

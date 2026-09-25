@@ -293,7 +293,7 @@ no timer or global clear.
 ## Retained idle tasks and Evict
 
 In shared mode, reading or acknowledging a completed task leaves its wall row
-and assigned Line visible. Idle is steady blue. This does not assert successful
+and assigned Line visible. Idle is steady in the Base color. This does not assert successful
 completion. The owner can later remove the task on an accepted session end or
 its existing evidence-expiry policy; Nanoleaf adds no idle timer. Legacy input
 keeps its existing read/Line-release behavior.

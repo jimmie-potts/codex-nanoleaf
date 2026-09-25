@@ -22,9 +22,12 @@ import shared_input
 
 EVENTS = ('UserPromptSubmit', 'PreToolUse', 'PermissionRequest',
           'PostToolUse', 'Stop', 'Interrupt', 'SessionEnd')
-BASELINE = (25, 60, 255)
-COLORS = {'working': (0, 255, 0), 'question': (255, 255, 0),
-          'blocked': (255, 0, 0), 'unread': BASELINE}
+# The operator's palette replaces these defaults on every pass; priority stays keyed by status.
+PALETTE = wall.palette_rgb(wall.DEFAULT_PALETTE)
+BASELINE = PALETTE['base']
+COLORS = {status: PALETTE[status] for status in ('working', 'question', 'blocked', 'unread')}
+# Shown only before a scene has been remembered or after it was deleted.
+FALLBACK = (25, 60, 255)
 PRIORITY = {'working': 1, 'question': 2, 'blocked': 3, 'unread': 0}
 # The controller uses decisecond frames, so 20 ticks gives a two-second cycle.
 PULSE_TICKS = 20
@@ -163,7 +166,8 @@ def travel_delays(config, source):
     return [distance / maximum * TRAVEL_SECONDS for distance in distances]
 
 
-def pixel_color(snapshot, target, instant, delays, wave_cutoff=float('-inf')):
+def pixel_color(snapshot, target, instant, delays, wave_cutoff=float('-inf'), palette=None):
+    palette = palette or PALETTE
     candidates = []
     for source, activity in enumerate(snapshot):
         if activity is None:
@@ -182,10 +186,10 @@ def pixel_color(snapshot, target, instant, delays, wave_cutoff=float('-inf')):
         if source == target or amplitude > 0.001:
             candidates.append((PRIORITY.get(status, 0), amplitude, status))
     if not candidates:
-        return BASELINE
+        return palette['base']
     _, amount, status = max(candidates)
     brightness = MIN_BRIGHTNESS + (1 - MIN_BRIGHTNESS) * amount
-    return tuple(round(color * brightness) for color in COLORS.get(status, BASELINE))
+    return tuple(round(color * brightness) for color in palette.get(status, palette['base']))
 
 
 def comet_color(config, snapshot, target, instant, delays, base):
@@ -207,8 +211,9 @@ def comet_color(config, snapshot, target, instant, delays, base):
     age = instant - comet['started'] - arrival
     if not 0 <= age < COMET_TAIL:
         return base
-    blue = min(1.0, max(0.0, (age - 0.1) / 0.1))
-    color = [255 + (channel - 255) * blue for channel in BASELINE]
+    # A white head fades into the Unread color the Line settles into.
+    settle = min(1.0, max(0.0, (age - 0.1) / 0.1))
+    color = [255 + (channel - 255) * settle for channel in config.get('_palette', PALETTE)['unread']]
     alpha = min(1.0, (COMET_TAIL - age) / 0.4)
     return tuple(round(background * (1 - alpha) + foreground * alpha)
                  for background, foreground in zip(base, color))
@@ -290,15 +295,16 @@ def zone_color(config, snapshot, index, half, instant, delays):
     snapshot = [None if i in suppressed and i != index else item for i,item in enumerate(snapshot)]
     activity = snapshot[index]
     steady = index in config.get('_steady_slots', ())
-    base = (COLORS.get(activity[0], BASELINE) if activity else BASELINE) if quiet or steady else pixel_color(
-        snapshot, index, instant, delays, config.get('_wave_cutoff', float('-inf')))
+    palette = config.get('_palette', PALETTE)
+    base = (palette.get(activity[0], palette['base']) if activity else palette['base']) if quiet or steady else pixel_color(
+        snapshot, index, instant, delays, config.get('_wave_cutoff', float('-inf')), palette)
     signature = None
     # Project/status halves need a two-zone Line; one-zone triangles always show status.
     if config.get('_style') == 'project' and len(config['line_groups'][index]) == 2:
         signatures = config.get('_signatures', [])
         if index < len(signatures):
             color, side = signatures[index]
-            if half == side: signature = tuple(color) if color is not None else BASELINE
+            if half == side: signature = tuple(color) if color is not None else palette['base']
     if signature is not None:
         base = signature
         if not quiet and not steady and config.get('_coverage') == 'whole':
@@ -313,7 +319,7 @@ def zone_color(config, snapshot, index, half, instant, delays):
                 candidates.append((PRIORITY[item[0]], amount, item[0]))
             if candidates:
                 _, amount, status = max(candidates)
-                base = tuple(round(a*(1-amount)+b*amount) for a,b in zip(signature,COLORS[status]))
+                base = tuple(round(a*(1-amount)+b*amount) for a,b in zip(signature,palette[status]))
     if not quiet and not steady and (signature is None or config.get('_coverage') == 'whole'):
         base = comet_color(config, snapshot, index, instant, delays, base)
     locate = config.get('_locate')
@@ -492,8 +498,9 @@ class SceneRestorer:
             self.request(config, 'PUT', '/effects', {'select': scene['name']})
             self.selected = scene['name']
         else:
-            # The first scene has not been chosen yet, or it was deleted.
-            output = self.draw(config, snapshot, instant, loop)
+            # The first scene has not been chosen yet, or it was deleted. This fallback keeps its own blue.
+            palette = dict(config.get('_palette', PALETTE), base=FALLBACK)
+            output = self.draw(dict(config, _palette=palette), snapshot, instant, loop)
             self.selected = '*Static*'
             self.save(owned=quiet)
             return output
@@ -735,7 +742,8 @@ def update_display(db, config, snapshot, instant, loop, send=None):
     device = devices.device_of(config)
     encoded = json.dumps([snapshot, config.get('_comet'), config.get('_locate'),
                           config.get('_style'), config.get('_coverage'), config.get('_signatures'),
-                          config.get('_steady_slots'), config.get('_wave_suppressed_slots'), config.get('_wave_cutoff')])
+                          config.get('_steady_slots'), config.get('_wave_suppressed_slots'), config.get('_wave_cutoff'),
+                          config.get('_palette')])
     previous = db.execute('SELECT snapshot,looping FROM display_v3 WHERE device=?', (device,)).fetchone()
     if not loop or previous != (encoded, 1):
         output = (send or render)(config, snapshot, instant, loop)
@@ -909,6 +917,7 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
                 preview = db.execute('SELECT value FROM meta WHERE key=?', (key('preview'),)).fetchone()
                 if preview:
                     db.execute('DELETE FROM meta WHERE key=?', (key('preview'),))
+                    config['_palette'] = wall.palette_rgb(wall.palette(db))  # Previews show the chosen colors.
             if preview and mode != 'free' and not dark:
                 def preview_send(cfg, snap, instant, loop):
                     with contextlib.closing(connect()) as check, check:
