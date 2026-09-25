@@ -1,12 +1,12 @@
 # Local controller API
 
-The optional controller API exposes the bridge's existing Work, Quiet and Free modes, plus power, brightness and saved-scene activation, to local native clients. The installation's single worker owns light updates on Linux. Media, zones and preview are explicitly unsupported in v1; requested Free-mode animations use the [integration extension](integration-api.md#requested-animations). Work/Quiet brightness and scene restoration retain their existing policies; [general controls](#general-controls) describe how a native override interacts with them.
+The optional controller API exposes the bridge's existing Work, Quiet and Free modes, plus power, brightness and saved-scene activation, to local native clients for each configured device. Each device's single worker owns that device's light updates on Linux. Media, zones and preview are explicitly unsupported in v1; requested Free-mode animations use the [integration extension](integration-api.md#requested-animations). Work/Quiet brightness and scene restoration retain their existing policies; [general controls](#general-controls) describe how a native override interacts with them.
 
-The [protected controller specification](../openspec/specs/protected-controller-api/spec.md) owns the machine behavior. [Issue #28](https://github.com/jimmie-potts/codex-nanoleaf/issues/28) owns the original delivery scope and [issue #64](https://github.com/jimmie-potts/codex-nanoleaf/issues/64) the general controls. Shared monitoring, installation/real-client acceptance and physical previews have separate issues.
+The [protected controller specification](../openspec/specs/protected-controller-api/spec.md) owns the machine behavior. [Issue #28](https://github.com/jimmie-potts/codex-nanoleaf/issues/28) owns the original delivery scope, [issue #64](https://github.com/jimmie-potts/codex-nanoleaf/issues/64) the general controls and [issue #113](https://github.com/jimmie-potts/codex-nanoleaf/issues/113) the second device. Shared monitoring, installation/real-client acceptance and physical previews have separate issues.
 
 ## Linux installation
 
-[Fresh Linux setup](linux-install.md) provisions the controller dependencies and credentials. Run the generated controller user service, or `~/.local/share/codex-nanoleaf/nanoleaf controller-serve --port 41231` in the foreground. Use the selected custom port when setup overrides the default. Its state and worker stay in Linux. MCP calls this listener directly; no Windows helper is involved. Enrolling [NL22 Light Panels](linux-install.md#add-nl22-light-panels) neither issues nor changes machine credentials, and the controller and MCP keep addressing `wall` only. [ADR 0007](decisions/0007-linux-runtime-ownership.md) records this ownership. Linux installed acceptance belongs to [#55](https://github.com/jimmie-potts/codex-nanoleaf/issues/55).
+[Fresh Linux setup](linux-install.md) provisions the controller dependencies and credentials. Run the generated controller user service, or `~/.local/share/codex-nanoleaf/nanoleaf controller-serve --port 41231` in the foreground. Use the selected custom port when setup overrides the default. Its state and worker stay in Linux. MCP calls this listener directly; no Windows helper is involved. Enrolling [NL22 Light Panels](linux-install.md#add-nl22-light-panels) neither issues nor changes machine credentials. The controller reaches the Panels only after you [add them](#add-the-nl22-light-panels). [ADR 0007](decisions/0007-linux-runtime-ownership.md) records the Linux ownership, and [ADR 0015](decisions/0015-per-device-controller-ledgers.md) records the per-device ledgers. Linux installed acceptance belongs to [#55](https://github.com/jimmie-potts/codex-nanoleaf/issues/55).
 
 ## Dependency and activation
 
@@ -32,18 +32,31 @@ nanoleaf controller-disable
 
 Revocation blocks old credentials before replay lookup and cancels unsent work. Disable stops the listener and cancels pending machine work without deleting tasks or preferences. To restart a disabled listener, explicitly run `controller-serve` or restart the user service. Installed commands open only the installation's own Linux state.
 
+## Add the NL22 Light Panels
+
+After [enrolling the Panels](linux-install.md#add-nl22-light-panels) as `panels`, add them to the controller with the same controller and source IDs:
+
+```bash
+nanoleaf controller-configure --controller-id local-controller --device-id panels --source-id local-source
+nanoleaf controller-status --device-id panels
+```
+
+The Panels get their own ledger: identity and epoch, configuration revision, generation, request journal, feed, saved scenes, overrides and hold. The Panels' worker is the only process that executes that ledger's requests, so each device keeps one writer. A hold after a failed or uncertain Panels write stops only the Panels' automatic retries. A mode command for one device cancels only that device's queued controls. Existing credentials cover both devices, so no new token is needed. Running the command again changes nothing. The command refuses an unregistered device, different controller or source IDs, and a first configuration that names the Panels instead of the Lines. The running listener serves the new device on its next request; no restart is needed.
+
+For the hub, add a second controller entry with the same endpoint and credential and `deviceId` `panels`. The hub's v1 routes (snapshot, power, brightness, mode and scenes) work for the Panels. Its extension status for the Panels shows `incompatible-controller` until the hub accepts the Panels' read-only extension snapshot, whose configuration operations are unsupported. The feed poller, the integration settings queue and requested animations remain Lines-only. The [local MCP host](local-mcp.md#control-the-panels) binds the Panels through `panelsDeviceId`.
+
 ## Routes and authentication
 
 Every request requires `Authorization: Bearer <machine credential>` and the exact `Host: 127.0.0.1:<port>`. Browser edit tokens do not qualify. A supplied Origin must match `http://127.0.0.1:<port>`; cross-site Fetch-Metadata is rejected. There is no CORS permission or LAN listener. The owning worker can still reach its privately configured LAN device.
 
 | Request | Response |
 | --- | --- |
-| `GET /controller/v1/devices` | `{apiVersion:"1.0",devices:[snapshot]}` for the configured authorized device |
+| `GET /controller/v1/devices` | `{apiVersion:"1.0",devices:[snapshot, ...]}` for every configured device, the Lines first |
 | `GET /controller/v1/snapshot?deviceId=<id>` | Shared snapshot |
 | `POST /controller/v1/commands` | Shared receipt, or bounded `{failure:{code}}` before admission |
 | `GET /controller/v1/feed?deviceId=<id>&epoch=<id>&sequence=<integer>` | Bounded array of shared feed events |
 
-Commands use JSON and the exact shared `Request` schema. Obtain `nextRequestId`, `configurationRevision` and `generation` from a current snapshot. Supply those values as `requestId`, `expectedConfigurationRevision` and `expectedGeneration`, alongside explicit `controllerId`, `deviceId` and one command: `{kind:"mode.set",mode:"Work"|"Quiet"|"Free"}`, `{kind:"power.set",on:boolean}`, `{kind:"brightness.set",percent:0..100}` or `{kind:"scene.activate",sceneId:<advertised id>}`. Unknown fields, raw destinations, fractional/unsafe counters, duplicate JSON keys and non-finite numbers fail validation. Authentication and target scope checks happen before replay.
+Each route addresses the ledger its `deviceId` names; one credential authorizes every configured device, and an unconfigured device is forbidden. Commands use JSON and the exact shared `Request` schema. Obtain `nextRequestId`, `configurationRevision` and `generation` from a current snapshot. Supply those values as `requestId`, `expectedConfigurationRevision` and `expectedGeneration`, alongside explicit `controllerId`, `deviceId` and one command: `{kind:"mode.set",mode:"Work"|"Quiet"|"Free"}`, `{kind:"power.set",on:boolean}`, `{kind:"brightness.set",percent:0..100}` or `{kind:"scene.activate",sceneId:<advertised id>}`. Unknown fields, raw destinations, fractional/unsafe counters, duplicate JSON keys and non-finite numbers fail validation. Authentication and target scope checks happen before replay.
 
 Admission returns HTTP 202 for queued work. An identical pending request joins its original work; a completed identical request returns its retained receipt with HTTP 200. Different bodies under one ID conflict. Old uncached/foreign IDs expire; future IDs fail ordering. Semantic failures after reservation retain their receipt. Pre-admission capacity rejection consumes no identity. Use the shared error mapping: 400 invalid, 401 unauthenticated, 403 forbidden, 404 unknown target, 409 conflict/order/stale, 410 expired, 422 unsupported, 429 capacity and 503 temporary service/launch failure.
 
@@ -51,7 +64,7 @@ A fulfilled mode that needs no physical work ends as `cancelled`, without failur
 
 ## General controls
 
-The capability declaration marks `power` supported, `brightness` supported from 0 to 100 and `scenes` supported with the discovered saved-scene IDs, bounded to 256; `media`, `zones` and `preview` stay unsupported. The three commands travel through the same request identity, revision, generation, replay and capacity rules as mode commands and execute as one journaled write by the installation's single worker. Their receipts use the same outcomes: `sent` is transport evidence only. A failed or uncertain write holds the installation exactly as an uncertain mode write does; the worker's automatic retry never sends it again, and a fresh native request or an explicit mode choice authorizes another attempt. An explicit mode command from any owner cancels queued controls as `stale-generation`.
+The capability declaration marks `power` supported, `brightness` supported from 0 to 100 and `scenes` supported with the discovered saved-scene IDs, bounded to 256; `media`, `zones` and `preview` stay unsupported. The three commands travel through the same request identity, revision, generation, replay and capacity rules as mode commands and execute as one journaled write by the target device's single worker. Their receipts use the same outcomes: `sent` is transport evidence only. A failed or uncertain write holds that device exactly as an uncertain mode write does; the worker's automatic retry never sends it again, and a fresh native request or an explicit mode choice for that device authorizes another attempt. An explicit mode command from any owner cancels that device's queued controls as `stale-generation`. Each device follows the same mode rules, so a Panels scene needs the Panels in Free whatever the Lines' mode is.
 
 | Control | Accepted in | Policy |
 | --- | --- | --- |
@@ -87,7 +100,7 @@ Before import, the bridge verifies the archive checksum, the manifest against th
 | Existing bridge | Standard-library startup without controller dependencies; full legacy regression and browser suites |
 | Real native client / installed bridge / physical device | Separate acceptance; source tests do not establish these results |
 
-Run `python -m pip install -r requirements-controller.txt`, `python scripts/check.py`, `npm run test:browser`, `npm run check:workflow` and `npm run test:workflow` in an isolated source checkout. Linux installer fixtures in `tests/test_linux_runtime.py` verify packaging. The installation's database holds private machine credentials and request history; keep it private. Rollback stops this installation's listener and restores the previous runtime copy; keep the current database to preserve newer task records. Older code ignores the new controller tables. Do not use fresh setup/reset for upgrade or rollback.
+Run `python -m pip install -r requirements-controller.txt`, `python scripts/check.py`, `npm run test:browser`, `npm run check:workflow` and `npm run test:workflow` in an isolated source checkout. Linux installer fixtures in `tests/test_linux_runtime.py` verify packaging. The installation's database holds private machine credentials and request history; keep it private. Rollback stops this installation's listener and restores the previous runtime copy; keep the current database to preserve newer task records. Older code ignores the new controller tables. Since #113 the ledger tables carry a device column: older code still reads the Lines' ledger, but its native admission fails closed with `transport-failure` and writes nothing until the newer runtime is restored. Do not use fresh setup/reset for upgrade or rollback.
 
 ## Machine integration settings
 

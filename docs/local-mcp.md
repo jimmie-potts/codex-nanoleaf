@@ -1,6 +1,6 @@
 # Local Codex controls
 
-The optional MCP host exposes `nanoleaf_status`, `nanoleaf_mode_set`, `nanoleaf_scenes_list`, `nanoleaf_scene_activate`, `nanoleaf_animations_list` and `nanoleaf_animation_play` through the protected local controller. Modes are Work, Quiet and Free. Their existing brightness and scene policies remain unchanged. The [local MCP specification](../openspec/specs/local-mcp-bindings/spec.md) owns behavior; [issue #33](https://github.com/jimmie-potts/codex-nanoleaf/issues/33) owns source delivery, [issue #91](https://github.com/jimmie-potts/codex-nanoleaf/issues/91) owns the scene tools, [issue #92](https://github.com/jimmie-potts/codex-nanoleaf/issues/92) owns the animation tools and [ADR 0006](decisions/0006-local-mcp-hosting.md) records hosting.
+The optional MCP host exposes `nanoleaf_status`, `nanoleaf_mode_set`, `nanoleaf_scenes_list`, `nanoleaf_scene_activate`, `nanoleaf_animations_list` and `nanoleaf_animation_play` through the protected local controller. Modes are Work, Quiet and Free. Their existing brightness and scene policies remain unchanged. The [local MCP specification](../openspec/specs/local-mcp-bindings/spec.md) owns behavior; [issue #33](https://github.com/jimmie-potts/codex-nanoleaf/issues/33) owns source delivery, [issue #91](https://github.com/jimmie-potts/codex-nanoleaf/issues/91) owns the scene tools, [issue #92](https://github.com/jimmie-potts/codex-nanoleaf/issues/92) owns the animation tools, [issue #113](https://github.com/jimmie-potts/codex-nanoleaf/issues/113) owns the optional [Panels tools](#control-the-panels) and [ADR 0006](decisions/0006-local-mcp-hosting.md) records hosting.
 
 Source delivery does not install, provision credentials, launch Codex or touch lights. [Issue #55](https://github.com/jimmie-potts/codex-nanoleaf/issues/55) owns separately authorized installation, client permission checks and physical acceptance. The commands below are instructions for that handoff.
 
@@ -71,6 +71,19 @@ Read status first. Mode calls require its `nextRequestId`, `configurationRevisio
 `nanoleaf_animation_play` needs the control scope. It takes `requestId` (the listing's `nextRequestId`), `expectedRevision` (the listing's `revision`), `pattern` and 1 to 8 `#rrggbb` `colors`, plus optional `speed`, `loop` and, for `wave` and `gradient` only, `direction`. It sends one `animation.play` extension command with those values unchanged and adds no defaults of its own. The tool never switches mode. In Work or Quiet the controller rejects the command as `unsupported-capability` before any write, and the tool's failure carries a message saying to switch to Free with `nanoleaf_mode_set` and list the options again. To play "a slow blue-green ocean wave", call `nanoleaf_mode_set` with Free, call `nanoleaf_animations_list`, then play `wave` with `["#0044aa", "#00aa66"]` at `slow`.
 
 The receipt comes from the extension. `queued` or `sent` does not establish visible light output; `uncertain` may have reached the device and is never retried. A mode command before the worker plays it cancels a queued animation.
+
+## Control the Panels
+
+After the Panels have their own [controller ledger](controller-api.md#add-the-nl22-light-panels), add `"panelsDeviceId": "panels"` to the private MCP configuration and restart the host. The host then binds the Panels as a second fixed target with four more tools:
+
+| Tool | Scope | Same behavior as |
+| --- | --- | --- |
+| `nanoleaf_panels_status` | read | `nanoleaf_status` |
+| `nanoleaf_panels_mode_set` | control | `nanoleaf_mode_set` |
+| `nanoleaf_panels_scenes_list` | read | `nanoleaf_scenes_list` |
+| `nanoleaf_panels_scene_activate` | control | `nanoleaf_scene_activate` |
+
+Each tool always addresses its own configured device, and no tool accepts a device argument. Take a Panels request's `requestId`, `expectedConfigurationRevision` and `expectedGeneration` from `nanoleaf_panels_status`, because the Panels' ledger has its own sequence and revisions. The same MCP credentials work for both devices. The animation tools stay Lines-only. The value must differ from `deviceId`. Without it, the host is unchanged.
 
 ## Interpret results and recover
 

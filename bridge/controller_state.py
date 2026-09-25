@@ -7,6 +7,8 @@ import secrets
 import sqlite3
 import time
 
+import devices
+
 LIMITS = dict(maxPending=32,maxBodyBytes=65536,maxInFlight=32,maxReceipts=256,
               maxEvents=32,maxStreams=16,authenticationTimeoutMs=2000)
 UNSUPPORTED = ('media','zones','preview')
@@ -15,35 +17,93 @@ PENDING_SECONDS = 30
 MAX_SCENES = 256
 MAX_LABEL = 80
 CONTROLS = ('power.set','brightness.set','scene.activate')
+HOLD = 'controller_hold_revision'
+# Each configured device has its own ledger rows; the original Lines ledger keeps id 1 and its meta keys.
+TABLES = {
+    'controller_meta': "(id INTEGER PRIMARY KEY, payload TEXT NOT NULL, device TEXT NOT NULL DEFAULT 'wall')",
+    'controller_requests': "(sequence INTEGER NOT NULL, request TEXT NOT NULL, receipt TEXT NOT NULL, principal TEXT NOT NULL, "
+                           "phase TEXT NOT NULL, created REAL NOT NULL, mode_revision INTEGER NOT NULL, "
+                           "device TEXT NOT NULL DEFAULT 'wall', PRIMARY KEY (device, sequence))",
+    'controller_events': "(sequence INTEGER NOT NULL, payload TEXT NOT NULL, device TEXT NOT NULL DEFAULT 'wall', "
+                         "PRIMARY KEY (device, sequence))",
+}
+LEGACY_COLUMNS = {'controller_requests': 'sequence, request, receipt, principal, phase, created, mode_revision',
+                  'controller_events': 'sequence, payload'}
 
 
 def encoded(value):
     return json.dumps(value,sort_keys=True,separators=(',',':'),allow_nan=False)
 
 
-def present(db):
-    return bool(db.execute("SELECT 1 FROM sqlite_master WHERE name='controller_meta'").fetchone())
+def present(db, device=None):
+    """Whether the controller is configured, or with a device, whether that device has a ledger."""
+    if not db.execute("SELECT 1 FROM sqlite_master WHERE name='controller_meta'").fetchone():return False
+    return device is None or bool(db.execute('SELECT 1 FROM controller_meta WHERE device=?',(device,)).fetchone())
 
 
-def init(db, identity):
-    db.execute('CREATE TABLE IF NOT EXISTS controller_meta (id INTEGER PRIMARY KEY, payload TEXT NOT NULL)')
+def columns(db,table):
+    return [row[1] for row in db.execute('PRAGMA table_info('+table+')')]
+
+
+def migrate(db):
+    """Guarded, idempotent upgrade of a single-device ledger inside the caller's initialization transaction."""
+    if not present(db):return
+    if 'device' not in columns(db,'controller_meta'):
+        db.execute("ALTER TABLE controller_meta ADD COLUMN device TEXT NOT NULL DEFAULT 'wall'")
+    db.execute('CREATE UNIQUE INDEX IF NOT EXISTS controller_meta_device ON controller_meta (device)')
+    for table,legacy in LEGACY_COLUMNS.items():
+        if 'device' in columns(db,table):continue
+        # Sequences restart per device, so the key must include it; rows keep every value.
+        db.execute('ALTER TABLE '+table+' RENAME TO '+table+'_legacy')
+        db.execute('CREATE TABLE '+table+' '+TABLES[table])
+        db.execute('INSERT INTO '+table+' ('+legacy+') SELECT '+legacy+' FROM '+table+'_legacy')
+        db.execute('DROP TABLE '+table+'_legacy')
+
+
+def init(db, identity, device=devices.DEFAULT):
+    for table,schema in TABLES.items():
+        db.execute('CREATE TABLE IF NOT EXISTS '+table+' '+schema)
     db.execute('CREATE TABLE IF NOT EXISTS controller_credentials (principal TEXT PRIMARY KEY, digest TEXT NOT NULL, scopes TEXT NOT NULL, active INTEGER NOT NULL)')
-    db.execute('CREATE TABLE IF NOT EXISTS controller_requests (sequence INTEGER PRIMARY KEY, request TEXT NOT NULL, receipt TEXT NOT NULL, principal TEXT NOT NULL, phase TEXT NOT NULL, created REAL NOT NULL, mode_revision INTEGER NOT NULL)')
-    db.execute('CREATE TABLE IF NOT EXISTS controller_events (sequence INTEGER PRIMARY KEY, payload TEXT NOT NULL)')
-    if not db.execute('SELECT 1 FROM controller_meta').fetchone():
+    migrate(db)
+    if not present(db,device):
         epoch=secrets.token_hex(16)
         data=dict(identity=dict(identity,controllerEpoch=epoch),epoch=epoch,nextSequence=0,
                   revision=0,generation=0,cursor=0,clockEpoch=secrets.token_hex(16),sceneKey=secrets.token_hex(32),
                   lastSuccessfulSend=UNKNOWN,lastOutcome=UNKNOWN)
-        save(db,data)
+        if device!=devices.DEFAULT:
+            # Listener-wide flags are kept in every ledger; a new ledger starts from the original's.
+            original=read(db)
+            data.update(clockEpoch=original['clockEpoch'],**({'stopped':original['stopped']} if 'stopped' in original else {}))
+        db.execute('INSERT INTO controller_meta (payload,device) VALUES (?,?)',(encoded(data),device))
 
 
-def read(db):
-    return json.loads(db.execute('SELECT payload FROM controller_meta WHERE id=1').fetchone()[0])
+def ledgers(db):
+    """Devices with a ledger, the original Lines device first."""
+    if not present(db):return []
+    return [device for device, in db.execute('SELECT device FROM controller_meta ORDER BY id')]
 
 
-def save(db,data):
-    db.execute('INSERT OR REPLACE INTO controller_meta VALUES (1,?)',(encoded(data),))
+def device_for(db, device_id):
+    """The ledger whose public identity is device_id, or None."""
+    for device in ledgers(db):
+        if read(db,device)['identity']['deviceId']==device_id:return device
+    return None
+
+
+def read(db, device=devices.DEFAULT):
+    return json.loads(db.execute('SELECT payload FROM controller_meta WHERE device=?',(device,)).fetchone()[0])
+
+
+def save(db,data,device=devices.DEFAULT):
+    db.execute('UPDATE controller_meta SET payload=? WHERE device=?',(encoded(data),device))
+
+
+def hold(db,device,revision):
+    db.execute('INSERT OR REPLACE INTO meta VALUES (?,?)',(devices.meta_key(HOLD,device),str(revision)))
+
+
+def release(db,device):
+    db.execute('DELETE FROM meta WHERE key=?',(devices.meta_key(HOLD,device),))
 
 
 def scene_id(data,name):
@@ -66,22 +126,23 @@ def capabilities(data):
     return result
 
 
-def discovered(db,names):
-    """Called by the worker after its scene observation; only a changed list publishes an event."""
-    if not present(db):return False
+def discovered(db,names,device=devices.DEFAULT):
+    """Called by the device's worker after its scene observation; only a changed list publishes an event."""
+    if not present(db,device):return False
     clean=[]
     for name in names:
         if isinstance(name,str) and name and name not in clean and len(clean)<MAX_SCENES:clean.append(name)
-    data=read(db)
+    data=read(db,device)
     minted='sceneKey' not in data  # Ledgers created before discovery existed.
     if minted:data['sceneKey']=secrets.token_hex(32)
     if not minted and data.get('scenes',[])==clean:return False
-    data['scenes']=clean;save(db,data);event(db);return True
+    data['scenes']=clean;save(db,data,device);event(db,device);return True
 
 
-def overrides(db):
-    meta=dict(db.execute("SELECT key,value FROM meta WHERE key IN ('controller_power','controller_brightness')"))
-    power=meta.get('controller_power');brightness=meta.get('controller_brightness')
+def overrides(db,device=devices.DEFAULT):
+    names=(devices.meta_key('controller_power',device),devices.meta_key('controller_brightness',device))
+    meta=dict(db.execute('SELECT key,value FROM meta WHERE key IN (?,?)',names))
+    power=meta.get(names[0]);brightness=meta.get(names[1])
     return dict(power=None if power is None else power=='1',brightness=None if brightness is None else int(brightness))
 
 
@@ -93,13 +154,13 @@ def ticket(data,sequence):
     return dict(epoch=data['epoch'],sequence=sequence)
 
 
-def snapshot(db):
-    data=read(db)
-    mode=db.execute("SELECT value FROM meta WHERE key='mode'").fetchone()
-    current=overrides(db)
+def snapshot(db,device=devices.DEFAULT):
+    data=read(db,device)
+    mode=db.execute('SELECT value FROM meta WHERE key=?',(devices.meta_key('mode',device),)).fetchone()
+    current=overrides(db,device)
     known=lambda value:UNKNOWN if value is None else {'status':'known','value':value}
     pending=[]
-    for request,receipt in db.execute("SELECT request,receipt FROM controller_requests WHERE phase IN ('queued','attempting') ORDER BY sequence LIMIT 32"):
+    for request,receipt in db.execute("SELECT request,receipt FROM controller_requests WHERE device=? AND phase IN ('queued','attempting') ORDER BY sequence LIMIT 32",(device,)):
         request=json.loads(request);receipt=json.loads(receipt)
         pending.append(dict(requestId=request['requestId'],command=request['command'],generation=receipt['generation']))
     return dict(apiVersion='1.0',identity=data['identity'],configurationRevision=data['revision'],
@@ -111,44 +172,45 @@ def snapshot(db):
                            externalControl=UNKNOWN,observation=UNKNOWN))
 
 
-def event(db):
-    data=read(db)
+def event(db,device=devices.DEFAULT):
+    data=read(db,device)
     if data['cursor']>=9007199254740991:raise ValueError('Controller event capacity reached.')
-    data['cursor']+=1;save(db,data)
-    snap=snapshot(db)
-    db.execute('INSERT INTO controller_events VALUES (?,?)',(data['cursor'],encoded(dict(apiVersion='1.0',kind='change',cursor=snap['cursor'],snapshot=snap))))
-    db.execute('DELETE FROM controller_events WHERE sequence NOT IN (SELECT sequence FROM controller_events ORDER BY sequence DESC LIMIT 32)')
+    data['cursor']+=1;save(db,data,device)
+    snap=snapshot(db,device)
+    db.execute('INSERT INTO controller_events (sequence,payload,device) VALUES (?,?,?)',(data['cursor'],encoded(dict(apiVersion='1.0',kind='change',cursor=snap['cursor'],snapshot=snap)),device))
+    db.execute('DELETE FROM controller_events WHERE device=? AND sequence NOT IN (SELECT sequence FROM controller_events WHERE device=? ORDER BY sequence DESC LIMIT 32)',(device,device))
 
 
-def finish(db,sequence,outcome,failure=None):
-    row=db.execute('SELECT receipt FROM controller_requests WHERE sequence=?',(sequence,)).fetchone()
+def finish(db,sequence,outcome,failure=None,device=devices.DEFAULT):
+    row=db.execute('SELECT receipt FROM controller_requests WHERE device=? AND sequence=?',(device,sequence)).fetchone()
     if not row:return
     receipt=json.loads(row[0]);receipt['outcome']=outcome
     if failure:receipt['failure']={'code':failure}
     else:receipt.pop('failure',None)
     receipt['priorEffects']='confirmed-transmission' if receipt['completedOperations'] else ('possible' if receipt['uncertainOperations'] else 'none')
-    db.execute("UPDATE controller_requests SET receipt=?,phase='done' WHERE sequence=?",(encoded(receipt),sequence))
-    data=read(db);data['lastOutcome']={'status':'known','receipt':receipt};save(db,data)
-    db.execute("DELETE FROM controller_requests WHERE phase='done' AND sequence NOT IN (SELECT sequence FROM controller_requests WHERE phase='done' ORDER BY sequence DESC LIMIT 256)")
-    event(db)
+    db.execute("UPDATE controller_requests SET receipt=?,phase='done' WHERE device=? AND sequence=?",(encoded(receipt),device,sequence))
+    data=read(db,device);data['lastOutcome']={'status':'known','receipt':receipt};save(db,data,device)
+    db.execute("DELETE FROM controller_requests WHERE device=? AND phase='done' AND sequence NOT IN (SELECT sequence FROM controller_requests WHERE device=? AND phase='done' ORDER BY sequence DESC LIMIT 256)",(device,device))
+    event(db,device)
 
 
-def changed(db, mode=False, native=False):
-    """Called inside the owning browser/CLI/native desired-state transaction."""
-    if not present(db):return
-    data=read(db)
+def changed(db, mode=False, native=False, device=devices.DEFAULT):
+    """Called inside the owning browser/CLI/native desired-state transaction for one device's ledger."""
+    if not present(db,device):return
+    data=read(db,device)
     if data['revision']>=9007199254740991 or data['generation']>=9007199254740991:
         raise ValueError('Controller revision capacity reached.')
     if not native:data['revision']+=1
     if mode:data['generation']+=1
-    save(db,data)
+    save(db,data,device)
     if mode:
-        db.execute("DELETE FROM meta WHERE key='controller_hold_revision'")
-        for sequence, in list(db.execute("SELECT sequence FROM controller_requests WHERE phase IN ('queued','attempting')")):
-            finish(db,sequence,'cancelled','stale-generation')
-        import integration_api
-        integration_api.retire(db)
-    event(db)
+        release(db,device)
+        for sequence, in list(db.execute("SELECT sequence FROM controller_requests WHERE device=? AND phase IN ('queued','attempting')",(device,))):
+            finish(db,sequence,'cancelled','stale-generation',device)
+        if device==devices.DEFAULT:
+            import integration_api
+            integration_api.retire(db)  # Requested animations play only on the Lines.
+    event(db,device)
 
 
 def credential(db, token):
@@ -159,21 +221,23 @@ def credential(db, token):
     return None
 
 
-def recover(db,now=None,attempts=False):
-    """Only the locked worker may recover attempts; the listener expires unsent work."""
+def recover(db,now=None,attempts=False,device=None):
+    """Only a device's locked worker may recover its attempts; the listener expires every device's unsent work."""
     if not present(db):return
     now=time.time() if now is None else now
-    for sequence,phase,created,revision in list(db.execute("SELECT sequence,phase,created,mode_revision FROM controller_requests WHERE phase!='done'")):
+    targets=ledgers(db) if device is None else [device]
+    for sequence,phase,created,revision,owner in list(db.execute("SELECT sequence,phase,created,mode_revision,device FROM controller_requests WHERE phase!='done'")):
+        if owner not in targets:continue
         if phase=='attempting' and attempts:
-            finish(db,sequence,'uncertain','uncertain-result')
-            db.execute("INSERT OR REPLACE INTO meta VALUES ('controller_hold_revision',?)",(str(revision),))
+            finish(db,sequence,'uncertain','uncertain-result',owner)
+            hold(db,owner,revision)
         elif phase=='queued' and now-created>=PENDING_SECONDS:
-            finish(db,sequence,'failed','transport-failure')
-            db.execute("INSERT OR REPLACE INTO meta VALUES ('controller_hold_revision',?)",(str(revision),))
+            finish(db,sequence,'failed','transport-failure',owner)
+            hold(db,owner,revision)
 
 
-def held(db,revision):
-    row=db.execute("SELECT value FROM meta WHERE key='controller_hold_revision'").fetchone()
+def held(db,revision,device=devices.DEFAULT):
+    row=db.execute('SELECT value FROM meta WHERE key=?',(devices.meta_key(HOLD,device),)).fetchone()
     return row==(str(revision),)
 
 
@@ -182,60 +246,60 @@ class Cancelled(Exception):
 
 
 class Execution:
-    """Journal each transport operation using the worker's transaction and lock."""
-    def __init__(self,db,revision,sequence=None):
-        self.db=db;self.revision=revision;self.sequence=sequence;self.count=0
-        if sequence is not None or not present(db):return
-        for row in db.execute("SELECT sequence,request FROM controller_requests WHERE phase='queued' AND mode_revision=? ORDER BY sequence DESC",(revision,)):
+    """Journal each transport operation of one device using its worker's transaction and lock."""
+    def __init__(self,db,revision,sequence=None,device=devices.DEFAULT):
+        self.db=db;self.revision=revision;self.sequence=sequence;self.device=device;self.count=0
+        if sequence is not None or not present(db,device):return
+        for row in db.execute("SELECT sequence,request FROM controller_requests WHERE device=? AND phase='queued' AND mode_revision=? ORDER BY sequence DESC",(device,revision)):
             if json.loads(row[1])['command']['kind']=='mode.set':
                 self.sequence=row[0];break
 
     def current(self):
-        row=self.db.execute('SELECT receipt,principal,phase FROM controller_requests WHERE sequence=?',(self.sequence,)).fetchone()
+        row=self.db.execute('SELECT receipt,principal,phase FROM controller_requests WHERE device=? AND sequence=?',(self.device,self.sequence)).fetchone()
         if not row:return False
-        receipt=json.loads(row[0]);data=read(self.db)
+        receipt=json.loads(row[0]);data=read(self.db,self.device)
         active=self.db.execute('SELECT active FROM controller_credentials WHERE principal=?',(row[1],)).fetchone()
         return row[2]!='done' and active==(1,) and not data.get('stopped') and receipt['generation']==ticket(data,data['generation'])
 
     def call(self,send,*args,**kwargs):
-        db=self.db
-        revision=db.execute("SELECT value FROM meta WHERE key='mode_revision'").fetchone()
-        if held(db,self.revision) or int(revision[0] if revision else '0')!=self.revision:
+        db=self.db;device=self.device
+        revision=db.execute('SELECT value FROM meta WHERE key=?',(devices.meta_key('mode_revision',device),)).fetchone()
+        if held(db,self.revision,device) or int(revision[0] if revision else '0')!=self.revision:
             raise Cancelled()
         if self.sequence is None:return send(*args,**kwargs)
         if not self.current():raise Cancelled()
         self.count+=1;operation='transport-'+str(self.count)
-        receipt=json.loads(db.execute('SELECT receipt FROM controller_requests WHERE sequence=?',(self.sequence,)).fetchone()[0])
+        receipt=json.loads(db.execute('SELECT receipt FROM controller_requests WHERE device=? AND sequence=?',(device,self.sequence)).fetchone()[0])
         receipt['uncertainOperations'].append(operation)
-        db.execute("UPDATE controller_requests SET phase='attempting',receipt=? WHERE sequence=?",(encoded(receipt),self.sequence))
+        db.execute("UPDATE controller_requests SET phase='attempting',receipt=? WHERE device=? AND sequence=?",(encoded(receipt),device,self.sequence))
         db.commit()  # A crash after this point cannot be classified as no effect.
         db.execute('BEGIN IMMEDIATE')
         if not self.current():raise Cancelled()
         try:
             result=send(*args,**kwargs)
         except Exception:
-            finish(db,self.sequence,'partially-applied' if receipt['completedOperations'] else 'uncertain','uncertain-result')
-            revision=db.execute('SELECT mode_revision FROM controller_requests WHERE sequence=?',(self.sequence,)).fetchone()[0]
-            db.execute("INSERT OR REPLACE INTO meta VALUES ('controller_hold_revision',?)",(str(revision),))
+            finish(db,self.sequence,'partially-applied' if receipt['completedOperations'] else 'uncertain','uncertain-result',device)
+            revision=db.execute('SELECT mode_revision FROM controller_requests WHERE device=? AND sequence=?',(device,self.sequence)).fetchone()[0]
+            hold(db,device,revision)
             db.commit();db.execute('BEGIN IMMEDIATE')
             raise
         receipt['uncertainOperations'].remove(operation);receipt['completedOperations'].append(operation)
         receipt['priorEffects']='confirmed-transmission'
-        db.execute('UPDATE controller_requests SET receipt=? WHERE sequence=?',(encoded(receipt),self.sequence))
-        data=read(db);data['lastSuccessfulSend']=dict(status='known',requestId=receipt['requestId'],clock=clock(data),operationIds=receipt['completedOperations']);save(db,data)
+        db.execute('UPDATE controller_requests SET receipt=? WHERE device=? AND sequence=?',(encoded(receipt),device,self.sequence))
+        data=read(db,device);data['lastSuccessfulSend']=dict(status='known',requestId=receipt['requestId'],clock=clock(data),operationIds=receipt['completedOperations']);save(db,data,device)
         db.commit();db.execute('BEGIN IMMEDIATE')
         return result
 
     def complete(self):
         if self.sequence is not None and self.current():
-            finish(self.db,self.sequence,'sent' if self.count else 'cancelled')
+            finish(self.db,self.sequence,'sent' if self.count else 'cancelled',device=self.device)
 
 
-def controls(db,revision):
-    """Queued one-shot general controls at this mode revision as (created, sequence, command), oldest first."""
-    if not present(db):return []
+def controls(db,revision,device=devices.DEFAULT):
+    """One device's queued one-shot general controls at this mode revision as (created, sequence, command), oldest first."""
+    if not present(db,device):return []
     result=[]
-    for sequence,request,created in db.execute("SELECT sequence,request,created FROM controller_requests WHERE phase='queued' AND mode_revision=? ORDER BY sequence",(revision,)):
+    for sequence,request,created in db.execute("SELECT sequence,request,created FROM controller_requests WHERE device=? AND phase='queued' AND mode_revision=? ORDER BY sequence",(device,revision)):
         command=json.loads(request)['command']
         if command['kind'] in CONTROLS:result.append((created,sequence,command))
     return result

@@ -525,6 +525,8 @@ def connect_state(directory, timeout=2.5):
             db.execute('CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)')
             # Existing Linux state gains its device key in place; a repeat is a no-op.
             devices.migrate(db)
+            import controller_state
+            controller_state.migrate(db)
             wall.seed(db)
             if db.execute("SELECT value FROM meta WHERE key='model_version'").fetchone() != ('4',):
                 # This is only the integration's own database. Replace old lighting
@@ -560,17 +562,18 @@ def change_mode(db, mode, instant, notify=True, device=devices.DEFAULT):
     import controller_state
     key = lambda name: devices.meta_key(name, device)
     state = control_state(db, device)
-    # The configured controller identity is the original device; other devices stay local.
-    notify = notify and device == devices.DEFAULT
-    # Any explicit mode command, including the same mode, ends native power/brightness overrides.
-    overridden = device == devices.DEFAULT and any(value is not None for value in controller_state.overrides(db).values())
+    # Only a device with a controller ledger publishes its mode changes; other devices stay local.
+    ledger = controller_state.present(db, device)
+    notify = notify and ledger
+    # Any explicit mode command, including the same mode, ends that device's native power/brightness overrides.
+    overridden = ledger and any(value is not None for value in controller_state.overrides(db, device).values())
     if overridden:
-        db.execute("DELETE FROM meta WHERE key IN ('controller_power', 'controller_brightness')")
+        db.execute('DELETE FROM meta WHERE key IN (?, ?)', (key('controller_power'), key('controller_brightness')))
     if state['mode'] == mode and overridden:
         db.execute('INSERT OR REPLACE INTO meta VALUES (?, ?)', (key('mode_revision'), str(state['revision'] + 1)))
         mark_dirty(db)
         if notify:
-            controller_state.changed(db, mode=True)
+            controller_state.changed(db, mode=True, device=device)
         return True
     if state['mode'] != mode:
         values = {key('mode'): mode, key('mode_revision'): str(state['revision'] + 1)}
@@ -582,10 +585,10 @@ def change_mode(db, mode, instant, notify=True, device=devices.DEFAULT):
         db.execute('DELETE FROM locate WHERE device=?', (device,))
         mark_dirty(db)
         if notify:
-            controller_state.changed(db, mode=True)
+            controller_state.changed(db, mode=True, device=device)
         return True
     if notify:
-        controller_state.changed(db, mode=True)
+        controller_state.changed(db, mode=True, device=device)
     return state['revision'] != state['applied'] or bool(state['error'])
 
 
@@ -840,8 +843,9 @@ def play_preview(config, choice, send, sleep, now):
 
 def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unread=None,
                scene_factory=SceneRestorer, device=devices.DEFAULT, feed=None):
-    # One locked instance per device. Only the original Lines instance polls the shared
-    # feed and owns the protected controller's journal, controls, overrides and hold.
+    # One locked instance per device. Each instance owns its own device's controller ledger:
+    # journal, controls, overrides, hold and scene discovery. Only the original Lines instance
+    # polls the shared feed and runs the integration settings queue and requested animations.
     primary = device == devices.DEFAULT
     key = lambda name: devices.meta_key(name, device)
     connect = lambda: connect_state(directory, WORKER_BUSY_SECONDS)
@@ -854,15 +858,16 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
             raise
         import controller_state
         import integration_api
-        held_at = lambda db, revision: primary and controller_state.held(db, revision)
-        current_overrides = lambda db: controller_state.overrides(db) if primary else {'power': None, 'brightness': None}
-        if primary:
-            with contextlib.closing(connect()) as db, db:
-                db.execute('BEGIN IMMEDIATE')
-                controller_state.recover(db, attempts=True)
+        held_at = lambda db, revision: controller_state.held(db, revision, device)
+        current_overrides = lambda db: controller_state.overrides(db, device)
+        with contextlib.closing(connect()) as db, db:
+            db.execute('BEGIN IMMEDIATE')
+            if controller_state.present(db, device):
+                controller_state.recover(db, attempts=True, device=device)
+            if primary:
                 integration_api.recover_attempts(db)
-                if controller_state.held(db, control_state(db)['revision']) and not shared_input.selected(db):
-                    return
+            if held_at(db, control_state(db, device)['revision']) and not shared_input.selected(db):
+                return
         config = load_config(directory, device)
         config['_now'] = now
         read_unread = read_unread or unread_reader(config)
@@ -921,8 +926,8 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
                     return
                 if control_state(db, device)['revision'] != control['revision']:
                     continue
-                if observing and primary:
-                    controller_state.discovered(db, scenes.names)
+                if observing and controller_state.present(db, device):
+                    controller_state.discovered(db, scenes.names, device)
                 if current_overrides(db) != overrides:
                     continue  # A control admitted during the device round trip restarts the pass.
                 preview = db.execute('SELECT value FROM meta WHERE key=?', (key('preview'),)).fetchone()
@@ -985,8 +990,8 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
                 if pending_mode or (scenes and mode != 'free' and
                         (external_scene or (bool(any(snapshot) or config['_comet'] or config['_locate']) or mode == 'quiet') != scenes.state['owned'])):
                     db.execute('DELETE FROM display_v3 WHERE device=?', (device,))
-                # Other devices never journal into the protected controller's receipts.
-                execution = controller_state.Execution(db, control['revision']) if primary else None
+                # A device journals only into its own ledger's receipts; one without a ledger journals nothing.
+                execution = controller_state.Execution(db, control['revision'], device=device) if controller_state.present(db, device) else None
                 def guarded_sender(*args):
                     return execution.call(sender, *args) if send and execution else sender(*args)
                 def apply_mode():
@@ -1000,11 +1005,9 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
                     if execution:
                         execution.complete()
                 def queued_content():
-                    # Native one-shot writes and Free animations, in admission order across both ledgers.
-                    if not primary:
-                        return []
-                    queue = [(created, sequence, command, False) for created, sequence, command in controller_state.controls(db, control['revision'])]
-                    if mode == 'free':
+                    # Native one-shot writes and, on the Lines, Free animations, in admission order across both ledgers.
+                    queue = [(created, sequence, command, False) for created, sequence, command in controller_state.controls(db, control['revision'], device)]
+                    if primary and mode == 'free':
                         queue += [(created, sequence, command, True) for created, sequence, command in integration_api.queued_animations(db)]
                     return sorted(queue, key=lambda item: item[0])
                 def apply_controls():
@@ -1019,11 +1022,11 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
                             generation = integration_api.attempt(db, sequence)
                             integration_api.play(db, sequence, generation, lambda: controller_request(config, 'PUT', '/effects', payload))
                             continue
-                        target = controller_state.control_payload(controller_state.read(db), command)
+                        target = controller_state.control_payload(controller_state.read(db, device), command)
                         if target is None:
-                            controller_state.finish(db, sequence, 'failed', 'unsupported-capability')
+                            controller_state.finish(db, sequence, 'failed', 'unsupported-capability', device)
                             continue
-                        active_execution[0] = controller_state.Execution(db, control['revision'], sequence)
+                        active_execution[0] = controller_state.Execution(db, control['revision'], sequence, device)
                         controller_request(config, 'PUT', target[0], target[1])
                         active_execution[0].complete()
                         if scenes and command['kind'] == 'brightness.set' and mode != 'free':

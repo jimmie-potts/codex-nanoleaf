@@ -386,6 +386,7 @@ def command(argv, b):
               f'(firmware {result["firmware"] or "unknown"}).')
         print('It starts in Free and receives nothing until you choose Work or Quiet:')
         print(f'  nanoleaf mode work --device {device}')
-    print('No service restart is needed: hooks and the worker read the device list each time they start, '
-          'and the wall map, controller and MCP stay on Lines.')
+    print('No service restart is needed: hooks, the worker and the wall map read the device list when they need it. '
+          'The controller and MCP reach the device only after `nanoleaf controller-configure` adds it; '
+          'see docs/controller-api.md.')
     return 0

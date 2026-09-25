@@ -22,6 +22,19 @@ controller listener serves both APIs on the same authenticated loopback endpoint
 | Power, brightness, saved-scene activation | Shared v1 `power.set`, `brightness.set`, `scene.activate` | Machine `control`, unchanged `/controller/v1/commands`; see [general controls](controller-api.md#general-controls) |
 | Locate, preview, source switching, orientation, new devices or combined layouts | Unsupported by this extension | No operation |
 
+Every operation above belongs to the Lines' ledger. For another configured device,
+such as the [NL22 Light Panels](controller-api.md#add-the-nl22-light-panels), the
+extension is read-only ([#113](https://github.com/jimmie-potts/codex-nanoleaf/issues/113)):
+
+- The snapshot keeps the same keys and carries that device's identity,
+  configuration revision, mode and named saved scenes. It lists no elements,
+  pending wall edit, requests or outcomes. It marks the four configuration
+  operations `supported: false`.
+- Commands for that device, including `animation.play`, fail with
+  `unsupported-capability` before any reservation.
+- Receipt and cancel return `request-expired`, and `GET /animations` returns
+  `unsupported-capability`.
+
 The four configuration edits preserve the selected Work/Quiet/Free mode. They are
 available in all three modes, using the existing wall application operations.
 Classic preserves Project reservations. Coverage and half selection retain their

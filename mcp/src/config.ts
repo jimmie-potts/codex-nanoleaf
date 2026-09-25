@@ -9,6 +9,8 @@ export type Config = {
     controllerPort: number;
     controllerId: string;
     deviceId: string;
+    /** Optional second fixed target: the registered NL22 Panels' controller device ID. */
+    panelsDeviceId?: string;
     credentialsFile: string;
     transport: 'loopback-http';
 };
@@ -48,12 +50,18 @@ export async function boundedFile(path: string, max = 65536): Promise<string> {
 }
 export async function loadConfig(path: string): Promise<Config> {
     const value: unknown = JSON.parse(await boundedFile(path));
-    object(value, ['enabled', 'port', 'controllerPort', 'controllerId', 'deviceId', 'credentialsFile', 'transport']);
+    object(value, ['enabled', 'port', 'controllerPort', 'controllerId', 'deviceId', 'credentialsFile', 'transport'], ['panelsDeviceId']);
     if (typeof value.enabled !== 'boolean' || ![value.port, value.controllerPort].every(p => Number.isInteger(p) && Number(p) >= 1024 && Number(p) <= 65535) || ![value.controllerId, value.deviceId].every(v => typeof v === 'string' && idPattern.test(v)) || typeof value.credentialsFile !== 'string' || !isAbsolute(value.credentialsFile) || value.credentialsFile.length > 4096)
+        throw new Error('Invalid configuration');
+    if (Object.hasOwn(value, 'panelsDeviceId') && (typeof value.panelsDeviceId !== 'string' || !idPattern.test(value.panelsDeviceId) || value.panelsDeviceId === value.deviceId))
         throw new Error('Invalid configuration');
     if (typeof value.transport !== 'string' || !Object.hasOwn(transportAliases, value.transport))
         throw new Error('Invalid transport configuration');
     return { ...value, transport: transportAliases[value.transport] } as Config;
+}
+/** The fixed controller devices this host serves, the Lines first. */
+export function targets(config: Pick<Config, 'deviceId' | 'panelsDeviceId'>): string[] {
+    return config.panelsDeviceId ? [config.deviceId, config.panelsDeviceId] : [config.deviceId];
 }
 export class CredentialStore {
     constructor(private readonly config: Config) { }
@@ -79,7 +87,7 @@ export class CredentialStore {
         try {
             const digest = createHash('sha256').update(token).digest();
             const row = (await this.rows()).find(p => timingSafeEqual(digest, Buffer.from(p.tokenSha256, 'hex')));
-            return row ? { id: row.id, credential: { kind: 'machine', status: 'active', declared: true, devices: [this.config.deviceId], scopes: row.scopes } } : null;
+            return row ? { id: row.id, credential: { kind: 'machine', status: 'active', declared: true, devices: targets(this.config), scopes: row.scopes } } : null;
         }
         catch {
             return null;

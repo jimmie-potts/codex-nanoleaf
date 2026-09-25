@@ -374,12 +374,16 @@ with whole-triangle colors; Lines keep their project and status halves.
 `nanoleaf mode <mode> --device panels` and `status --device panels` target the
 panels, and commands without `--device` address the Lines. The wall map's
 **Device** control shows and edits the Panels one device at a time. `setup --reset` and
-switching the shared task source reset every device. The protected controller,
-integration settings API and MCP stay on the Lines. The
+switching the shared task source reset every device. Once
+[added to the controller](../docs/controller-api.md#add-the-nl22-light-panels),
+the Panels have their own controller ledger, which only the Panels' worker
+executes. The feed poller, the integration settings queue and requested
+animations stay on the Lines. The
 [device worker](../openspec/specs/device-worker/spec.md) and
 [Panels rendering](../openspec/specs/panels-rendering/spec.md) specifications
 own this behavior, and [ADR 0010](../docs/decisions/0010-per-device-worker-and-nl22.md)
-records the decisions. Hardware verification of the NL22 payload belongs to
+and [ADR 0015](../docs/decisions/0015-per-device-controller-ledgers.md)
+record the decisions. Hardware verification of the NL22 payload belongs to
 [#46](https://github.com/jimmie-potts/codex-nanoleaf/issues/46).
 
 Enrollment reads the device once and requires model NL22 and a valid triangle

@@ -1,6 +1,6 @@
 ## Purpose
 
-Provide authenticated local machine status and mode control for Nanoleaf while preserving its designated single worker, OS-local private state and existing task animation behavior.
+Provide authenticated local machine status and mode control for Nanoleaf for each configured device while preserving that device's designated single worker, OS-local private state and existing task animation behavior.
 
 ## Requirements
 
@@ -120,7 +120,7 @@ The controller SHALL consume a verified immutable contract artifact with a recor
 
 ### Requirement: General controls execute through the single worker queue
 
-`power.set`, `brightness.set` and `scene.activate` SHALL be admitted through the same request identity, configuration revision, generation, replay and capacity rules as mode commands, and SHALL execute as one journaled transport write by the installation's single worker. A failed or uncertain write SHALL hold that installation exactly as an uncertain mode write does, and neither the worker's automatic retry nor a read SHALL execute the request again; a fresh native request or explicit mode choice authorizes another attempt. An explicit mode command SHALL cancel queued general controls as stale generation before another side effect. This requirement maps to issue #64 AC2 and AC4.
+`power.set`, `brightness.set` and `scene.activate` SHALL be admitted through the same request identity, configuration revision, generation, replay and capacity rules as mode commands, and SHALL execute as one journaled transport write by the target device's single worker. A failed or uncertain write SHALL hold that device exactly as an uncertain mode write does, and neither the worker's automatic retry nor a read SHALL execute the request again; a fresh native request or explicit mode choice authorizes another attempt. An explicit mode command SHALL cancel that device's queued general controls as stale generation before another side effect. This requirement maps to issue #64 AC2 and AC4 and to [issue #113](https://github.com/jimmie-potts/codex-nanoleaf/issues/113) scope 3.
 
 #### Scenario: Identical power requests replay
 
@@ -222,3 +222,27 @@ The controller SHALL advertise Work, Quiet and Free as supported modes, power as
 
 - **WHEN** a controller command targets the Linux installation
 - **THEN** it uses only that installation's Linux state and worker, and the installed command surface contains no forwarding entry point
+
+### Requirement: Per-device controller ledgers
+
+The controller SHALL keep one ledger per configured device, with its own identity and epoch, configuration revision, generation, request journal and sequence, event feed, saved-scene identities, overrides and hold. The original ledger SHALL keep its identity, epoch, retained receipts, cursor and scene IDs across the upgrade. `controller-configure` SHALL add a ledger only for a registered device other than the original one, with the original controller and source IDs, and SHALL still reject redirecting an existing identity. `/controller/v1/devices` SHALL list every configured device's snapshot, the original first. Snapshot, feed and command routes SHALL select the ledger named by `deviceId`, and one credential SHALL authorize every configured device. Power, brightness, mode and `scene.activate` SHALL follow the same mode rules on every device. This requirement maps to [issue #113](https://github.com/jimmie-potts/codex-nanoleaf/issues/113) scope 1 and 3 and AC1.
+
+#### Scenario: Both devices are listed
+
+- **WHEN** Lines and Panels ledgers are configured and an authorized client reads `/controller/v1/devices`
+- **THEN** it receives two snapshots, Lines first, each with its own device identity, epoch, revision, generation and scene IDs
+
+#### Scenario: Adding a registered device
+
+- **WHEN** the operator configures the registered Panels with the original controller and source IDs
+- **THEN** a Panels ledger with a new epoch is created, repeating the command changes nothing, the original ledger is unchanged, and configuring an unregistered device or a different controller ID is rejected
+
+#### Scenario: Scene activation on the Panels in Work
+
+- **WHEN** a client activates an advertised Panels scene while the Panels are in Work and the Lines are in Free
+- **THEN** the request fails with `unsupported-capability` and a retained receipt, and neither device receives a write
+
+#### Scenario: Existing single-device ledger is upgraded
+
+- **WHEN** an installation with a pre-change single ledger, retained receipts, a hold and discovered scenes is opened
+- **THEN** the ledger keeps its identity, epoch, receipts, cursor, hold and scene IDs, a retained request replays its original receipt, and a second initialization changes nothing

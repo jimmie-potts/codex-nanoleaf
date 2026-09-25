@@ -86,7 +86,8 @@ function matchedReceipt(value: unknown, status: number, request: Request): Recei
         return receipt;
     return undefined;
 }
-export function bindings(config: Config, store: Pick<CredentialStore, 'forDispatch'>, transport: Transport = exchange) {
+/** The service extensions for one fixed device; `name` is how its descriptions refer to it. */
+function extensions(config: Config, store: Pick<CredentialStore, 'forDispatch'>, transport: Transport, name: string) {
     const failure = (code: string, possible: boolean, request?: Request) => ({ data: { kind: 'failure', code, priorEffects: possible ? 'possible' : 'none', retry: 'never-automatically', ...(request ? { requestId: request.requestId } : {}) }, isError: true });
     const genericFailure = (value: unknown, status: number) => {
         if (value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).join(',') === 'failure') {
@@ -100,7 +101,7 @@ export function bindings(config: Config, store: Pick<CredentialStore, 'forDispat
         return undefined;
     };
     const extension = (write: boolean): ServiceExtension => ({
-        description: write ? 'Request Work, Quiet or Free through the Nanoleaf controller. Preserve the snapshot request identity; queued or sent is not visible-light confirmation.' : 'Read the Nanoleaf controller snapshot without refreshing tasks or sending light commands.',
+        description: write ? `Request Work, Quiet or Free for the ${name} through the controller. Preserve the snapshot request identity; queued or sent is not visible-light confirmation.` : `Read the ${name} controller snapshot without refreshing tasks or sending light commands.`,
         scope: write ? 'control' : 'read', annotations: { readOnlyHint: !write, destructiveHint: write, idempotentHint: !write, openWorldHint: true },
         inputSchema: { type: 'object', additionalProperties: false, $defs: schema.$defs, properties: write ? { requestId: ref('ticket'), expectedConfigurationRevision: ref('counter'), expectedGeneration: ref('ticket'), mode: { enum: ['Work', 'Quiet', 'Free'] } } : {}, required: write ? ['requestId', 'expectedConfigurationRevision', 'expectedGeneration', 'mode'] : [] }, outputSchema,
         async invoke(args, context) {
@@ -139,7 +140,7 @@ export function bindings(config: Config, store: Pick<CredentialStore, 'forDispat
         }
     });
     const sceneActivate: ServiceExtension = {
-        description: 'Activate a saved Nanoleaf scene through the controller. Free mode only; the tool never switches mode itself. Preserve the request identity; queued or sent is not visible-light confirmation.',
+        description: `Activate a saved scene on the ${name} through the controller. Free mode only; the tool never switches mode itself. Preserve the request identity; queued or sent is not visible-light confirmation.`,
         scope: 'control', annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
         inputSchema: { type: 'object', additionalProperties: false, $defs: schema.$defs, properties: { requestId: ref('ticket'), expectedConfigurationRevision: ref('counter'), expectedGeneration: ref('ticket'), sceneId: ref('id') }, required: ['requestId', 'expectedConfigurationRevision', 'expectedGeneration', 'sceneId'] }, outputSchema,
         async invoke(args, context) {
@@ -172,7 +173,7 @@ export function bindings(config: Config, store: Pick<CredentialStore, 'forDispat
         }
     };
     const scenesList: ServiceExtension = {
-        description: 'List the Nanoleaf controller\'s advertised saved scenes with their opaque IDs and Nanoleaf app names, without refreshing tasks or sending light commands.',
+        description: `List the ${name}' advertised saved scenes with their opaque IDs and Nanoleaf app names, without refreshing tasks or sending light commands.`,
         scope: 'read', annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
         inputSchema: { type: 'object', additionalProperties: false, $defs: schema.$defs, properties: {}, required: [] }, outputSchema: scenesOutputSchema,
         async invoke(_args, context) {
@@ -260,7 +261,20 @@ export function bindings(config: Config, store: Pick<CredentialStore, 'forDispat
             return extensionFailure('uncertain-result', true, requestId);
         }
     };
-    const registry = createDeviceRegistry([{ controllerId: config.controllerId, deviceId: config.deviceId, extensions: { status: extension(false), mode: extension(true), scenes: scenesList, sceneActivate, animations: animationsList, animationPlay } }]);
-    const tools = bindServiceTools(registry, { deviceId: config.deviceId, bindings: [{ extension: 'status', name: 'nanoleaf_status' }, { extension: 'mode', name: 'nanoleaf_mode_set' }, { extension: 'scenes', name: 'nanoleaf_scenes_list' }, { extension: 'sceneActivate', name: 'nanoleaf_scene_activate' }, { extension: 'animations', name: 'nanoleaf_animations_list' }, { extension: 'animationPlay', name: 'nanoleaf_animation_play' }] });
+    return { status: extension(false), mode: extension(true), scenes: scenesList, sceneActivate, animations: animationsList, animationPlay };
+}
+export function bindings(config: Config, store: Pick<CredentialStore, 'forDispatch'>, transport: Transport = exchange) {
+    const lines = extensions(config, store, transport, 'Nanoleaf Lines');
+    const registrations = [{ controllerId: config.controllerId, deviceId: config.deviceId, extensions: lines }];
+    const panelsDeviceId = config.panelsDeviceId;
+    if (panelsDeviceId) {
+        // A second fixed target; animations stay Lines-only (#113).
+        const { status, mode, scenes, sceneActivate } = extensions({ ...config, deviceId: panelsDeviceId }, store, transport, 'Nanoleaf Light Panels');
+        registrations.push({ controllerId: config.controllerId, deviceId: panelsDeviceId, extensions: { status, mode, scenes, sceneActivate } as typeof lines });
+    }
+    const registry = createDeviceRegistry(registrations);
+    const tools = [...bindServiceTools(registry, { deviceId: config.deviceId, bindings: [{ extension: 'status', name: 'nanoleaf_status' }, { extension: 'mode', name: 'nanoleaf_mode_set' }, { extension: 'scenes', name: 'nanoleaf_scenes_list' }, { extension: 'sceneActivate', name: 'nanoleaf_scene_activate' }, { extension: 'animations', name: 'nanoleaf_animations_list' }, { extension: 'animationPlay', name: 'nanoleaf_animation_play' }] })];
+    if (panelsDeviceId)
+        tools.push(...bindServiceTools(registry, { deviceId: panelsDeviceId, bindings: [{ extension: 'status', name: 'nanoleaf_panels_status' }, { extension: 'mode', name: 'nanoleaf_panels_mode_set' }, { extension: 'scenes', name: 'nanoleaf_panels_scenes_list' }, { extension: 'sceneActivate', name: 'nanoleaf_panels_scene_activate' }] }));
     return { registry, tools };
 }

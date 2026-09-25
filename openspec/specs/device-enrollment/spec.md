@@ -97,11 +97,11 @@ A removal command SHALL remove a registered non-Lines device's registration, cre
 - **THEN** the command fails and nothing changes
 
 ### Requirement: Operator guidance without restarts
-Enrollment SHALL tell the operator how to activate the device and that no user service needs a restart, because hooks and the worker read the registry when they start and the map, controller and MCP stay Lines-only. Listener configuration, trusted hooks, selected modes, reservations and pulse and comet epochs SHALL be preserved. Covers #45 AC5.
+Enrollment SHALL tell the operator how to activate the device and that no user service needs a restart, because hooks, the worker and the map read the registry when they need it. It SHALL also state that the controller and MCP reach the device only after `controller-configure` adds it ([#113](https://github.com/jimmie-potts/codex-nanoleaf/issues/113)). Listener configuration, trusted hooks, selected modes, reservations and pulse and comet epochs SHALL be preserved. Covers #45 AC5.
 
 #### Scenario: Enrollment output
 - **WHEN** enrollment succeeds
-- **THEN** its output names the activation command for the new id and states that no service restart is needed, and the listener ports in the configuration are unchanged
+- **THEN** its output names the activation command for the new id and states that no service restart is needed and how to add the device to the controller, and the listener ports in the configuration are unchanged
 
 ### Requirement: Verified address change
 An explicit address command SHALL change the registered address of one registered Panels device and nothing else. The device SHALL keep its id, credential reference, reservations, mode, layout entry and saved scene, and SHALL stay registered once. Before any write the command SHALL require a private IPv4 address that no other registered device uses, and SHALL verify with the stored credential that the device at the new address reports model NL22 and a triangle layout equal to the saved one, with the same triangles, positions and neighbors. A failed check, an unreachable address, an unknown id or the Lines id `wall` SHALL be refused with nothing changed. The command SHALL send no light write, and SHALL keep credentials out of its output and errors. Covers [#114](https://github.com/jimmie-potts/codex-nanoleaf/issues/114) AC1, AC2 and AC4.

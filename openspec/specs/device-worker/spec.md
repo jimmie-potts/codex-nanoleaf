@@ -1,12 +1,12 @@
 # device-worker Specification
 
 ## Purpose
-Run the existing worker for each registered Nanoleaf device, so Lines and NL22 Light Panels mirror the same tasks with their own placement, mode, scene, effects and failures, while task ingestion and the protected APIs stay single. Scope is [issue #43](https://github.com/jimmie-potts/codex-nanoleaf/issues/43), which absorbed #42.
+Run the existing worker for each registered Nanoleaf device, so Lines and NL22 Light Panels mirror the same tasks with their own placement, mode, scene, effects and failures, while task ingestion stays single and each device's worker owns that device's protected-controller ledger. Scope is [issue #43](https://github.com/jimmie-potts/codex-nanoleaf/issues/43), which absorbed #42, and [issue #113](https://github.com/jimmie-potts/codex-nanoleaf/issues/113) for per-device controller ledgers.
 
 ## Requirements
 
 ### Requirement: One worker instance per device
-The existing worker program SHALL run as one locked instance per registered device. Each instance SHALL send light updates only to its own device's address and credential. Waking the worker SHALL wake every registered device's instance. A second instance for the same device SHALL exit without sending. One ingestion path SHALL remain: only the original Lines instance (`wall`) polls the shared feed and processes protected-controller and integration-settings requests. Every instance SHALL reconcile shared Codex read evidence. Covers [#43](https://github.com/jimmie-potts/codex-nanoleaf/issues/43) AC9 and the issue's ownership scope.
+The existing worker program SHALL run as one locked instance per registered device. Each instance SHALL send light updates only to its own device's address and credential. Waking the worker SHALL wake every registered device's instance. A second instance for the same device SHALL exit without sending. One ingestion path SHALL remain: only the original Lines instance (`wall`) polls the shared feed and processes integration-settings requests and requested animations. Each instance SHALL process its own device's protected-controller requests. Every instance SHALL reconcile shared Codex read evidence. Covers [#43](https://github.com/jimmie-potts/codex-nanoleaf/issues/43) AC9 and the issue's ownership scope, amended by [#113](https://github.com/jimmie-potts/codex-nanoleaf/issues/113).
 
 #### Scenario: Independent writers
 - **WHEN** a hook wakes the worker with Lines and Panels registered
@@ -78,17 +78,6 @@ CLI `mode`, `status`, `worker` and device-specific `setup` operations SHALL acce
 - **WHEN** the operator runs `mode free --device missing`
 - **THEN** the command fails, and neither device's mode changes
 
-### Requirement: Protected APIs stay on Lines
-The protected controller, integration settings API and local MCP SHALL keep addressing only the original Lines identity. Their wire contract, capability declaration, snapshots, credentials and replay SHALL be unchanged. Power, brightness and saved-scene overrides, and the hold on failed or uncertain machine requests, SHALL apply to Lines only and SHALL never write to Panels. Registering Panels SHALL NOT change what any existing credential can do. Covers AC7.
-
-#### Scenario: Machine requests never reach Panels
-- **WHEN** a machine client sets Quiet, brightness and power while Panels is registered and in Work
-- **THEN** only the Lines transport receives those writes, the Panels mode and transport are unaffected, and the protected contract fixtures are unchanged
-
-#### Scenario: Hold is Lines-only
-- **WHEN** an uncertain machine request holds the Lines instance
-- **THEN** the Panels instance keeps rendering its tasks
-
 ### Requirement: Unregistered device instance stops
 A worker instance for a device other than the original Lines device SHALL stop when that device is no longer registered. It SHALL NOT retry, record errors or send requests for an unregistered device. The original Lines instance SHALL be unaffected. Covers [#45](https://github.com/jimmie-potts/codex-nanoleaf/issues/45) AC4 removal.
 
@@ -121,3 +110,22 @@ Each worker pass SHALL send to the address and credential currently registered f
 #### Scenario: Running worker follows a changed address
 - **WHEN** a Panels worker instance is running in Work and the operator changes its registered address
 - **THEN** its later light writes go to the new address and none go to the old one, without restarting the instance
+
+### Requirement: Each device owns its controller ledger
+Each worker instance SHALL recover, hold, journal and execute only its own device's protected-controller work: mode, power, brightness and `scene.activate` requests, overrides, the hold on a failed or uncertain machine request, and saved-scene discovery. An instance SHALL never execute, finish, hold or recover another device's controller requests. A device without a configured ledger SHALL receive no machine requests. Covers [#113](https://github.com/jimmie-potts/codex-nanoleaf/issues/113) scope 2 and AC1.
+
+#### Scenario: A command runs only on its own device's worker
+- **WHEN** a machine client sends brightness to the Panels and power to the Lines with both instances running
+- **THEN** only the Panels transport receives the brightness write, only the Lines transport receives the power write, and each receipt is finished by its own device's instance
+
+#### Scenario: Hold on one device leaves the other running
+- **WHEN** an uncertain machine write holds the Panels
+- **THEN** the Panels instance stops its automatic retries, the Lines instance keeps rendering tasks and accepts a new machine command, and the Lines ledger has no hold
+
+#### Scenario: Per-device revisions and scenes
+- **WHEN** each worker observes its own device's saved scenes, and a mode command is admitted for one device
+- **THEN** each ledger advertises only its own device's scene IDs, and only the commanded device's configuration revision and generation advance
+
+#### Scenario: Machine requests never reach an unconfigured device
+- **WHEN** Panels are registered but the controller has no Panels ledger, and a client sets Quiet, brightness and power on the Lines
+- **THEN** only the Lines transport receives those writes, the Panels mode and transport are unaffected, and the protected contract fixtures are unchanged
