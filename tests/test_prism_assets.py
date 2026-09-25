@@ -61,7 +61,7 @@ class PrismAssetTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             package=Path(temporary)/'package';package.mkdir()
             state=Path(temporary)/'state';state.mkdir()
-            for name in ('bridge.py','devices.py','project_map.py','shared_input.py','wall_server.py','integration_api.py', 'controller_state.py','controller_contract.py','wall.html','prism.js','prism-adapters.js','prism-labels.js'):
+            for name in ('bridge.py','devices.py','effects.py','project_map.py','shared_input.py','wall_server.py','integration_api.py', 'controller_state.py','controller_contract.py','wall.html','prism.js','prism-adapters.js','prism-labels.js'):
                 shutil.copy2(source/name,package/name)
             (state/'config.json').write_text(json.dumps({'ip':'192.0.2.1','token':'PRIVATE_PACKAGE_TOKEN'}))
             (state/'layout.json').write_text(json.dumps({'line_groups':groups,'line_positions':[[i,0] for i in range(15)],'zone_geometry':{'positionData':raw['layout']['positionData'],'orientation':raw['globalOrientation']['value']}}))

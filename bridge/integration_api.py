@@ -1,4 +1,5 @@
-"""Nanoleaf-owned configuration extension; never a light transport."""
+"""Nanoleaf-owned configuration extension. Its only light operation is a Free-only
+animation that the existing worker plays; this module never contacts the device."""
 import contextlib
 import hashlib
 import hmac
@@ -8,6 +9,7 @@ import time
 
 import controller_state as state
 import devices
+import effects
 import project_map as wall
 import shared_input
 
@@ -17,6 +19,9 @@ MAX_RECEIPTS = 256
 MAX_BODY = 65536
 MAX_SEQUENCE = 9007199254740991
 OPERATIONS = ('settings.set', 'elements.assign', 'task.assign', 'project.color')
+# Advertised by its own read route so the 1.0 snapshot keeps its exact shape.
+ANIMATION = 'animation.play'
+PRIOR_EFFECTS = {'applied': 'configuration', 'sent': 'confirmed-transmission', 'uncertain': 'possible'}
 
 
 class Failure(ValueError):
@@ -31,7 +36,8 @@ def init(db):
     db.execute('CREATE TABLE IF NOT EXISTS integration_requests (sequence INTEGER PRIMARY KEY, principal TEXT, request TEXT, receipt TEXT, phase TEXT, created REAL, revision TEXT)')
 
 
-def groups(directory):
+def geometry(directory):
+    """Saved Lines zone pairs and positions; positions are None until every Line has one."""
     # Read only the saved physical mapping, never load_config's geometry discovery.
     raw = (directory / 'layout.json').read_bytes()
     if len(raw) > MAX_BODY:
@@ -42,7 +48,12 @@ def groups(directory):
         raise Failure('unsupported-capability') from None
     if entry is None or entry['kind'] != 'lines':
         raise Failure('unsupported-capability')
-    return [list(element['zones']) for element in entry['elements']]
+    positions = [element['position'] for element in entry['elements']]
+    return [list(element['zones']) for element in entry['elements']], None if None in positions else positions
+
+
+def groups(directory):
+    return geometry(directory)[0]
 
 
 def opaque(data, kind, value):
@@ -123,7 +134,7 @@ def snapshot(app, token, device, **checks):
         view, _, _ = projection(db, groups(app.directory))
         sequence = db.execute('SELECT sequence FROM integration_meta WHERE id=1').fetchone()[0]
         view['nextRequestId'] = state.ticket(state.read(db), sequence)
-        view['pending'] = [json.loads(r[0]) for r in db.execute("SELECT request FROM integration_requests WHERE phase='queued' AND principal=?", (principal,))]
+        view['pending'] = [json.loads(r[0]) for r in db.execute("SELECT request FROM integration_requests WHERE phase IN ('queued','attempting') AND principal=?", (principal,))]
         view['outcomes'] = [json.loads(r[0]) for r in db.execute("SELECT receipt FROM integration_requests WHERE principal=? ORDER BY sequence DESC LIMIT 32", (principal,))]
         # Scene names are the user's Nanoleaf app names; shared v1 carries only the opaque IDs.
         view['scenes'] = [dict(id=identity, **({'name': name} if len(name) <= state.MAX_LABEL else {}))
@@ -132,6 +143,20 @@ def snapshot(app, token, device, **checks):
         view['capabilities']['mode.set'] = {'supported': True, 'scope': 'control', 'route': '/controller/v1/commands'}
         view['limits'] = dict(maxItems=MAX_ITEMS, maxPending=1, maxReceipts=MAX_RECEIPTS, maxBodyBytes=MAX_BODY)
         return view
+
+
+def animations(app, token, device, **checks):
+    """The animation option set with the identity values a play request needs, in one read."""
+    with contextlib.closing(state.readonly(app.directory)) as db:
+        authorize(app, db, token, device, 'read', checks)
+        view, _, _ = projection(db, groups(app.directory))
+        sequence = db.execute('SELECT sequence FROM integration_meta WHERE id=1').fetchone()[0]
+        return dict(apiVersion=VERSION, identity=view['identity'], mode=view['mode'], revision=view['revision'],
+                    nextRequestId=state.ticket(state.read(db), sequence),
+                    patterns=[dict(id=name, spatial=spatial) for name, spatial in effects.PATTERNS.items()],
+                    speeds=list(effects.SPEEDS), directions=list(effects.DIRECTIONS), defaults=dict(effects.DEFAULTS),
+                    limits=dict(minColors=effects.MIN_COLORS, maxColors=effects.MAX_COLORS,
+                                maxFramesPerZone=effects.MAX_FRAMES, maxEffectBytes=effects.MAX_BYTES))
 
 
 def valid_ticket(value):
@@ -152,6 +177,10 @@ def validate(request):
             or type(request['command']) is not dict):
         raise Failure('invalid-request')
     c = request['command']; kind = c.get('kind')
+    if kind == ANIMATION:
+        if not effects.valid(c):
+            raise Failure('invalid-request')
+        return
     if kind not in OPERATIONS:
         raise Failure('unsupported-capability')
     if kind == 'settings.set':
@@ -206,7 +235,7 @@ def finish(db, sequence, outcome, code=None):
     row = db.execute('SELECT receipt FROM integration_requests WHERE sequence=?', (sequence,)).fetchone()
     if not row: return
     receipt = json.loads(row[0]); receipt['outcome'] = outcome
-    receipt['priorEffects'] = 'configuration' if outcome == 'applied' else 'none'
+    receipt['priorEffects'] = PRIOR_EFFECTS.get(outcome, 'none')
     if code: receipt['failure'] = {'code': code}
     db.execute("UPDATE integration_requests SET receipt=?,phase='done' WHERE sequence=?", (state.encoded(receipt), sequence))
     db.execute("DELETE FROM integration_requests WHERE phase='done' AND sequence NOT IN (SELECT sequence FROM integration_requests WHERE phase='done' ORDER BY sequence DESC LIMIT 256)")
@@ -225,6 +254,57 @@ def recover(db, now=None, principal=None, cancel=False):
             finish(db, sequence, 'failed', 'request-expired')
 
 
+def queued_animations(db):
+    """Queued animations as (created, sequence, command), oldest first."""
+    if not state.present(db): return []
+    result = []
+    for sequence, raw, created in db.execute("SELECT sequence,request,created FROM integration_requests WHERE phase='queued' ORDER BY sequence"):
+        command = json.loads(raw)['command']
+        if command['kind'] == ANIMATION: result.append((created, sequence, command))
+    return result
+
+
+def retire(db):
+    """Every explicit mode command retires queued animations, as shared v1 retires queued controls."""
+    for _, sequence, _ in queued_animations(db):
+        finish(db, sequence, 'cancelled', 'stale-generation')
+
+
+def recover_attempts(db):
+    """Only the locked Lines worker calls this: an attempt without a result may have reached the device."""
+    if not state.present(db): return
+    for sequence, in list(db.execute("SELECT sequence FROM integration_requests WHERE phase='attempting'")):
+        finish(db, sequence, 'uncertain', 'uncertain-result')
+
+
+def attempt(db, sequence):
+    """Record the attempt durably before the single write; returns the controller generation it belongs to."""
+    generation = state.read(db)['generation']
+    db.execute("UPDATE integration_requests SET phase='attempting' WHERE sequence=?", (sequence,))
+    db.commit()  # A crash after this point cannot be classified as no effect.
+    return generation
+
+
+def play(db, sequence, generation, send):
+    """Retake the write lock, then make the attempt's one write unless a mode command, revocation or disable intervened."""
+    db.execute('BEGIN IMMEDIATE')
+    row = db.execute('SELECT principal,phase FROM integration_requests WHERE sequence=?', (sequence,)).fetchone()
+    if not row or row[1] != 'attempting': return
+    data = state.read(db)
+    active = db.execute('SELECT active FROM controller_credentials WHERE principal=?', (row[0],)).fetchone()
+    if data['generation'] != generation:
+        finish(db, sequence, 'cancelled', 'stale-generation'); return
+    if data.get('stopped') or active != (1,):
+        finish(db, sequence, 'cancelled', 'forbidden'); return
+    try:
+        send()
+    except Exception:
+        finish(db, sequence, 'uncertain', 'uncertain-result')
+        db.commit(); db.execute('BEGIN IMMEDIATE')
+        raise
+    finish(db, sequence, 'sent')
+
+
 def process(db, b, config, now=None):
     """Only the existing worker calls this, inside its configuration transaction."""
     if not state.present(db): return
@@ -232,6 +312,7 @@ def process(db, b, config, now=None):
     row = db.execute("SELECT sequence,request,revision FROM integration_requests WHERE phase='queued'").fetchone()
     if not row: return
     sequence, raw, revision = row
+    if json.loads(raw)['command']['kind'] == ANIMATION: return  # The worker plays it through its own journal.
     try:
         view, _, _ = projection(db, config['line_groups'])
         if view['revision'] != revision: raise Failure('revision-conflict')
@@ -281,11 +362,20 @@ def admit(app, token, request, body_bytes=None, deadline=None, **checks):
                 return (202 if receipt['outcome'] == 'queued' else 200), receipt
             next_id = db.execute('SELECT sequence FROM integration_meta WHERE id=1').fetchone()[0]
             if sequence != next_id: raise Failure('request-expired' if sequence < next_id else 'request-order')
-            if next_id == MAX_SEQUENCE or db.execute("SELECT 1 FROM integration_requests WHERE phase='queued'").fetchone(): raise Failure('capacity')
-            pairs = groups(app.directory)
+            if next_id == MAX_SEQUENCE or db.execute("SELECT 1 FROM integration_requests WHERE phase IN ('queued','attempting')").fetchone(): raise Failure('capacity')
+            pairs, positions = geometry(app.directory)
             view, _, _ = projection(db, pairs)
-            if request['expectedRevision'] != view['revision'] or wall.pending(db): raise Failure('revision-conflict')
-            operation(db, pairs, request['command'])
+            if request['command']['kind'] == ANIMATION:
+                # Content for Free only; Work and Quiet present agent status (hub ADR 0005).
+                if app.b.control_state(db)['mode'] != 'free': raise Failure('unsupported-capability')
+                if request['expectedRevision'] != view['revision']: raise Failure('revision-conflict')
+                try:
+                    effects.render(request['command'], pairs, positions)
+                except effects.Rejected as error:
+                    raise Failure(error.code) from None
+            else:
+                if request['expectedRevision'] != view['revision'] or wall.pending(db): raise Failure('revision-conflict')
+                operation(db, pairs, request['command'])
             check_deadline(deadline)
             receipt = dict(apiVersion=VERSION, requestId=ticket, outcome='queued', priorEffects='none', physicalOutcome='unknown')
             db.execute('UPDATE integration_meta SET sequence=? WHERE id=1', (sequence + 1,))

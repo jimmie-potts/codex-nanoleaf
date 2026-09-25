@@ -1,15 +1,24 @@
 /** Native-client contract only. This module never sends or retries a request. */
 export const apiVersion = 'nanoleaf.integration/1.0';
 export type Ticket = {epoch: string; sequence: number};
+export const patterns = {wave: true, gradient: true, pulse: false, breathe: false, sparkle: false} as const;
+export type Pattern = keyof typeof patterns;
+export type Animation = {kind: 'animation.play'; pattern: Pattern; colors: string[]; speed?: 'slow' | 'medium' | 'fast';
+  direction?: 'left' | 'right' | 'up' | 'down' | 'outward' | 'inward'; loop?: boolean};
 export type Command =
   | {kind: 'settings.set'; style?: 'classic' | 'project'; coverage?: 'whole' | 'status'}
   | {kind: 'elements.assign'; elements: {id: string; projectId?: string | null; signature?: 0 | 1}[]}
   | {kind: 'task.assign'; taskId: string; projectId: string | null}
-  | {kind: 'project.color'; projectId: string; color: string};
+  | {kind: 'project.color'; projectId: string; color: string}
+  | Animation;
 export type Request = {apiVersion: typeof apiVersion; controllerId: string; deviceId: string;
   requestId: Ticket; expectedRevision: string; command: Command};
 export type Receipt = {apiVersion: typeof apiVersion; requestId: Ticket;
   outcome: 'queued' | 'applied' | 'failed' | 'cancelled'; priorEffects: 'none' | 'configuration';
+  physicalOutcome: 'unknown'; failure?: {code: string}};
+/** An animation.play receipt: transport evidence only, never visible output. */
+export type AnimationReceipt = {apiVersion: typeof apiVersion; requestId: Ticket;
+  outcome: 'queued' | 'sent' | 'failed' | 'uncertain' | 'cancelled'; priorEffects: 'none' | 'confirmed-transmission' | 'possible';
   physicalOutcome: 'unknown'; failure?: {code: string}};
 
 const object = (v: unknown): v is Record<string, any> => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -38,7 +47,28 @@ export function validateRequest(v: unknown): v is Request {
     }
     case 'task.assign': return exact(c, ['kind','taskId','projectId']) && ref(c.taskId, 'task') && ref(c.projectId, 'project', true);
     case 'project.color': return exact(c, ['kind','projectId','color']) && ref(c.projectId, 'project') && match(c.color, /^#[a-fA-F0-9]{6}$/);
+    case 'animation.play': {
+      const keys = Object.keys(c);
+      if (!['kind','pattern','colors'].every(k => keys.includes(k)) || !keys.every(k => ['kind','pattern','colors','speed','direction','loop'].includes(k))
+          || typeof c.pattern !== 'string' || !Object.hasOwn(patterns, c.pattern)
+          || !Array.isArray(c.colors) || c.colors.length < 1 || c.colors.length > 8 || !c.colors.every((v: unknown) => match(v, /^#[a-fA-F0-9]{6}$/))) return false;
+      return (!('speed' in c) || ['slow','medium','fast'].includes(c.speed))
+        && (!('direction' in c) || patterns[c.pattern as Pattern] && ['left','right','up','down','outward','inward'].includes(c.direction))
+        && (!('loop' in c) || typeof c.loop === 'boolean');
+    }
     default: return false;
+  }
+}
+
+export function animationResult(receipt: AnimationReceipt): 'pending' | 'sent' | 'uncertain' | 'refresh' | 'stopped' {
+  // Sent is transport evidence only. Uncertain may have reached the device and is
+  // never retried automatically; look up the original ticket instead.
+  switch (receipt.outcome) {
+    case 'queued': return 'pending';
+    case 'sent': return 'sent';
+    case 'uncertain': return 'uncertain';
+    case 'failed': return 'refresh';
+    case 'cancelled': return 'stopped';
   }
 }
 
