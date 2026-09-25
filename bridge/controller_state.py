@@ -253,11 +253,17 @@ class Execution:
                 self.sequence=row[0];break
 
     def current(self):
-        row=self.db.execute('SELECT receipt,principal,phase FROM '+table('controller_requests',self.device)+' WHERE sequence=?',(self.sequence,)).fetchone()
-        if not row:return False
+        row=self.db.execute('SELECT receipt,principal,phase,mode_revision FROM '+table('controller_requests',self.device)+' WHERE sequence=?',(self.sequence,)).fetchone()
+        if not row or row[2]=='done':return False
         receipt=json.loads(row[0]);data=read(self.db,self.device)
         active=self.db.execute('SELECT active FROM controller_credentials WHERE principal=?',(row[1],)).fetchone()
-        return row[2]!='done' and active==(1,) and not data.get('stopped') and receipt['generation']==ticket(data,data['generation'])
+        # The Lines ledger carries the listener-wide disable. A revoke or disable that missed this ledger,
+        # such as one run by older source, ends the request as revocation would instead of retrying it.
+        if active!=(1,) or read(self.db).get('stopped'):
+            finish(self.db,self.sequence,'cancelled','forbidden',self.device)
+            hold(self.db,self.device,row[3])
+            return False
+        return receipt['generation']==ticket(data,data['generation'])
 
     def call(self,send,*args,**kwargs):
         db=self.db;device=self.device

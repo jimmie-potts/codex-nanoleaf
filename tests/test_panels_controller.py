@@ -144,6 +144,14 @@ class LedgerTest(PanelsControllerTest):
                          (before['wall']['configurationRevision'], before['wall']['cursor']))
         self.assertEqual(self.app.admit(self.token, lines_request)[0], 202)
 
+    def test_shared_edits_from_the_panels_page_advance_the_lines_ledger(self):
+        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+            db.execute("INSERT INTO projects (id, name, color, roots) VALUES ('project-a', 'A', '#123456', '[]')")
+        before = {device: self.app.snapshot(device)['configurationRevision'] for device in ('wall', 'panels')}
+        wall_server.App(self.directory, b, launch=lambda *_: None).update('/api/project', {'device': 'panels', 'id': 'project-a', 'color': '#abcdef'})
+        after = {device: self.app.snapshot(device)['configurationRevision'] for device in ('wall', 'panels')}
+        self.assertEqual(after, {'wall': before['wall'] + 1, 'panels': before['panels']})
+
     def test_each_ledger_keeps_its_own_sequence_revision_and_generation(self):
         self.free()
         panels_request, (code, _) = self.command('panels', {'kind': 'brightness.set', 'percent': 42})
@@ -251,6 +259,25 @@ class WorkerOwnershipTest(PanelsControllerTest):
         self.assertIn(self.receipt(request)['outcome'], ('uncertain', 'partially-applied'))
         holds = dict(self.query("SELECT key, value FROM meta WHERE key LIKE 'controller_hold_revision%'"))
         self.assertEqual(set(holds), {'controller_hold_revision@panels'})
+
+    def test_revoke_or_disable_that_missed_the_panels_ledger_ends_its_request(self):
+        # Older source revokes and disables through the original tables only.
+        self.free()
+        request, _ = self.command('panels', {'kind': 'power.set', 'on': False})
+        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+            db.execute("UPDATE controller_credentials SET active=0 WHERE principal='client'")
+        self.run_worker('panels')
+        self.assertEqual(puts(self.fake.panels), [])
+        self.assertEqual((self.receipt(request)['outcome'], self.receipt(request)['failure']), ('cancelled', {'code': 'forbidden'}))
+        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+            db.execute("UPDATE controller_credentials SET active=1 WHERE principal='client'")
+            controller_state.release(db, 'panels')
+        request, _ = self.command('panels', {'kind': 'power.set', 'on': False})
+        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+            data = controller_state.read(db); data['stopped'] = True; controller_state.save(db, data)
+        self.run_worker('panels')
+        self.assertEqual(puts(self.fake.panels), [])
+        self.assertEqual(self.receipt(request)['failure'], {'code': 'forbidden'})
 
     def test_panels_hold_leaves_the_lines_running(self):
         self.free()
