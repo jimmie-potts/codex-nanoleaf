@@ -5,7 +5,7 @@
 ## What Changes
 
 - Add `device-address --device <id> --ip <new>`. It changes only the registered address of one Panels device. The id, credential reference, reservations, mode, layout entry and saved scene stay as they are.
-- Before any write, the command checks that the new address is a private IPv4 address that no other registered device uses. It then asks the device at that address, with the stored credential, to report model NL22 and a triangle layout whose panel identities match the saved layout. The command changes nothing when a check fails or the device is unreachable. It sends no light write. Credentials never appear in its output or errors.
+- Before any write, the command checks that the new address is a private IPv4 address that no other registered device uses. It then asks the device at that address, with the stored credential, to report model NL22 and a triangle layout equal to the saved one: the same triangles, positions and neighbors. The command changes nothing when a check fails or the device is unreachable. It sends no light write. Credentials never appear in its output or errors.
 - Refuse the Lines device (`wall`). Lines have no model check to reuse for the "same kind" verification, so Lines stay out of scope, as the issue allows.
 - Make each worker pass read its device's address and credential from the registry. A running worker then uses the new address on its next pass, and a failing one picks it up on retry, with no service restart.
 - Replace the remove-and-re-enroll workaround in the Linux installation guide and bridge guide with the new command.

@@ -541,8 +541,12 @@ class AddressTest(EnrollmentTest):
 
     # AC2: the new address is checked before anything is written.
     def test_address_in_use_or_not_private_is_refused_before_contacting_a_device(self):
+        config = self.config()
+        config['devices']['second'] = {'kind': 'panels', 'ip': OTHER_IP, 'token_ref': 'token@second'}
+        b.write_json(self.directory / 'config.json', config)  # A second registered Panels device.
         before = self.snapshot()
-        for ip, reason in ((LINES_IP, 'already uses'), (PANELS_IP, 'already registered at'),
+        for ip, reason in ((LINES_IP, 'already uses'), (OTHER_IP, '`second` already uses'),
+                           (PANELS_IP, 'already registered at'),
                            ('8.8.8.8', 'private IPv4'), ('fd00::1', 'private IPv4'), ('not-an-ip', 'address')):
             with self.subTest(ip=ip), self.assertRaisesRegex(ValueError, reason):
                 self.change(ip=ip)
@@ -564,6 +568,21 @@ class AddressTest(EnrollmentTest):
         with self.assertRaisesRegex(ValueError, 'Unsupported'):
             self.change()
         self.assertEqual(self.snapshot(), before)
+
+    def test_same_count_with_other_triangles_or_moved_geometry_is_refused(self):
+        before = self.snapshot()
+        points = self.fake.info[NEW_IP]['panelLayout']['layout']['positionData']
+        original = copy.deepcopy(points)
+        triangle = next(p for p in points if p['shapeType'] != 7)
+        def translate(_):
+            for point in points:
+                point['x'] += 10  # Still connected, but every triangle sits elsewhere.
+        for change in (lambda p: p.update(panelId=65000), translate):
+            points[:] = copy.deepcopy(original)
+            change(next(p for p in points if p['panelId'] == triangle['panelId']))
+            with self.subTest(change=change), self.assertRaisesRegex(ValueError, 'saved layout'):
+                self.change()
+            self.assertEqual(self.snapshot(), before)
 
     def test_unreachable_address_writes_nothing(self):
         before = self.snapshot()

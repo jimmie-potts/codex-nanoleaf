@@ -247,7 +247,9 @@ def change_address(directory, b, device, ip, *, request=None):
             raise ValueError('The device at that address is not NL22 Light Panels.')
         import panels
         reported = panels.read_layout(info.get('panelLayout'))
-        if sorted(e['id'] for e in reported['elements']) != sorted(e['id'] for e in saved['elements']):
+        # The same physical set: equal triangles, positions and neighbors, not just an equal count.
+        if (reported['elements'] != saved['elements']
+                or reported['panel_geometry'] != saved.get('panel_geometry')):
             raise ValueError('The triangles at that address do not match the saved layout. '
                              'Check the address, or remove the device and enroll it again.')
         # Only the registry changes; a running worker reads the address again on its next pass.

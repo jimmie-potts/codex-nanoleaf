@@ -210,7 +210,7 @@ unset PANELS_IP
 ```
 
 The command asks the device at the new address, with the stored credential, to
-report NL22 Light Panels with the saved triangles. It refuses an address another
+report NL22 Light Panels with the saved triangles in the same places. It refuses an address another
 device uses, a different device and an unreachable address, and then changes
 nothing. On success it changes only the registered address. The Panels keep their
 id, mode, layout, reservations and saved scene, and no light write is sent. No
