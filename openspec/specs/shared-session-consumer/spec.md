@@ -38,7 +38,7 @@ The CLI SHALL provide hook removal and registration commands that take a Codex h
 - **THEN** it reports failure and leaves the original file byte-for-byte unchanged
 
 ### Requirement: Validated bounded shared input
-The consumer SHALL validate the released versioned snapshot contract and expected owner over authenticated configured numeric-loopback HTTP with bounded time, size and concurrency, no redirects and no proxy use. Source readiness declarations SHALL distinguish operator assertions from verified feed evidence. No provider reducer SHALL be copied to Python. This covers #29 shared-contract, privacy and transport criteria.
+The consumer SHALL request snapshot 1.1, require a non-negative safe integer generation no greater than its revision for every session, and validate the versioned snapshot contract and expected owner over authenticated configured numeric-loopback HTTP with bounded time, size and concurrency, no redirects and no proxy use. Source readiness declarations SHALL distinguish operator assertions from verified feed evidence. No provider reducer SHALL be copied to Python. This covers #29 shared-contract, privacy and transport criteria.
 
 #### Scenario: Invalid or unavailable host
 - **WHEN** authentication fails, input exceeds bounds, a version/owner/schema is invalid, or a revision regresses
@@ -58,7 +58,7 @@ The consumer SHALL map semantic activity and attention into the existing allocat
 
 #### Scenario: Read evidence and explicit acknowledgment
 - **WHEN** qualified read evidence is present or an operator acknowledges an exact notice
-- **THEN** read evidence suppresses the local blue indicator without writing shared acknowledgment, while an explicit acknowledgment targets only the configured consumer and exact notice with bounded authenticated request identity
+- **THEN** read evidence ends the local unread pulse and retains the idle task and Line without writing shared acknowledgment, while an explicit acknowledgment targets only the configured consumer and exact notice with bounded authenticated request identity
 - **AND** unavailable read evidence remains unknown and legacy unread clearing remains unchanged
 
 #### Scenario: Subagent sessions join their parent task
@@ -103,7 +103,7 @@ Disconnected or uncertain shared sessions SHALL keep their last colors steady wi
 
 #### Scenario: Stale unread task read or acknowledged
 - **WHEN** a task retains unread while its session is uncertain and the owner reports the session read, or every notice acknowledged for this consumer
-- **THEN** the task becomes idle without a pulse, outward wave or comet, and its Line becomes available to a waiting task
+- **THEN** the task becomes idle without a pulse, outward wave or comet, and its row and assigned Line remain until authoritative removal or device-local eviction
 
 #### Scenario: Other stale changes stay frozen
 - **WHEN** an uncertain session's retained status is working, question or blocked, or a retained unread session's uncertain evidence would show another status, or only some notices are acknowledged
@@ -133,3 +133,42 @@ The wall task projection SHALL expose `codexUrl` only when its presented root se
 #### Scenario: Ineligible root
 - **WHEN** a root is Codex CLI, Claude Code, an unknown client, or has a malformed session ID
 - **THEN** its wall task has no link even if a child is an eligible Desktop session or a matching ID exists in the local title index
+
+### Requirement: Authoritative session retirement
+A current owner snapshot that removes a task SHALL remove its task-specific local presentation and release its Lines through the existing allocator. A changed generation for a retained identity SHALL have the same reset effect before projecting the new task. The consumer SHALL preserve unrelated tasks, the global project catalogue, project colors and reservations, preferences, source selection, modes and scenes. Retirement SHALL NOT acknowledge a notice, mark work successful or terminate an agent.
+
+#### Scenario: Removal and empty idle
+- **WHEN** the current owner removes a parent and its known descendants, including when the consumer reconnects to an empty snapshot
+- **THEN** their tasks and task-specific overrides disappear, their assignments become available, and normal idle behavior applies with no replayed effects
+
+#### Scenario: Missed removal and same-identity recreation
+- **WHEN** a later current snapshot has a different generation for a retained identity, including after a consumer restart
+- **THEN** the task starts with fresh local defaults and does not reuse its old manual project, assignment or task effects
+- **AND** tasks with unchanged generations retain their existing presentation continuity
+
+#### Scenario: Unavailable is not removal
+- **WHEN** the feed is unavailable or fails validation
+- **THEN** the consumer preserves its last valid projection with unavailable health and does not infer retirement
+
+### Requirement: Shared task visibility and local eviction
+Shared root tasks SHALL retain their wall row and allocation eligibility while the owner retains them, including after read or acknowledgment changes them to idle. Idle Lines SHALL be steady blue with no new wave or completion comet. The existing orphan-child rule and legacy presentation policy SHALL remain unchanged. The selected task details SHALL offer a same-origin protected Evict action that removes the task's row, assignment and task effects from the current device only. Eviction SHALL NOT change the owner record, conversation, read evidence, notices, modes, global preferences, peers or other devices. The UI SHALL state the local scope. This refines Hub #218's presentation acceptance following the installed trial.
+
+#### Scenario: Read without retirement
+- **WHEN** an unread shared root becomes read or acknowledged while the owner retains it
+- **THEN** its row and assigned Line remain, its unread pulse ends, and no new wave or comet starts
+- **AND** authoritative removal later releases its row and Line normally
+
+#### Scenario: Persistent device-local eviction
+- **WHEN** the operator evicts a selected shared task
+- **THEN** its row and allocation disappear on this device and remain suppressed across polling, read changes, feed failure/recovery and process restart
+- **AND** its owner record and other devices are unchanged, so it still counts toward future owner-based Work/Free automation
+
+#### Scenario: New work and stale controls
+- **WHEN** a new identifiable turn or generation replaces the evicted one
+- **THEN** it becomes eligible for a fresh allocation without replaying prior effects
+- **AND** an eviction submitted from details for an older turn, generation or source selection is rejected without changing the current task
+
+#### Scenario: Unknown turn and legacy input
+- **WHEN** no changed turn identity or generation is evidenced
+- **THEN** refresh, elapsed time and read evidence alone do not re-admit an evicted task
+- **AND** legacy tasks do not offer this shared-input eviction action

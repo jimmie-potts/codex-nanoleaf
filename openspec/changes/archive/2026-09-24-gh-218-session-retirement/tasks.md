@@ -10,7 +10,7 @@
 
 ## 3. Delivery gates
 
-- [ ] 3.1 Record the owning Hub issue's separately authorized archive, retained-read and local-Evict acceptance and its approved [Hub #253](https://github.com/jimmie-potts/agent-device-hub/issues/253) qualification boundary; obtain successful specification/archive lookups and verify the affected delta against the current main specification.
+- [x] 3.1 Record the owning Hub issue's separately authorized archive, retained-read and local-Evict acceptance and its approved [Hub #253](https://github.com/jimmie-potts/agent-device-hub/issues/253) qualification boundary; obtain successful specification/archive lookups and verify the affected delta against the current main specification.
 
 After applicable acceptance tasks are complete, synchronize the affected specification and archive this change before final independent Standards/Specification review. Matching CI, current UI approval, guarded merge and merged-main verification remain required. Native idle/shutdown emission and reopen/live-resume qualification are deferred only to the approved Hub #253 follow-up.
 
@@ -18,4 +18,4 @@ After applicable acceptance tasks are complete, synchronize the affected specifi
 
 - [x] 4.1 Demonstrate read/acknowledgment removing a shared wall row and make shared idle tasks retain their row and Line with steady blue; verify no wave/comet replay and unchanged legacy/orphan handling.
 - [x] 4.2 Add guarded device-local Evict through the wall's existing protected action path. Verify restart/reconnect persistence, fresh-turn/generation re-admission, stale-action rejection, other-device/peer isolation, and owner/conversation preservation.
-- [ ] 4.3 Update behavior documentation and browser journeys; run required Python, browser, MCP and workflow checks, then obtain renewed approval of the current UI candidate. Keep global eviction and original live acceptance limits explicit.
+- [x] 4.3 Update behavior documentation and browser journeys; run required Python, browser, MCP and workflow checks, then obtain renewed approval of the current UI candidate. Keep global eviction and original live acceptance limits explicit.
