@@ -17,6 +17,7 @@ import urllib.request
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import devices
+import effects
 import project_map as wall
 import shared_input
 
@@ -337,7 +338,7 @@ def effect_payload(config, snapshot, instant, loop):
     locate = config.get('_locate')
     animated = bool(any(snapshot) or comet or locate) and not quiet
     delays = [travel_delays(config, source) for source in range(len(groups))]
-    data = [sum(len(zones) for zones in groups)]
+    zones = []
     for index, pair in enumerate(groups):
         ticks = [1] + list(range(2, PULSE_TICKS, 2)) + [PULSE_TICKS] if animated else [1]
         if comet: ticks = list(range(1, PULSE_TICKS + 1))
@@ -346,18 +347,11 @@ def effect_payload(config, snapshot, instant, loop):
             for tick in ticks:
                 instant_at = instant + tick / 10
                 color = zone_color(config, snapshot, index, half, instant_at, delays)
-                frames.append((*color, 0, tick - previous))
+                frames.append((*color, tick - previous))
                 previous = tick
-            data.extend([panel, len(frames)])
-            for step in frames: data.extend(step)
-    write = {'command': 'display', 'version': '2.0',
-             'animType': 'custom' if animated else 'static',
-             'animData': ' '.join(map(str, data)), 'loop': bool(loop and animated and not comet and not locate),
-             'colorType': 'HSB', 'palette': [{'hue': 0, 'saturation': 0, 'brightness': 100}]}
-    if config.get('kind', 'lines') == 'lines':
-        # Lines address their two logical zones; the Light Panels API defines no such flag.
-        write['logicalPanelsEnabled'] = True
-    return {'write': write}
+            zones.append((panel, frames))
+    return {'write': effects.display(zones, animated, loop and animated and not comet and not locate,
+                                     lines=config.get('kind', 'lines') == 'lines')}
 
 
 def render(config, snapshot, instant, loop):
@@ -426,9 +420,9 @@ class SceneRestorer:
             self.state = updated
 
     def observe(self):
-        effects = self.request(self.config, 'GET', '/effects')
-        names = effects.get('effectsList')
-        selected = effects.get('select')
+        listing = self.request(self.config, 'GET', '/effects')
+        names = listing.get('effectsList')
+        selected = listing.get('select')
         if (not isinstance(names, list) or any(not isinstance(name, str) for name in names)
                 or not isinstance(selected, str)):
             raise ValueError('Invalid scene list from controller.')
