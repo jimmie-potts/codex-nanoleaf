@@ -32,6 +32,18 @@ Layout (Classic and Project), animation coverage while Project layout is active,
 - **WHEN** the user chooses Project in the Options Layout group and later Classic
 - **THEN** each choice sends one settings request, Coverage appears in the group only while Project is active, and the saved layout survives a reload
 
+### Requirement: Counts and hints have one primary location
+
+The Line total SHALL appear only in the wall heading, the task total only in the Tasks heading, and blocked and question alerts in the readout, while the task card keeps its status, waiting and shown counts on short lines beside its full-list control. The selection instruction, including the modifier for selecting several Lines, SHALL appear only in the context card; the wall heading and the Projects heading SHALL carry no repeated hint. The footer SHALL keep the read-ownership note. Removed repetitions SHALL leave every control labelled. Covers AC3 and AC4.
+
+#### Scenario: One home for each count
+- **WHEN** 72 tasks with 2 blocked and 3 question are shown on 15 Lines
+- **THEN** the wall heading says 15 Lines, the Tasks heading says 72, the readout says 2 blocked and 3 question without a Line or task total, and the task card shows the status breakdown, the waiting count and the number shown
+
+#### Scenario: Lists from #76 and #77 fit
+- **WHEN** many long-titled tasks and long project names are shown and a task is selected at 390 or 1440 pixels
+- **THEN** the selected task, its details and, in Project layout, its reservation select remain usable without horizontal overflow, and the compact grid keeps its two desktop columns
+
 ## ADDED Requirements
 
 ### Requirement: One context card with layout-conditional editing

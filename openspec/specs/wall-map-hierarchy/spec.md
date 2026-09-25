@@ -39,7 +39,7 @@ Layout (Classic and Project), animation coverage while Project layout is active,
 
 ### Requirement: Counts and hints have one primary location
 
-The Line total SHALL appear only in the wall heading, the task total only in the Tasks heading, and blocked and question alerts in the readout, while the task card keeps its status, waiting and shown counts on short lines beside its full-list control. The selection instruction, including the modifier for selecting several Lines, SHALL appear only in the selection card; the wall heading and the Projects heading SHALL carry no repeated hint. The footer SHALL keep the read-ownership note. Removed repetitions SHALL leave every control labelled. Covers AC3 and AC4.
+The Line total SHALL appear only in the wall heading, the task total only in the Tasks heading, and blocked and question alerts in the readout, while the task card keeps its status, waiting and shown counts on short lines beside its full-list control. The selection instruction, including the modifier for selecting several Lines, SHALL appear only in the context card; the wall heading and the Projects heading SHALL carry no repeated hint. The footer SHALL keep the read-ownership note. Removed repetitions SHALL leave every control labelled. Covers AC3 and AC4.
 
 #### Scenario: One home for each count
 - **WHEN** 72 tasks with 2 blocked and 3 question are shown on 15 Lines
@@ -47,7 +47,7 @@ The Line total SHALL appear only in the wall heading, the task total only in the
 
 #### Scenario: Lists from #76 and #77 fit
 - **WHEN** many long-titled tasks and long project names are shown and a task is selected at 390 or 1440 pixels
-- **THEN** the selected task, its details and its project override remain usable without horizontal overflow, and the compact grid keeps its two desktop columns
+- **THEN** the selected task, its details and, in Project layout, its reservation select remain usable without horizontal overflow, and the compact grid keeps its two desktop columns
 
 ### Requirement: One context card with layout-conditional editing
 

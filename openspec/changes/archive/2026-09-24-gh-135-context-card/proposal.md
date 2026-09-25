@@ -18,7 +18,7 @@ None.
 
 ### Modified Capabilities
 
-- `wall-map-hierarchy`: the default screen requirement moves Layout and Coverage out of the header; the Options requirement gains the Layout group; a new requirement owns the context card, layout-conditional editing controls, selection clearing and the Free-only Locate hint.
+- `wall-map-hierarchy`: the default screen requirement moves Layout and Coverage out of the header; the Options requirement gains the Layout group; the counts-and-hints requirement names the context card and its reservation select; a new requirement owns the context card, layout-conditional editing controls, selection clearing and the Free-only Locate hint.
 - `wall-line-identification`: the inspector identification requirement names the context card, limits reservation and half-swap controls to Project layout, and makes the reservation select apply on change.
 - `wall-task-inspector`: the thread-navigation, polling and retirement requirements name the context card and drop the map's task override.
 

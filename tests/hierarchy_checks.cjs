@@ -172,7 +172,7 @@ module.exports = async function(page, root) {
       assert.equal(await page.evaluate(() => document.getElementById('wall').getAnimations({subtree: true}).filter(animation => animation.playState === 'running').length), 0, 'Reduced motion runs no wall animation');
     } finally {await page.emulateMedia({reducedMotion: null})}
 
-    // The #76 and #77 lists fit: a long-titled selected task and its override stay usable.
+    // The #76 and #77 lists fit: a long-titled selected task and, in Project layout, its reservation select stay usable.
     for (const [width, height] of [[1440, 1000], [390, 844]]) {
       current = dense; await page.setViewportSize({width, height}); await refresh(); await settle();
       await page.locator('#taskList [data-task="task-00"] .task-title').click(); await refresh();
