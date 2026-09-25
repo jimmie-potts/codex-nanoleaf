@@ -65,7 +65,7 @@ def copy_runtime(directory):
     with private_files():
         bridge.mkdir(parents=True)
         for path in (source / 'bridge').glob('*.py'):
-            if path.name not in {'install_linux.py', 'backup_install.py'}:
+            if path.name != 'install_linux.py':
                 shutil.copyfile(path, bridge / path.name)
         for name in ('wall.html', 'prism.js', 'prism-adapters.js', 'prism-labels.js',
                      'requirements-controller.txt'):
@@ -189,8 +189,7 @@ def provision_machine_credentials(directory):
         b.write_json(directory / 'mcp-config.json', {
             'enabled': True, 'port': ports['mcp_port'], 'controllerPort': ports['controller_port'],
             'controllerId': 'local-controller', 'deviceId': 'wall',
-            # Compatibility name: this transport is direct Linux HTTP as well.
-            'transport': 'windows-http', 'credentialsFile': str(directory / 'mcp-credentials.json')})
+            'transport': 'loopback-http', 'credentialsFile': str(directory / 'mcp-credentials.json')})
         (directory / 'mcp-client-token').write_text(client + '\n', encoding='ascii')
 
 
@@ -281,7 +280,7 @@ def main():
     print(f'Wall map: http://127.0.0.1:{arguments.wall_port}')
     print(f'MCP bearer is in the private file {launcher.parent / "mcp-client-token"}.')
     print('Review and trust the Nanoleaf hooks in Codex settings.')
-    print('After retiring the Windows installation, run from ordinary WSL:')
+    print('Run from an ordinary WSL terminal:')
     print('systemctl --user daemon-reload')
     print('systemctl --user enable --now codex-nanoleaf-wall codex-nanoleaf-controller codex-nanoleaf-mcp')
     return 0

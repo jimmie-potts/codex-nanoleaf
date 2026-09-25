@@ -23,17 +23,14 @@ choice and defers hosting off WSL to the hub. The user units start with the
 installing user's session, for example a WSL terminal; whether a Codex Desktop
 task running in WSL starts them has not been measured.
 
-Before setup registers active hooks, stop this project's Windows worker, wall
-map, controller, MCP and tray. Disable its Startup entries and remove its old
-Nanoleaf hooks from the relevant Codex homes. The operator performs that Windows
-retirement outside a restricted task terminal. Preserve unrelated applications,
-hooks and Codex data. Windows and Linux workers must never control the device
-concurrently, even if their databases are separate.
+Before setup registers active hooks, make sure no other Nanoleaf worker, map,
+controller or MCP process controls the device. Preserve unrelated applications,
+hooks and Codex data. Two workers must never control the device concurrently,
+even if their databases are separate.
 
 The fresh installation imports no old tasks, preferences, credentials or scene
 state. Old Nanoleaf data may remain unused. No backup, data migration, rollback
-tooling or soak period is required. An existing Windows installation still uses
-its supported Windows upgrade procedure when it is being upgraded.
+tooling or soak period is required.
 
 ## Install from the reviewed checkout
 
@@ -73,7 +70,9 @@ preserves unrelated handlers and settings. By default it uses
 `$CODEX_HOME/hooks.json`, or `~/.codex/hooks.json` when `CODEX_HOME` is unset.
 Use `--hooks-file /path/to/hooks.json` to select the actual Codex home, repeating
 the option for separate clients. These commands require tasks executing in WSL;
-review and trust the new hooks in the client. Registration alone does not prove
+review and trust the new hooks in the client. A hook registered in the Codex
+Desktop home on the Windows drive carries the same Linux command and fires only
+for tasks that run in WSL; native Windows tasks are not monitored. Registration alone does not prove
 that the installed client's sandbox can run them or launch the worker.
 
 For a shared-input cutover, select shared input first, then remove the legacy
@@ -122,8 +121,8 @@ directory for a fresh retry; there is no upgrade or rollback mechanism here.
 
 ## Run the services
 
-The default user units are written to `~/.config/systemd/user`. After Windows
-retirement, run these commands in ordinary WSL:
+The default user units are written to `~/.config/systemd/user`. Run these
+commands in ordinary WSL:
 
 ```bash
 systemctl --user daemon-reload
@@ -237,8 +236,9 @@ installation and physical check.
 
 ## Connect MCP
 
-Setup configures the existing direct HTTP transport, whose compatibility name
-is `windows-http` on both Linux and Windows. It needs no Windows helper.
+Setup configures the direct loopback HTTP transport, `loopback-http`. An
+installation whose `mcp-config.json` still names `windows-http` is accepted as
+the same transport. No helper process is involved.
 `mcp-credentials.json` contains a private controller credential and the digest
 of a separate MCP bearer. `mcp-client-token` holds that client bearer. Keep both
 files private and give the client only the MCP bearer.

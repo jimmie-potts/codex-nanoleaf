@@ -1,3 +1,4 @@
+import contextlib
 import json
 from pathlib import Path
 import shutil
@@ -22,14 +23,16 @@ class ControllerCLITest(unittest.TestCase):
             self.assertEqual(status['serviceHealth'],'unknown')
             run('controller-revoke','--principal','client')
 
-    @unittest.skipIf(sys.platform=='win32','WSL forwarding is exercised on Linux')
-    def test_installed_controller_commands_forward_before_state(self):
+    def test_installed_commands_under_a_windows_shaped_path_open_only_local_state(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory=Path(temporary)/'User/AppData/Local/CodexNanoleaf';directory.mkdir(parents=True)
             shutil.copyfile(b.__file__,directory/'bridge.py')
             for name in ('project_map.py','shared_input.py','devices.py'):
                 shutil.copyfile(Path(b.__file__).with_name(name),directory/name)
-            for command in ('controller-configure','controller-token','controller-revoke','controller-serve','controller-status','controller-disable','shared-configure','shared-preflight','shared-select','shared-status','shared-acknowledge'):
-                result=subprocess.run([sys.executable,str(directory/'bridge.py'),command],capture_output=True,text=True)
-                self.assertIn('Windows runtime is unavailable',result.stderr)
-                self.assertFalse((directory/'status.sqlite').exists())
+            state=Path(temporary)/'state';state.mkdir()
+            with contextlib.closing(b.connect_state(state)): pass
+            result=subprocess.run([sys.executable,str(directory/'bridge.py'),'status','--state-dir',str(state)],capture_output=True,text=True)
+            self.assertEqual(result.returncode,0,result.stderr)
+            self.assertNotIn('Windows',result.stderr)
+            self.assertEqual(json.loads(result.stdout)['mode'],'work')
+            self.assertTrue((state/'status.sqlite').exists())

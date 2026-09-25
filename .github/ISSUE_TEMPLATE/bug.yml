@@ -34,7 +34,7 @@ body:
     id: verification
     attributes:
       label: Verification approach
-      description: Suggest a regression check and any required Windows or device verification.
+      description: Suggest a regression check and any required device verification.
     validations:
       required: true
   - type: textarea

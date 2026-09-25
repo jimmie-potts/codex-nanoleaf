@@ -208,7 +208,7 @@ module.exports = async function(page, root) {
     await page.waitForTimeout(1100);
     assert.equal(await page.evaluate(value => document.activeElement?.dataset.line === value, id), true, 'Polling preserves keyboard focus');
     assert.equal((await snapshot()).playing, false, 'Focus and visibility events do not assemble');
-    await page.locator('#clear').click();
+    await page.keyboard.press('Escape');
   });
 
   await check('Quiet settles steady and reduced motion skips every assembly path', async () => {
@@ -253,14 +253,14 @@ module.exports = async function(page, root) {
     await page.waitForTimeout(600);
     await page.mouse.up(); await settle();
     assert.equal(await page.locator(`#wall .wall-line[data-line="${ids[3]}"]`).getAttribute('aria-pressed'), 'true', 'The held click still selects its intended Line');
-    await page.locator('#clear').click();
+    await page.keyboard.press('Escape');
 
     await replay(); await waitProgress(.05, .35);
     await page.locator(`#wall .wall-line[data-line="${ids[4]}"]`).focus();
     await page.keyboard.press('Enter');
     assert.equal((await snapshot()).playing, false, 'Keyboard activation commits assembly');
     assert.equal(await page.locator(`#wall .wall-line[data-line="${ids[4]}"]`).getAttribute('aria-pressed'), 'true', 'Enter still selects its intended Line');
-    await page.locator('#clear').click();
+    await page.keyboard.press('Escape');
 
     await replay(); await page.waitForTimeout(120);
     const before = (await snapshot()).progress;

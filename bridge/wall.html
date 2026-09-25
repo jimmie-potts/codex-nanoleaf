@@ -97,6 +97,7 @@
 
 @layer base {
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   html { background: var(--bg); }
   body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 var(--font-ui); }
   h1, h2, h3, p { margin: 0; }
@@ -196,21 +197,23 @@
   .empty { color: var(--muted); padding: 12px 0; font-size: 12px; }
 
   .card { position: relative; background: var(--card-bg); border: 1px solid var(--card-edge-side); border-bottom: 1px solid var(--card-edge); padding: var(--card-pad); margin-bottom: var(--card-gap); }
-  .card.selection::before, .card.selection::after { content: ""; position: absolute; width: 14px; height: 14px; border: 2px solid var(--accent); opacity: var(--bracket-opacity); pointer-events: none; }
-  .card.selection::before { top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
-  .card.selection::after { bottom: -1px; right: -1px; border-left: 0; border-top: 0; }
+  .card.context::before, .card.context::after { content: ""; position: absolute; width: 14px; height: 14px; border: 2px solid var(--accent); opacity: var(--bracket-opacity); pointer-events: none; }
+  .card.context::before { top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
+  .card.context::after { bottom: -1px; right: -1px; border-left: 0; border-top: 0; }
+  #taskDetail:not(:empty) { margin-top: 10px; }
   .card h2 + .hint { margin-top: 4px; }
   .field { display: block; margin: 12px 0 5px; }
   select.full { width: 100%; }
-  .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
-  .actions button { padding: 7px 8px; font-size: 13px; white-space: nowrap; }
-  #assign { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
-  #assign:hover { filter: brightness(1.08); }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .actions button { flex: 1 1 auto; padding: 7px 8px; font-size: 13px; white-space: nowrap; }
   #locateHint { margin-top: 8px; }
   .detail-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+  .detail-head h3 { margin: 0; font: 600 14px/1.3 var(--font-head); font-stretch: var(--head-stretch); overflow-wrap: anywhere; }
   .codex-link { display: inline-block; margin-top: 8px; padding: 4px 0; color: var(--focus); text-underline-offset: 3px; }
   .kv { display: grid; grid-template-columns: 70px 1fr; gap: 8px; font-size: 12px; margin: 8px 0; }
-  .kv span:first-child { color: var(--muted); }
+  .kv > :first-child { color: var(--muted); }
+  #reservation { grid-template-columns: auto 1fr; align-items: center; white-space: nowrap; }
+  #reservation select { width: 100%; min-width: 0; font-size: 13px; padding: 5px 8px; }
 
   .task { display: grid; grid-template-columns: 8px 1fr auto; gap: 4px 10px; padding: 10px 0; border-bottom: 1px solid var(--edge); align-items: start; cursor: pointer; }
   .task .dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; background: var(--chip-unread); }
@@ -302,6 +305,8 @@
   .option-group { display: grid; gap: 6px; justify-items: start; }
   .option-group > button, .option-group .group > button { padding: 5px 10px; font-size: 12px; white-space: nowrap; }
   .option-group label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+  #coverageOption { display: grid; gap: 4px; justify-items: start; }
+  #coverageOption select { font-size: 12px; padding: 4px 8px; }
   .number-bg { fill: var(--number-bg); stroke: var(--number-edge); }
   .number { fill: var(--number-ink); font-family: var(--font-num); font-weight: 600; font-variant-numeric: tabular-nums; text-anchor: middle; dominant-baseline: central; pointer-events: all; }
 }
@@ -346,9 +351,7 @@ body[data-mode="quiet"] #wall.prism-scene, body[data-mode="free"] #wall.prism-sc
 <header>
   <div class="brand"><span class="brand-mark">Codex × Nanoleaf</span><span class="brand-sub">Wall map</span></div>
   <div class="controls">
-    <div class="control" role="group" aria-labelledby="layoutLabel"><span id="layoutLabel" class="label">Layout</span><div class="group"><button type="button" id="classic">Classic</button><button type="button" id="project">Project</button></div></div>
     <div class="control" role="group" aria-labelledby="modeLabel"><span id="modeLabel" class="label">Mode</span><div class="group"><button type="button" id="work">Work</button><button type="button" id="quiet">Quiet</button><button type="button" id="free">Free</button></div></div>
-    <div class="control"><span class="label" aria-hidden="true">Coverage</span><select id="coverage" aria-label="Animation coverage" title="Waves and comets return to the project color after passing. Both halves lets them cover the project half; Status half only keeps project identity steady."><option value="whole">Both halves</option><option value="status">Status half only</option></select></div>
   </div>
   <span class="readout" id="readout" aria-live="off"></span>
   <span class="pill" id="connection">Connecting</span>
@@ -362,10 +365,11 @@ body[data-mode="quiet"] #wall.prism-scene, body[data-mode="free"] #wall.prism-sc
   </aside>
   <section class="canvas">
     <div class="canvas-head">
-      <h2>The wall <span class="small" id="lineCount"></span></h2>
+      <h2 id="wallTitle" tabindex="-1">The wall <span class="small" id="lineCount"></span></h2>
       <details class="wall-options" id="wallOptions">
         <summary title="Number display, map orientation and assembly playback">Options</summary>
         <div class="wall-options-menu">
+          <div class="option-group" role="group" aria-labelledby="layoutLabel"><span class="label" id="layoutLabel">Layout</span><div class="group"><button type="button" id="classic">Classic</button><button type="button" id="project">Project</button></div><div id="coverageOption" hidden><label class="label" for="coverage">Coverage</label><select id="coverage" aria-label="Animation coverage" title="Waves and comets return to the project color after passing. Both halves lets them cover the project half; Status half only keeps project identity steady."><option value="whole">Both halves</option><option value="status">Status half only</option></select></div></div>
           <div class="option-group" id="numbersOption" role="group" aria-labelledby="numbersLabel"><span class="label" id="numbersLabel">Numbers</span><button type="button" id="showNumbers" aria-pressed="false" title="Show every physical Line number on this browser only">Show all numbers</button></div>
           <div class="option-group" role="group" aria-labelledby="orientationLabel"><span class="label" id="orientationLabel">Orientation</span><div class="group"><button type="button" id="rotate" title="Rotate map 90 degrees">Rotate</button><button type="button" id="flipX">Flip H</button><button type="button" id="flipY">Flip V</button></div></div>
           <div class="option-group" role="group" aria-labelledby="assemblyLabel"><span class="label" id="assemblyLabel">Assembly</span><button type="button" id="replay" title="Replay the opening assembly. Decorative only; it changes nothing on the lights.">Replay assembly</button><label><input type="checkbox" id="assemblyOnOpen"> Play on opening</label><label><input type="checkbox" id="assemblyOnEntry"> Play on view entry</label></div>
@@ -383,17 +387,16 @@ body[data-mode="quiet"] #wall.prism-scene, body[data-mode="free"] #wall.prism-sc
     </div>
   </section>
   <aside id="inspector">
-    <div class="card selection">
+    <div class="card context" id="contextCard">
       <h2 id="selectionTitle" tabindex="-1">Select a Line</h2>
-      <p class="hint" id="selectionHint">Click a Line on the wall or a numbered badge to reserve it for a project. Ctrl/⌘ or Shift selects several.</p>
-      <div id="selectionBody">
-        <label class="label field" for="assignProject">Reservation project</label>
-        <select id="assignProject" class="full"></select>
-        <div class="actions"><button type="button" id="assign">Assign selected</button><button type="button" id="clear">Clear selection</button><button type="button" id="swap">Swap halves</button><button type="button" id="locate">Locate</button></div>
-        <p class="small" id="locateHint"></p>
+      <p class="hint" id="selectionHint">Click a Line on the wall or a numbered badge to see its task. Ctrl/⌘ or Shift selects several.</p>
+      <div class="kv" id="reservation" hidden><label for="assignProject">Reserved for</label><select id="assignProject" aria-label="Line reservation" title="Only this project's tasks use the Line, and it shows the project colour on one half. Shared pool lets any task use it."></select></div>
+      <div id="taskDetail"></div>
+      <div id="selectionBody" hidden>
+        <div class="actions"><button type="button" id="swap" hidden>Swap halves</button><button type="button" id="locate">Locate</button></div>
+        <p class="small" id="locateHint" hidden></p>
       </div>
     </div>
-    <div class="card" id="taskDetail"></div>
     <div class="card" id="taskCard">
       <div class="card-head"><h2 id="tasksTitle" tabindex="-1">Tasks <span class="small" id="taskCount"></span></h2><div class="task-controls"><button type="button" id="showAllTasks" aria-expanded="false" aria-controls="taskList taskFilters">Show all tasks</button><button type="button" id="showSelectedTasks" hidden>Show selected tasks</button></div></div>
       <p class="small task-counts" id="taskStatusCounts"></p>
@@ -811,10 +814,10 @@ function drawTasks(){
   const selectedIds=selectedTaskIds(),filter=showAllTasks?$('taskFilter').value:'all',query=showAllTasks?$('taskSearch').value.trim().toLocaleLowerCase():'';
   const fingerprint=JSON.stringify([showAllTasks,[...selectedIds],focusedId,filter,query,state.tasks,state.lines.map(l=>[l.id,l.number,l.task]),state.projects.map(p=>[p.id,p.name])]);
   if(fingerprint===taskFingerprint)return;taskFingerprint=fingerprint;
-  const inspector=$('inspector'),card=$('taskCard'),selection=inspector.querySelector('.selection'),detail=$('taskDetail');
-  // Keep compact tasks above the editors; the full list keeps its editors near the controls.
-  if(showAllTasks&&inspector.firstElementChild===card){inspector.insertBefore(selection,card);inspector.insertBefore(detail,card)}
-  else if(!showAllTasks&&inspector.firstElementChild!==card)inspector.append(selection,detail);
+  const inspector=$('inspector'),card=$('taskCard'),context=$('contextCard');
+  // Keep compact tasks above the context card; the full list keeps the card near the controls.
+  if(showAllTasks&&inspector.firstElementChild===card)inspector.insertBefore(context,card);
+  else if(!showAllTasks&&inspector.firstElementChild!==card)inspector.append(context);
   list.dataset.compact=String(!showAllTasks);
   const priority=t=>({blocked:0,question:1,working:2,unread:3}[t.status]??4);
   const ordered=[...state.tasks].sort((a,b)=>priority(a)-priority(b)||a.id.localeCompare(b.id));
@@ -870,36 +873,43 @@ function highlightAssociations(){
   for(const line of document.querySelectorAll('.wall-line'))line.setAttribute('aria-pressed',String(selected.has(line.dataset.line)));
 }
 function inspect(){
-  const chosen=state.lines.filter(l=>selected.has(l.id)).sort((a,b)=>a.number-b.number);
-  $('selectionTitle').textContent=chosen.length===1?'Line '+chosen[0].number:chosen.length?'Lines '+chosen.map(l=>l.number).join(', '):'Select a Line';
-  $('selectionHint').textContent=chosen.length===1?lineDescription(chosen[0]):chosen.length?chosen.length+' physical Lines selected.':'Click a Line on the wall or a numbered badge to reserve it for a project. Ctrl/⌘ or Shift selects several.';
-  $('selectionBody').hidden=!chosen.length&&!taskFocus;
-  for(const id of ['assign','swap'])$(id).disabled=!chosen.length;
-  $('clear').disabled=!chosen.length&&!taskFocus;
+  // One context card: the Line or Lines, then the task once, then the actions that act in this layout and mode.
+  const chosen=state.lines.filter(l=>selected.has(l.id)).sort((a,b)=>a.number-b.number),project=state.settings.style==='project';
+  const task=state.tasks.find(t=>t.id===(taskFocus||(chosen.length===1?chosen[0].task:null))),waiting=!chosen.length&&!!task&&!lineById(task.line);
+  $('selectionTitle').textContent=chosen.length===1?'Line '+chosen[0].number:chosen.length?'Lines '+chosen.map(l=>l.number).join(', '):waiting?'Waiting for a Line':'Select a Line';
+  // The hint never repeats the task: it counts several Lines, or says how to select when nothing is chosen.
+  const hint=chosen.length>1?chosen.length+' physical Lines selected.':chosen.length||waiting?'':'Click a Line on the wall or a numbered badge to see its task. Ctrl/⌘ or Shift selects several.';
+  $('selectionHint').textContent=hint;$('selectionHint').hidden=!hint;
+  $('selectionBody').hidden=!chosen.length;
+  $('swap').hidden=!project;
+  // Reserved for shows the selected Lines' reservation and applies on change; it resyncs from polled state unless it is being edited.
+  const reservation=$('reservation'),owners=new Set(chosen.map(l=>l.project||''));
+  reservation.hidden=!(project&&chosen.length);
+  if(!reservation.hidden){
+    const select=$('assignProject');selectOptions(select,'Shared pool');
+    let mixed=select.querySelector('option[value="mixed"]');
+    if(owners.size>1){if(!mixed){mixed=el('option','Several reservations');mixed.value='mixed';mixed.disabled=true;select.prepend(mixed)}}
+    else if(mixed)mixed.remove();
+    if(document.activeElement!==select)select.value=owners.size>1?'mixed':[...owners][0];
+  }
   $('locate').textContent=chosen.length===1?'Locate Line '+chosen[0].number:'Locate';
   $('locate').disabled=chosen.length!==1||state.mode==='free';
-  $('locateHint').textContent=state.mode==='free'?'Switch to Work or Quiet to locate a Line.':'Locate briefly highlights the selected physical Line.';
-  const task=state.tasks.find(t=>t.id===(taskFocus||(chosen.length===1?chosen[0].task:null))),detail=$('taskDetail');
+  $('locateHint').hidden=state.mode!=='free';$('locateHint').textContent=state.mode==='free'?'Switch to Work or Quiet to locate a Line.':'';
+  const detail=$('taskDetail');
   if(task&&detail.contains(document.activeElement)&&document.activeElement.dataset.task===task.id)return;
-  const fingerprint=JSON.stringify([chosen.length,task&&[task.id,task.title,task.status,task.project,task.manual,task.started,task.codexUrl,task.evictionToken],state.projects.map(p=>[p.id,p.name])]);
+  const fingerprint=JSON.stringify([chosen.length,project,task&&[task.id,task.title,task.status,task.project,task.manual,task.started,task.codexUrl,task.evictionToken],state.projects.map(p=>[p.id,p.name])]);
   if(fingerprint===detailFingerprint){
-    // Keep the elapsed time and the override select in step with saved state without rebuilding the card.
+    // Keep the elapsed time in step without rebuilding the card.
     const clock=detail.querySelector('[data-elapsed]');if(clock&&task)clock.textContent=elapsed(task.started);
-    const select=detail.querySelector('select');if(select&&task&&document.activeElement!==select)select.value=task.manual||'';
     return;
   }
   detailFingerprint=fingerprint;
   if(detail.contains(document.activeElement))$('tasksTitle').focus({preventScroll:true});
   detail.replaceChildren();
-  if(!task){detail.append(el('p',chosen.length>1?'Select one Line to inspect its task.':chosen.length?'No task on this Line.':'Select a Line or task for details.','small'));return}
-  const head=el('div',undefined,'detail-head');head.append(el('h2',task.title),statusBadge(task.status));detail.append(head);
+  if(!task){if(chosen.length)detail.append(el('p',chosen.length>1?'Select one Line to inspect its task.':'No task on this Line.','small'));return}
+  const head=el('div',undefined,'detail-head');head.append(el('h3',task.title),statusBadge(task.status));detail.append(head);
   for(const [key,value]of[['Project',projectName(task.project)],['Elapsed',elapsed(task.started)]]){const row=el('div',undefined,'kv'),node=el('span',value);if(key==='Elapsed')node.dataset.elapsed='';row.append(el('span',key),node);detail.append(row)}
   if(task.codexUrl){const link=el('a','Open in Codex','codex-link');link.href=task.codexUrl;detail.append(link)}
-  detail.append(el('label','Override project for this task','label field'));
-  const select=el('select',undefined,'full');select.dataset.task=task.id;select.setAttribute('aria-label','Task project override');selectOptions(select,'Use Codex assignment');select.value=task.manual||'';
-  select.onchange=()=>action('/api/task',{id:task.id,project:select.value||null});
-  // A rejected override must not linger once the select loses focus.
-  select.onblur=()=>{select.value=state.tasks.find(t=>t.id===task.id)?.manual||''};detail.append(select);
   if(task.evictionToken){
     const evict=el('button','Evict task','field');evict.type='button';
     evict.onclick=()=>action('/api/evict',{id:task.id,evictionToken:task.evictionToken});
@@ -930,7 +940,7 @@ function render(){
   if(document.body.dataset.style!==state.settings.style)document.body.dataset.style=state.settings.style;
   for(const id of ['classic','project']){const on=id===state.settings.style;$(id).classList.toggle('active',on);$(id).setAttribute('aria-pressed',String(on))}
   for(const id of ['work','free','quiet']){const on=id===state.mode;$(id).classList.toggle('active',on);$(id).setAttribute('aria-pressed',String(on))}
-  $('coverage').value=state.settings.coverage;$('coverage').disabled=state.settings.style==='classic';
+  $('coverage').value=state.settings.coverage;$('coverageOption').hidden=state.settings.style!=='project';
   $('flipX').setAttribute('aria-pressed',String(!!state.settings.flip_x));$('flipY').setAttribute('aria-pressed',String(!!state.settings.flip_y));
   $('lineCount').textContent=state.lines.length+' Lines';$('taskCount').textContent=state.tasks.length;
   if(assembly.active&&geometryKey()!==assembly.key)endAssembly();
@@ -965,7 +975,7 @@ function readout(){
   });
 }
 async function refresh(){if(refreshing)return;refreshing=true;try{const r=await fetch('/api/state');const data=await r.json();if(!r.ok)throw Error(data.error);state=data;render()}catch(e){endAssembly();$('connection').textContent='Disconnected · retrying';$('connection').classList.add('offline');message(e.message,true)}finally{refreshing=false}}
-for(const id of ['classic','project'])$(id).onclick=()=>action('/api/settings',{style:id});for(const mode of ['work','free','quiet'])$(mode).onclick=()=>action('/api/mode',{mode});$('coverage').onchange=()=>action('/api/settings',{coverage:$('coverage').value});$('assign').onclick=()=>action('/api/assign',{lines:Object.fromEntries([...selected].map(id=>[id,{project:$('assignProject').value||null}]))});$('clear').onclick=()=>{selected.clear();taskFocus=null;$('selectionTitle').focus({preventScroll:true});drawWall();inspect();drawTasks();highlightAssociations()};$('swap').onclick=()=>action('/api/assign',{lines:Object.fromEntries(state.lines.filter(l=>selected.has(l.id)).map(l=>[l.id,{signature:1-l.signature}]))});$('locate').onclick=()=>{const id=[...selected][0],group=$('wall').querySelector(`[data-line="${id}"]`);if(group){group.classList.remove('locating');void group.getBBox();group.classList.add('locating');setTimeout(()=>group.classList.remove('locating'),1000)}action('/api/locate',{line:id})};$('rotate').onclick=()=>action('/api/settings',{rotation:(state.settings.rotation+90)%360});$('flipX').onclick=()=>action('/api/settings',{flip_x:1-state.settings.flip_x});$('flipY').onclick=()=>action('/api/settings',{flip_y:1-state.settings.flip_y});new ResizeObserver(sizeLineNumbers).observe($('wallHost'));refresh();setInterval(refresh,1000);
+for(const id of ['classic','project'])$(id).onclick=()=>action('/api/settings',{style:id});for(const mode of ['work','free','quiet'])$(mode).onclick=()=>action('/api/mode',{mode});$('coverage').onchange=()=>action('/api/settings',{coverage:$('coverage').value});$('assignProject').onchange=()=>{const value=$('assignProject').value;if(value==='mixed')return;action('/api/assign',{lines:Object.fromEntries([...selected].map(id=>[id,{project:value||null}]))})};$('swap').onclick=()=>action('/api/assign',{lines:Object.fromEntries(state.lines.filter(l=>selected.has(l.id)).map(l=>[l.id,{signature:1-l.signature}]))});$('locate').onclick=()=>{const id=[...selected][0],group=$('wall').querySelector(`[data-line="${id}"]`);if(group){group.classList.remove('locating');void group.getBBox();group.classList.add('locating');setTimeout(()=>group.classList.remove('locating'),1000)}action('/api/locate',{line:id})};$('rotate').onclick=()=>action('/api/settings',{rotation:(state.settings.rotation+90)%360});$('flipX').onclick=()=>action('/api/settings',{flip_x:1-state.settings.flip_x});$('flipY').onclick=()=>action('/api/settings',{flip_y:1-state.settings.flip_y});new ResizeObserver(sizeLineNumbers).observe($('wallHost'));refresh();setInterval(refresh,1000);
 $('showNumbers').onclick=()=>{showAllNumbers=!showAllNumbers;try{showAllNumbers?localStorage.setItem(showAllNumbersKey,'1'):localStorage.removeItem(showAllNumbersKey)}catch{}syncNumberControl()};
 syncNumberControl();
 window.matchMedia?.('(prefers-reduced-motion: reduce)')?.addEventListener('change',()=>requestAnimationFrame(anchorPulses));
@@ -973,10 +983,18 @@ window.matchMedia?.('(prefers-reduced-motion: reduce)')?.addEventListener('chang
 $('replay').onclick=()=>playAssembly('replay');
 for(const [id,name] of [['assemblyOnOpen','opening'],['assemblyOnEntry','entry']]){$(id).checked=assemblyPref(name);$(id).onchange=()=>setAssemblyPref(name,$(id).checked)}
 for(const type of ['pointerdown','keydown'])document.addEventListener(type,e=>{if(assembly.active&&!e.target.closest?.('#wallOptions'))endAssembly(type==='pointerdown')},true);
+// Clearing: Escape (after closing an open Options menu) or a click on empty wall canvas; focus returns to the wall heading.
+function clearSelection(){selected.clear();taskFocus=null;$('wallTitle').focus({preventScroll:true});drawWall();inspect();drawTasks();highlightAssociations()}
+$('wallHost').addEventListener('click',e=>{if(e.target.closest?.('.wall-line,.number-tag,.number-hit,[data-hit]'))return;if(selected.size||taskFocus)clearSelection()});
 // The Options menu closes on Escape, returning focus to its control, or on a press elsewhere.
 const optionsMenu=$('wallOptions');
 document.addEventListener('pointerdown',e=>{if(optionsMenu.open&&!e.target.closest?.('#wallOptions'))optionsMenu.open=false},true);
-document.addEventListener('keydown',e=>{if(e.key==='Escape'&&optionsMenu.open&&optionsMenu.contains(document.activeElement)){optionsMenu.open=false;optionsMenu.querySelector('summary').focus()}});
+document.addEventListener('keydown',e=>{
+  if(e.key!=='Escape')return;
+  if(optionsMenu.open){const inside=optionsMenu.contains(document.activeElement);optionsMenu.open=false;if(inside)optionsMenu.querySelector('summary').focus();return}
+  if(e.target.closest?.('#taskFilters'))return;
+  if(selected.size||taskFocus)clearSelection();
+});
 window.wallAssembly={play:playAssembly,active:()=>assembly.active,snapshot:()=>prism?.snapshot()||null};
 window.addEventListener('pagehide',()=>prism?.pause());
 window.addEventListener('pageshow',()=>prism?.resume());

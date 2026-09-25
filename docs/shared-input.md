@@ -8,8 +8,7 @@ configuration do not select shared input or install agent hooks.
 The shared owner interprets agent observations. Nanoleaf validates its snapshots
 and maps them to the existing Lines allocation and effects. The same Python
 worker remains the sole light writer. Work, Quiet and Free are independent of
-source selection. Linux state stays on Linux; retained Windows state stays on
-Windows. Never share live runtime SQLite across operating systems.
+source selection. Runtime state stays on the Linux filesystem.
 
 ## Prepare a source
 
@@ -97,9 +96,7 @@ worker lock rejects duplicate worker processes; a held device command does not
 stop shared-state polling. Linux runtime availability still follows WSL and its
 services. Source delivery creates no personal service or listener.
 
-Legacy Windows commands use the same `shared-*` operations through the installed
-Python bridge; retained WSL entry points forward to Windows before opening state.
-Source fixtures, hosted CI, and local Windows checks do not prove installed forwarding or light output.
+Source fixtures and hosted CI do not prove installed behavior or light output.
 
 ## Task continuity and rollback
 
@@ -143,8 +140,8 @@ nanoleaf shared-select legacy
 
 Legacy selection refuses when its configured `$CODEX_HOME` lacks a marked
 Nanoleaf handler for any legacy event and names `hooks register` in its diagnostic. Register hooks in
-each Codex home used by the installation, including separate WSL CLI and
-Windows Desktop homes. Registration preserves existing or backed-up commands,
+each Codex home used by the installation, including the WSL CLI home and the
+Codex Desktop home on the Windows drive, whose hooks run only for tasks in WSL. Registration preserves existing or backed-up commands,
 fills missing events, and uses the launcher's installation directory for new
 commands, including custom Linux installations.
 Already registered handlers keep their group and handler positions. If the

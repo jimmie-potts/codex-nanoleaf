@@ -4,6 +4,7 @@ module.exports=async function(page,root){
   const snapshot=await page.evaluate(()=>structuredClone(state));
   const task=snapshot.tasks[0],url='codex://threads/019a1234-5678-7123-8123-123456789abc';
   task.codexUrl=url;
+  snapshot.settings={...snapshot.settings,style:'classic'}; // Locate is the next control after the link only in Classic
   const route=request=>request.fulfill({json:snapshot});
   const refresh=()=>page.evaluate(async()=>{while(refreshing)await new Promise(resolve=>setTimeout(resolve,10));await refresh()});
   const viewport=page.viewportSize(),requests=[];
@@ -18,13 +19,11 @@ module.exports=async function(page,root){
     assert.equal(await link.getAttribute('href'),url);
     assert.equal(await link.getAttribute('target'),null);
     assert.equal(await page.locator('#taskList a').count(),0,'Task rows gain no navigation control');
-    await page.getByLabel('Task project override').focus();
-    await page.getByLabel('Task project override').evaluate(n=>{n.value='b'});
+    await page.locator('#locate').focus();
     await page.keyboard.press('Shift+Tab');
     assert.equal(await link.evaluate(n=>n===document.activeElement),true,'The link is in the normal keyboard order');
     await refresh();
-    assert.equal(await link.evaluate(n=>n===document.activeElement),true,'Unchanged polling preserves link focus after leaving the override');
-    assert.equal(await page.getByLabel('Task project override').inputValue(),task.manual||'','An unaccepted override resets to the saved value after blur');
+    assert.equal(await link.evaluate(n=>n===document.activeElement),true,'Unchanged polling preserves link focus');
     page.on('request',record);
     // Exercise native activation. This headless Linux runner cannot verify the Windows protocol handler.
     await page.keyboard.press('Enter');

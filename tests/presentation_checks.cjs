@@ -164,7 +164,7 @@ module.exports = async function(page, root) {
     await page.route('**/api/state', route);
     try { await phaseAcross('A polled color update', refresh); }
     finally { await page.unroute('**/api/state', route); await refresh(); }
-    await page.locator('#clear').click();
+    await page.keyboard.press('Escape');
   });
 
   await check('Quiet is steady and lower; Free is dim, desaturated, and released', async () => {
@@ -250,7 +250,7 @@ module.exports = async function(page, root) {
         width: +getComputedStyle(node).strokeWidth.replace('px', ''),
       }));
       assert.ok(locating.opacity > 0 && locating.width > 0, 'Locate retains static visible feedback');
-      await page.locator('#clear').click();
+      await page.keyboard.press('Escape');
     } finally {
       await page.emulateMedia({reducedMotion: 'no-preference'});
       await setMode('work');
@@ -311,7 +311,7 @@ module.exports = async function(page, root) {
       await page.locator('#assemblyOnEntry').click(); await page.locator('#assemblyOnEntry').click();
       await page.keyboard.press('Escape');
       await page.waitForTimeout(250);
-      await page.locator('#clear').click();
+      await page.keyboard.press('Escape');
       assert.deepEqual(writes, [], 'Passive wall use sends no write request');
     } finally { page.off('request', record); }
     const after = await page.evaluate(() => state.tasks.map(task => [task.id, task.status, task.started, task.unread]));

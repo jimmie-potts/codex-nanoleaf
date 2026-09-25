@@ -2,7 +2,6 @@
 import colorsys
 import json
 import math
-import os
 from pathlib import Path
 import posixpath
 import re
@@ -107,8 +106,6 @@ class Metadata:
         custom=config.get('metadata_path')
         if custom:
             self.path=Path(custom)
-        elif os.name=='nt' and directory.name=='CodexNanoleaf':
-            self.path=Path(os.environ['USERPROFILE'])/'.codex'/'.codex-global-state.json'
         else:
             self.path=None
         self.index=Path(config['title_index_path']) if config.get('title_index_path') else self.path.with_name('session_index.jsonl') if self.path else None

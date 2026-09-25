@@ -33,7 +33,7 @@ module.exports=async function(page,root){
     await row('task-13').locator('.line-badge').click({modifiers:['Control']});await refresh();
     assert.deepEqual(await rows(),order,'Line and multi-Line selection keep row positions');
     assert.deepEqual([await isSelected('task-12'),await isSelected('task-13')],[true,true]);
-    await page.getByRole('button',{name:'Clear selection'}).click();await refresh();
+    await page.keyboard.press('Escape');await refresh();
     assert.deepEqual(await rows(),order,'Clearing selection keeps row positions');
     assert.equal(await page.locator('#taskList .task.selected').count(),0,'Clearing selection removes row highlights');
     const promoted=snapshot.tasks.find(t=>t.id==='task-10');
@@ -41,7 +41,7 @@ module.exports=async function(page,root){
     assert.equal((await rows()).indexOf('task-10'),2,'Status changes still reorder a selected task by priority');
     assert.equal(await isSelected('task-10'),true);
     assert.match(await page.locator('#taskDetail').textContent(),/Task 10/);
-    promoted.status='unread';await page.getByRole('button',{name:'Clear selection'}).click();await refresh();
+    promoted.status='unread';await page.keyboard.press('Escape');await refresh();
     const allLines=snapshot.lines,allGraph=snapshot.connector_layout;
     for(const count of [5,0,15]){
       snapshot.lines=allLines.slice(0,count);
@@ -110,23 +110,25 @@ module.exports=async function(page,root){
     assert.equal(await page.getByLabel('Filter tasks').isVisible(),false);
 
     const moving=snapshot.tasks.find(t=>t.id==='task-71'),destination=snapshot.lines[0];
-    const override=page.getByRole('combobox',{name:'Task project override'});
-    await override.focus();
+    await page.getByRole('button',{name:'Show all tasks'}).click(); // the compact view hides this low-priority row
+    const title=row('task-71').locator('.task-title');
+    await title.focus();
     for(const line of [destination.id,null,snapshot.lines[1].id]){
       snapshot.lines.forEach(l=>{if(l.task===moving.id)l.task=null});
       moving.line=line;if(line)snapshot.lines.find(l=>l.id===line).task=moving.id;
       await refresh();
       assert.equal(await page.evaluate(()=>taskFocus),'task-71','Task selection follows its identity across placement changes');
       assert.deepEqual(await page.evaluate(()=>[...selected]),line?[line]:[]);
-      assert.equal(await override.evaluate(n=>n===document.activeElement),true);
+      assert.equal(await title.evaluate(n=>n===document.activeElement),true,'Keyboard focus stays on the task through placement changes');
       assert.match(await page.locator('#taskDetail').textContent(),/Task 71/);
     }
     snapshot.tasks=snapshot.tasks.filter(t=>t!==moving);
     snapshot.lines.forEach(l=>{if(l.task===moving.id)l.task=null});await refresh();
-    assert.equal(await override.count(),0,'Owner retirement removes a focused stale override');
+    assert.doesNotMatch(await page.locator('#taskDetail').textContent(),/Task 71/,'Owner retirement removes the stale details');
     assert.equal(await page.evaluate(()=>document.activeElement.id),'tasksTitle');
     assert.equal(await page.evaluate(()=>taskFocus),null);
     assert.equal(await page.locator('#taskCount').textContent(),'71','Owner retirement lowers the total in the Tasks heading');
+    await page.getByRole('button',{name:'Show fewer tasks'}).click();
     snapshot.tasks.push(moving);moving.line=null;await refresh();
     assert.equal(await page.evaluate(()=>taskFocus),null,'Recreated identity does not resurrect retired selection');
 

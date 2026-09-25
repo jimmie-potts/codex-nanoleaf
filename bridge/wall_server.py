@@ -3,7 +3,6 @@ import contextlib
 import errno
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
-import os
 from pathlib import Path
 import re
 import secrets
@@ -14,7 +13,6 @@ import threading
 import time
 from urllib.parse import urlsplit
 import urllib.request
-import webbrowser
 import devices
 import project_map as wall
 
@@ -190,7 +188,7 @@ def handler(app,token,instance=None):
         def do_POST(self):
             origin=f'http://127.0.0.1:{self.server.server_port}'
             if not self.valid_host() or self.headers.get('Origin')!=origin or not secrets.compare_digest(self.headers.get('X-Wall-Token',''),token):
-                return self.respond(403,{'error':'Open the wall map from the tray.'})
+                return self.respond(403,{'error':'Open the wall map through nanoleaf map or its user service.'})
             try:
                 length=int(self.headers.get('Content-Length','0'))
                 if not 0<length<=65536 or self.headers.get('Content-Type')!='application/json': raise ValueError('Invalid request.')
@@ -308,9 +306,7 @@ def command(args,directory,b):
     if args.mode=='serve': return serve(directory,b,port)
     url=map_url(directory,port)
     if not url:
-        kwargs={'stdin':subprocess.DEVNULL,'stdout':subprocess.DEVNULL,'stderr':subprocess.DEVNULL,'close_fds':True}
-        if os.name=='nt': kwargs['creationflags']=subprocess.DETACHED_PROCESS|subprocess.CREATE_NEW_PROCESS_GROUP
-        else: kwargs['start_new_session']=True
+        kwargs={'stdin':subprocess.DEVNULL,'stdout':subprocess.DEVNULL,'stderr':subprocess.DEVNULL,'close_fds':True,'start_new_session':True}
         process=subprocess.Popen([sys.executable,str(Path(b.__file__).resolve()),'serve','--state-dir',str(directory),
                                   '--port',str(port)],**kwargs)
         deadline=time.time()+10
@@ -318,5 +314,4 @@ def command(args,directory,b):
             time.sleep(.2); url=map_url(directory,port)
             if not url and process.poll() is not None: break
     if not url: raise RuntimeError(f'Wall map did not start on port {port}. Check its configuration and whether the port is already in use.')
-    if os.name == 'nt' and not getattr(args, 'no_open', False): webbrowser.open(url)
     print(url)

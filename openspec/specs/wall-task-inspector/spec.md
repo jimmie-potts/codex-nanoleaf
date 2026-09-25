@@ -43,7 +43,7 @@ The inspector SHALL order tasks by blocked, question, working, and unread status
 - **THEN** the inspector explains that selected tasks are outside the view and provides a keyboard-accessible way to reveal them without reordering the compact view
 
 ### Requirement: Polling preserves ongoing inspection
-Status and placement changes SHALL preserve keyboard focus for a retained task, local task/Line selection, task details, and an in-progress project override. Polling SHALL NOT deliberately scroll the user to reordered rows. A focused retained row that leaves a filter SHALL remain usable until focus leaves, with its exception reflected in the shown count. Covers AC2 and AC3.
+Status and placement changes SHALL preserve keyboard focus for a retained task, local task/Line selection and task details. Polling SHALL NOT deliberately scroll the user to reordered rows. A focused retained row that leaves a filter SHALL remain usable until focus leaves, with its exception reflected in the shown count. Covers AC2 and AC3.
 
 #### Scenario: Selected task moves or waits
 - **WHEN** a task selected by its title changes Line or becomes waiting
@@ -54,11 +54,11 @@ Status and placement changes SHALL preserve keyboard focus for a retained task, 
 - **THEN** its keyboard control remains reachable, other rows update, and the current scroll position is preserved where content size permits
 
 ### Requirement: Owner retirement removes rows without UI side effects
-The inspector SHALL remove owner-retired rows and their counts on the next accepted snapshot, clear obsolete task selection/details, and return focus to a surviving control when necessary. Fresh recreation SHALL use only the new snapshot. Opening, filtering, or selecting the list SHALL issue no write, unread acknowledgment, Locate, or device request and SHALL add no lifecycle clock. Covers AC5 and the current-session boundary.
+The inspector SHALL remove owner-retired rows and their counts on the next accepted snapshot, clear obsolete task selection and details, and return focus to a surviving control when necessary. Fresh recreation SHALL use only the new snapshot. Opening, filtering, or selecting the list SHALL issue no write, unread acknowledgment, Locate, or device request and SHALL add no lifecycle clock. Covers AC5 and the current-session boundary.
 
 #### Scenario: Retirement and fresh recreation
 - **WHEN** the selected or focused task disappears from the retained projection and later reappears
-- **THEN** it is absent in the intervening list and counts, stale details/overrides are unavailable, and recreation does not restore obsolete local task selection
+- **THEN** it is absent in the intervening list and counts, its stale details are unavailable, and recreation does not restore obsolete local task selection
 
 ### Requirement: Compact inspection remains accessible
 The compact and full views SHALL support keyboard controls, missing project metadata, long labels, narrow viewports, and reduced motion without horizontal page overflow or motion required to inspect a task. Narrow screens SHALL retain readable page flow and MAY require vertical page scrolling. Covers AC4.
@@ -68,16 +68,16 @@ The compact and full views SHALL support keyboard controls, missing project meta
 - **THEN** counts, list controls, task titles, and placement labels remain readable and operable
 
 ### Requirement: Qualified Desktop thread navigation
-The wall task detail card SHALL offer a labelled, keyboard-reachable **Open in Codex** anchor without a target only when `/api/state` supplies a server-built `codexUrl`. The server SHALL validate a hyphenated UUID before building `codex://threads/<uuid>`. Legacy tasks SHALL qualify only when their ID is present in the configured Desktop title index. Shared eligibility SHALL follow the shared-session-consumer root-identity rule. Other tasks SHALL have no link. The card SHALL refresh when its URL changes, appears or disappears. Covers #108 AC1, AC2, AC3 and AC6.
+The wall context card SHALL offer a labelled, keyboard-reachable **Open in Codex** anchor without a target only when `/api/state` supplies a server-built `codexUrl`. The server SHALL validate a hyphenated UUID before building `codex://threads/<uuid>`. Legacy tasks SHALL qualify only when their ID is present in the configured Desktop title index. Shared eligibility SHALL follow the shared-session-consumer root-identity rule. Other tasks SHALL have no link. The card SHALL refresh when its URL changes, appears or disappears. Covers #108 AC1, AC2, AC3 and AC6.
 
 #### Scenario: Indexed legacy Desktop thread
 - **WHEN** a legacy task with a UUID in the configured Desktop index is selected
-- **THEN** its detail card has an Open in Codex link to that UUID, reachable by keyboard without horizontal overflow at a narrow viewport
+- **THEN** its context card has an Open in Codex link to that UUID, reachable by keyboard without horizontal overflow at a narrow viewport
 - **AND** activation in the Windows browser opens that thread through the Codex Desktop protocol handler
 
 #### Scenario: Ineligible or changing task
 - **WHEN** a task has an unknown or malformed ID, or a subsequent snapshot removes its eligibility
-- **THEN** the detail card contains no Open in Codex link
+- **THEN** the context card contains no Open in Codex link
 - **AND** a later qualified URL appears without requiring reselection
 
 ### Requirement: Navigation preserves read ownership
