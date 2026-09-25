@@ -1123,3 +1123,123 @@ class StaleReadEvidenceTest(SelectionTest):
         task=next(task for task in app.state()['tasks'] if task['id']==stale_key)
         app.update('/api/evict',{'id':stale_key,'evictionToken':task['evictionToken']})
         self.assertEqual(line_holders(1004), [(self.s.identity_key(waiting['identity']),)])
+
+
+def claude_session(name, parent=None, activity='idle', attention=()):
+    """A Claude Code session with its own source identity."""
+    source = {'provider': 'claude', 'client': 'code', 'hostId': 'host', 'sourceId': 'claude-source'}
+    session = copy.deepcopy(fixture()['sessions'][0]); session.pop('label', None)
+    if parent: session = child_of(parent, name, activity=activity, attention=attention)
+    session['identity'] = dict(source, sessionId=name)
+    if not parent: session['activity'] = activity
+    return session
+
+
+class UndeclaredSourceTest(SelectionTest):
+    # #111: a session from an undeclared source stays off the wall; the rest keep following the feed.
+    LAYOUT = ChildSessionTest.LAYOUT
+    CLAUDE = {'provider': 'claude', 'client': 'code', 'hostId': 'host', 'sourceId': 'claude-source'}
+    tasks = ChildSessionTest.tasks
+    advance = ChildSessionTest.advance
+
+    def setUp(self):
+        super().setUp()
+        self.value = envelope(); self.root = self.value['snapshot']['sessions'][0]
+        self.key = self.s.identity_key(self.root['identity'])
+
+    def skipped(self):
+        return self.s.inspect(self.path)['skipped']
+
+    def test_one_undeclared_session_among_declared_ones_is_skipped(self):
+        claude = claude_session('claude-1', activity='active')
+        self.value['snapshot']['sessions'].append(claude)
+        self.select(recount(self.value))
+        self.assertEqual(self.tasks(1000), {self.key: ('unread', 100, 'current')})
+        self.assertEqual(self.rows('SELECT id FROM sessions'), [(self.key,)])
+        self.assertEqual(self.skipped(), {'sessions': 1, 'sources': [self.CLAUDE]})
+        # The declared task keeps updating while the undeclared one changes beside it.
+        self.root['activity'] = 'active'; self.value['snapshot']['sessions'][1]['activity'] = 'idle'
+        self.advance(1001)
+        self.assertEqual(self.tasks(1001), {self.key: ('working', 100, 'current')})
+        self.assertEqual(self.s.inspect(self.path, now=lambda: 1001)['connection'], 'current')
+        stored = self.s.source_config(self.path, b)['envelope']['snapshot']['sessions']
+        self.assertEqual([session['identity']['provider'] for session in stored], ['codex'])
+        self.assertEqual(self.rows('SELECT * FROM comets'), [])
+
+    def test_only_undeclared_sessions_leave_the_wall_idle_and_the_connection_current(self):
+        self.value['snapshot']['sessions'] = [claude_session('claude-1'), claude_session('claude-2', activity='active')]
+        self.select(recount(self.value))
+        self.advance(1001)
+        self.assertEqual(self.tasks(1001), {})
+        self.assertEqual(self.rows('SELECT * FROM sessions'), [])
+        self.assertEqual(self.rows('SELECT * FROM slots'), [])
+        view = self.s.inspect(self.path, now=lambda: 1001)
+        self.assertEqual((view['connection'], view['error'], view['sessions']), ('current', None, []))
+        self.assertEqual(view['skipped'], {'sessions': 2, 'sources': [self.CLAUDE]})
+
+    def test_skipped_sessions_take_no_part_in_grouping_or_acknowledgment(self):
+        # The pinned contract keeps a parent and its subagents on one source, so an undeclared
+        # group is skipped whole and cannot raise or split a declared task.
+        self.root['notices'][0]['acknowledgedBy'].append('nanoleaf')
+        parent = claude_session('claude-parent')
+        self.value['snapshot']['sessions'] += [parent, claude_session('claude-child', parent=parent, attention=('approval',))]
+        self.select(recount(self.value))
+        self.assertEqual(self.tasks(1000), {self.key: ('idle', 100, 'current')})
+        self.assertEqual(self.skipped()['sessions'], 2)
+        # The skipped session's notice cannot be acknowledged through Nanoleaf.
+        self.config['controlTokenFile'] = str(self.path / 'control-token')
+        with contextlib.closing(b.connect_state(self.path)) as db, db:
+            db.execute('UPDATE shared_input SET config=?', (self.s.dumps(self.config),))
+        with patch.object(self.s, 'fetch_snapshot', return_value=self.value), patch.object(self.s, 'request') as post:
+            with self.assertRaises(self.s.FeedError) as raised:
+                self.s.acknowledge(self.path, b, self.s.identity_key(parent['identity']), parent['notices'][0]['id'])
+        self.assertEqual(str(raised.exception), 'notice-unavailable'); post.assert_not_called()
+
+    def test_declared_subagent_of_an_undeclared_parent_follows_the_missing_parent_rule(self):
+        parent = claude_session('claude-parent')
+        orphan = child_of(parent, 'orphan', attention=('approval',)); orphan['identity'] = dict(self.root['identity'], sessionId='orphan')
+        stray = claude_session('claude-child', parent=self.root, attention=('approval',))
+        self.value['snapshot']['sessions'] += [parent, orphan, stray]
+        # The released validator rejects cross-source parentage as a schema failure.
+        with self.assertRaises(self.s.FeedError) as raised:
+            self.s.check_envelope(recount(copy.deepcopy(self.value)), self.config)
+        self.assertEqual(str(raised.exception), 'invalid-feed')
+        # Grouping runs only over declared sessions, so such a child would be a missing-parent orphan.
+        snapshot, skipped = self.s.declared(self.value['snapshot'], self.config)
+        self.assertEqual(skipped, {'sessions': 2, 'sources': [self.CLAUDE]})
+        orphan_key = self.s.identity_key(orphan['identity'])
+        tasks = self.s.presented(snapshot)
+        self.assertEqual(set(tasks), {self.key, orphan_key})
+        self.assertEqual((tasks[self.key][1], tasks[self.key][2]), ([], False))
+        self.assertEqual((tasks[orphan_key][1], tasks[orphan_key][2]), ([], True))
+
+    def test_declaring_a_source_later_does_not_replay_comets_or_waves(self):
+        claude = claude_session('claude-1', activity='active'); claude['turn'] = {'status': 'known', 'id': 'turn'}
+        claude['notices'][0]['acknowledgedBy'] = []
+        claude_key = self.s.identity_key(claude['identity'])
+        self.value['snapshot']['sessions'].append(claude)
+        self.select(recount(self.value))
+        # The skipped task completes with a fresh notice while Nanoleaf cannot show it.
+        self.value['snapshot']['sessions'][1]['activity'] = 'idle'
+        self.value['snapshot']['sessions'][1]['notices'][0]['id'] = 'b' * 64
+        self.advance(1001)
+        self.s.select_source(self.path, b, 'legacy', now=lambda: 1002)
+        self.s.configure(self.path, b, dict(self.config, qualifiedSources=[*self.config['qualifiedSources'], self.CLAUDE]))
+        self.value = recount(copy.deepcopy(self.value)); self.value['snapshot']['revision'] += 1
+        self.s.select_source(self.path, b, 'shared', fetch=lambda *_, **__: self.value, now=lambda: 1003)
+        self.assertEqual(self.tasks(1003)[claude_key][0], 'unread')
+        self.assertEqual(self.rows('SELECT * FROM comets'), [])
+        self.assertEqual(self.rows('SELECT started FROM activity WHERE session=?'.replace('?', repr(claude_key))), [(993.0,)])
+        self.assertEqual(self.skipped(), {'sessions': 0, 'sources': []})
+
+
+class DeclaredSourceConfigTest(unittest.TestCase):
+    def test_qualified_sources_accept_a_claude_code_source(self):
+        import shared_input as s
+        config = {'version': 1, 'ownerId': 'owner', 'consumerId': 'nanoleaf',
+                  'endpoint': 'http://127.0.0.1:12345/api/monitor/v1', 'tokenFile': '/synthetic/token',
+                  'clearOnNewTurn': True, 'qualifiedSources': [UndeclaredSourceTest.CLAUDE]}
+        self.assertEqual(s.validate_config(config)['qualifiedSources'], [UndeclaredSourceTest.CLAUDE])
+        for invalid in ({**UndeclaredSourceTest.CLAUDE, 'client': 'desktop'}, {**UndeclaredSourceTest.CLAUDE, 'sessionId': 'x'}):
+            with self.subTest(invalid=invalid), self.assertRaises(s.FeedError):
+                s.validate_config(dict(config, qualifiedSources=[invalid]))

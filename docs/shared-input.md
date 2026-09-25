@@ -57,12 +57,38 @@ neutral identities and paths:
 }
 ```
 
-Omit `controlTokenFile` when explicit acknowledgment is not needed. Every source
-present in the selected feed must be declared qualified. The consumer verifies
-feed authentication, version, owner, schema, revision and declared source
-identities. The feed does not expose consumer policy or producer qualification;
-those configuration declarations are operator assertions, not discovered proof.
-Installed qualification belongs to Hub #8 and Nanoleaf #30.
+Omit `controlTokenFile` when explicit acknowledgment is not needed. The consumer
+verifies feed authentication, version, owner, schema and revision, and any failure
+rejects the whole snapshot. Sessions from sources missing from
+`qualifiedSources` are skipped instead. A skipped session gets no Line, wave,
+comet or acknowledgment and takes no part in subagent grouping; every declared
+session keeps updating. `shared-status` reports the skipped count and source
+identities under `skipped`, so a missing declaration is visible. The feed does
+not expose consumer policy or producer qualification; those configuration
+declarations are operator assertions, not discovered proof. Installed
+qualification belongs to Hub #8 and Nanoleaf #30.
+
+To declare another source, such as Claude Code, add its four-part source
+identity from `shared-status` to `qualifiedSources`:
+
+```json
+{"provider":"claude","client":"code","hostId":"host-1","sourceId":"claude-1"}
+```
+
+Configuration is refused while shared input is selected. Selecting legacy input
+requires the marked legacy hooks, so first restore them in each Codex home if
+they were removed after cutover (see [Task continuity and rollback](#task-continuity-and-rollback)):
+
+```sh
+nanoleaf hooks register --codex-home <path>
+nanoleaf shared-select legacy
+nanoleaf shared-configure --config /private/nanoleaf/shared-input.json
+nanoleaf shared-select shared
+```
+
+Selecting shared resynchronizes, so the newly declared source's existing
+sessions appear in their current state without replaying old waves or comets.
+Then remove the legacy hooks again as that section describes.
 
 ## Select input
 
@@ -252,7 +278,8 @@ red again. Source delivery alone does not change an installed bridge or lights.
 
 `shared-status` and the Python `shared_input.inspect` function are pure local
 reads. They report selection, neutral owner/consumer IDs, connection, last
-revision/receipt time, evidence age, read capability and fixed error codes.
+revision/receipt time, evidence age, read capability, fixed error codes, and the
+count and source identities of sessions skipped from undeclared sources.
 They do not poll, migrate state, refresh Codex metadata, launch workers, or command
 lights. Tokens, token paths, local titles and private roots are excluded. The
 future integration-settings API can consume this projection. No new dashboard
