@@ -61,7 +61,7 @@ Clicking a numbered badge SHALL select its physical Line on the wall. Selecting 
 
 ### Requirement: Inspector identifies selected numbers
 
-The context card SHALL identify a single selected physical Line and name its action "Locate Line N". For multiple selections it SHALL list the actual selected numbers and disable the single-Line Locate action. Reservation editing for the selected Lines, the reservation select with its Reserve action and Swap halves, SHALL be offered only while Project layout is active and SHALL keep using the existing assignment request and pending-edit rules. Covers AC4 and issue #135 decision 4.
+The context card SHALL identify a single selected physical Line and name its action "Locate Line N". For multiple selections it SHALL list the actual selected numbers and disable the single-Line Locate action. Reservation editing for the selected Lines, a Reserved for select applied on change and Swap halves, SHALL be offered only while Project layout is active and SHALL keep using the existing assignment request and pending-edit rules. Covers AC4 and issue #135 decision 4.
 
 #### Scenario: Single and multiple selections
 - **WHEN** Line 8 is selected
@@ -71,9 +71,9 @@ The context card SHALL identify a single selected physical Line and name its act
 
 #### Scenario: Reservation controls follow the layout
 - **WHEN** a Line is selected in Classic layout
-- **THEN** no reservation select, Reserve or Swap halves control is shown
+- **THEN** no reservation select or Swap halves control is shown
 - **WHEN** the layout is Project
-- **THEN** those controls appear and reserving the Line sends the existing assignment request
+- **THEN** those controls appear and choosing a project in Reserved for sends the existing assignment request for the selected Lines
 
 ### Requirement: Pending edits identify their destination
 

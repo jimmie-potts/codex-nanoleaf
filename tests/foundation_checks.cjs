@@ -100,23 +100,23 @@ module.exports = async function(page, root) {
   await require('./wall_options.cjs').close(page);
 
   });
-  await check('AC9: a rejected project override never lingers in the inspector select', async () => {
+  await check('AC9: a rejected reservation never lingers in the context card select', async () => {
     await page.setViewportSize({width: 1440, height: 1000}); await settle();
     const snapshot = await page.evaluate(() => structuredClone(state));
-    snapshot.tasks.forEach(task => {task.started = snapshot.now - 7200; task.manual = null});
+    snapshot.settings = {...snapshot.settings, style: 'project'};
+    snapshot.lines.forEach(line => {line.project = null});
     const stateRoute = request => request.fulfill({json: snapshot});
-    const rejectRoute = request => request.fulfill({status: 400, json: {error: 'Unknown task.'}});
-    await page.route('**/api/state', stateRoute); await page.route('**/api/task', rejectRoute);
+    const rejectRoute = request => request.fulfill({status: 400, json: {error: 'Unknown project.'}});
+    await page.route('**/api/state', stateRoute); await page.route('**/api/assign', rejectRoute);
     try {
       await refresh();
-      const placed = snapshot.tasks.find(task => task.line);
-      await page.locator(`[data-line="${placed.line}"]`).click();
-      const override = page.locator('[aria-label="Task project override"]');
-      await override.focus(); await override.selectOption('b');
-      await page.waitForFunction(() => document.querySelector('#notice').textContent.includes('Unknown task'));
-      await override.blur(); await refresh(); await refresh();
-      assert.equal(await override.inputValue(), '', 'A rejected override returns the select to the saved assignment');
-    } finally {await page.unroute('**/api/task', rejectRoute); await page.unroute('**/api/state', stateRoute); await page.evaluate(() => {errorUntil = 0}); await refresh()}
+      await page.locator(`[data-line="${snapshot.lines[0].id}"]`).click();
+      const reservation = page.locator('#assignProject');
+      await reservation.focus(); await reservation.selectOption('b');
+      await page.waitForFunction(() => document.querySelector('#notice').textContent.includes('Unknown project'));
+      await reservation.blur(); await refresh(); await refresh();
+      assert.equal(await reservation.inputValue(), '', 'A rejected reservation returns the select to the saved value');
+    } finally {await page.unroute('**/api/assign', rejectRoute); await page.unroute('**/api/state', stateRoute); await page.evaluate(() => {errorUntil = 0; selected.clear()}); await refresh()}
   });
   await check('AC8: the connection indicator holds still between unchanged polls', async () => {
   await page.setViewportSize({width: 1440, height: 1000}); await settle();

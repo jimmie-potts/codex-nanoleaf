@@ -5,7 +5,6 @@ module.exports=async function(page,root){
   snapshot.tasks=Array.from({length:72},(_,i)=>({id:'task-'+String(i).padStart(2,'0'),title:'Task '+i,project:null,status:i<2?'blocked':i<5?'question':i<9?'working':'unread',line:i<15?snapshot.lines[i].id:null,started:1000}));
   snapshot.lines.forEach((line,i)=>{line.task=snapshot.tasks[i]?.id||null;line.project=null});
   snapshot.pending=null;
-  snapshot.settings={...snapshot.settings,style:'project'}; // the override control exists only in Project layout
   const route=request=>request.fulfill({json:snapshot});
   const refresh=()=>page.evaluate(async()=>{while(refreshing)await new Promise(resolve=>setTimeout(resolve,10));await refresh()});
   const rows=()=>page.locator('#taskList .task').evaluateAll(ns=>ns.map(n=>n.dataset.task));
@@ -111,23 +110,25 @@ module.exports=async function(page,root){
     assert.equal(await page.getByLabel('Filter tasks').isVisible(),false);
 
     const moving=snapshot.tasks.find(t=>t.id==='task-71'),destination=snapshot.lines[0];
-    const override=page.getByRole('combobox',{name:'Task project override'});
-    await override.focus();
+    await page.getByRole('button',{name:'Show all tasks'}).click(); // the compact view hides this low-priority row
+    const title=row('task-71').locator('.task-title');
+    await title.focus();
     for(const line of [destination.id,null,snapshot.lines[1].id]){
       snapshot.lines.forEach(l=>{if(l.task===moving.id)l.task=null});
       moving.line=line;if(line)snapshot.lines.find(l=>l.id===line).task=moving.id;
       await refresh();
       assert.equal(await page.evaluate(()=>taskFocus),'task-71','Task selection follows its identity across placement changes');
       assert.deepEqual(await page.evaluate(()=>[...selected]),line?[line]:[]);
-      assert.equal(await override.evaluate(n=>n===document.activeElement),true);
+      assert.equal(await title.evaluate(n=>n===document.activeElement),true,'Keyboard focus stays on the task through placement changes');
       assert.match(await page.locator('#taskDetail').textContent(),/Task 71/);
     }
     snapshot.tasks=snapshot.tasks.filter(t=>t!==moving);
     snapshot.lines.forEach(l=>{if(l.task===moving.id)l.task=null});await refresh();
-    assert.equal(await override.count(),0,'Owner retirement removes a focused stale override');
+    assert.doesNotMatch(await page.locator('#taskDetail').textContent(),/Task 71/,'Owner retirement removes the stale details');
     assert.equal(await page.evaluate(()=>document.activeElement.id),'tasksTitle');
     assert.equal(await page.evaluate(()=>taskFocus),null);
     assert.equal(await page.locator('#taskCount').textContent(),'71','Owner retirement lowers the total in the Tasks heading');
+    await page.getByRole('button',{name:'Show fewer tasks'}).click();
     snapshot.tasks.push(moving);moving.line=null;await refresh();
     assert.equal(await page.evaluate(()=>taskFocus),null,'Recreated identity does not resurrect retired selection');
 

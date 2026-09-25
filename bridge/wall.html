@@ -205,14 +205,14 @@
   select.full { width: 100%; }
   .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
   .actions button { flex: 1 1 auto; padding: 7px 8px; font-size: 13px; white-space: nowrap; }
-  #assign { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
-  #assign:hover { filter: brightness(1.08); }
   #locateHint { margin-top: 8px; }
   .detail-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
   .detail-head h3 { margin: 0; font: 600 14px/1.3 var(--font-head); font-stretch: var(--head-stretch); overflow-wrap: anywhere; }
   .codex-link { display: inline-block; margin-top: 8px; padding: 4px 0; color: var(--focus); text-underline-offset: 3px; }
   .kv { display: grid; grid-template-columns: 70px 1fr; gap: 8px; font-size: 12px; margin: 8px 0; }
-  .kv span:first-child { color: var(--muted); }
+  .kv > :first-child { color: var(--muted); }
+  #reservation { grid-template-columns: auto 1fr; align-items: center; white-space: nowrap; }
+  #reservation select { width: 100%; min-width: 0; font-size: 13px; padding: 5px 8px; }
 
   .task { display: grid; grid-template-columns: 8px 1fr auto; gap: 4px 10px; padding: 10px 0; border-bottom: 1px solid var(--edge); align-items: start; cursor: pointer; }
   .task .dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; background: var(--chip-unread); }
@@ -389,10 +389,10 @@ body[data-mode="quiet"] #wall.prism-scene, body[data-mode="free"] #wall.prism-sc
     <div class="card context" id="contextCard">
       <h2 id="selectionTitle" tabindex="-1">Select a Line</h2>
       <p class="hint" id="selectionHint">Click a Line on the wall or a numbered badge to see its task. Ctrl/⌘ or Shift selects several.</p>
+      <div class="kv" id="reservation" hidden><label for="assignProject">Reserved for</label><select id="assignProject" aria-label="Line reservation" title="Only this project's tasks use the Line, and it shows the project colour on one half. Shared pool lets any task use it."></select></div>
       <div id="taskDetail"></div>
       <div id="selectionBody" hidden>
-        <div id="reservation" hidden><label class="label field" for="assignProject">Reserve for</label><select id="assignProject" class="full"></select></div>
-        <div class="actions"><button type="button" id="assign" hidden>Reserve</button><button type="button" id="swap" hidden>Swap halves</button><button type="button" id="locate">Locate</button></div>
+        <div class="actions"><button type="button" id="swap" hidden>Swap halves</button><button type="button" id="locate">Locate</button></div>
         <p class="small" id="locateHint" hidden></p>
       </div>
     </div>
@@ -875,11 +875,21 @@ function inspect(){
   const chosen=state.lines.filter(l=>selected.has(l.id)).sort((a,b)=>a.number-b.number),project=state.settings.style==='project';
   const task=state.tasks.find(t=>t.id===(taskFocus||(chosen.length===1?chosen[0].task:null))),waiting=!chosen.length&&!!task&&!lineById(task.line);
   $('selectionTitle').textContent=chosen.length===1?'Line '+chosen[0].number:chosen.length?'Lines '+chosen.map(l=>l.number).join(', '):waiting?'Waiting for a Line':'Select a Line';
-  // The hint never repeats the task: it names the reservation in Project layout, or how to select when nothing is chosen.
-  const hint=chosen.length===1?(project?(chosen[0].project?'Reserved for '+projectName(chosen[0].project):'Shared pool'):''):chosen.length?chosen.length+' physical Lines selected.':waiting?'':'Click a Line on the wall or a numbered badge to see its task. Ctrl/⌘ or Shift selects several.';
+  // The hint never repeats the task: it counts several Lines, or says how to select when nothing is chosen.
+  const hint=chosen.length>1?chosen.length+' physical Lines selected.':chosen.length||waiting?'':'Click a Line on the wall or a numbered badge to see its task. Ctrl/⌘ or Shift selects several.';
   $('selectionHint').textContent=hint;$('selectionHint').hidden=!hint;
   $('selectionBody').hidden=!chosen.length;
-  $('reservation').hidden=!project;for(const id of ['assign','swap'])$(id).hidden=!project;
+  $('swap').hidden=!project;
+  // Reserved for shows the selected Lines' reservation and applies on change; it resyncs from polled state unless it is being edited.
+  const reservation=$('reservation'),owners=new Set(chosen.map(l=>l.project||''));
+  reservation.hidden=!(project&&chosen.length);
+  if(!reservation.hidden){
+    const select=$('assignProject');selectOptions(select,'Shared pool');
+    let mixed=select.querySelector('option[value="mixed"]');
+    if(owners.size>1){if(!mixed){mixed=el('option','Several reservations');mixed.value='mixed';mixed.disabled=true;select.prepend(mixed)}}
+    else if(mixed)mixed.remove();
+    if(document.activeElement!==select)select.value=owners.size>1?'mixed':[...owners][0];
+  }
   $('locate').textContent=chosen.length===1?'Locate Line '+chosen[0].number:'Locate';
   $('locate').disabled=chosen.length!==1||state.mode==='free';
   $('locateHint').hidden=state.mode!=='free';$('locateHint').textContent=state.mode==='free'?'Switch to Work or Quiet to locate a Line.':'';
@@ -887,9 +897,8 @@ function inspect(){
   if(task&&detail.contains(document.activeElement)&&document.activeElement.dataset.task===task.id)return;
   const fingerprint=JSON.stringify([chosen.length,project,task&&[task.id,task.title,task.status,task.project,task.manual,task.started,task.codexUrl],state.projects.map(p=>[p.id,p.name])]);
   if(fingerprint===detailFingerprint){
-    // Keep the elapsed time and the override select in step with saved state without rebuilding the card.
+    // Keep the elapsed time in step without rebuilding the card.
     const clock=detail.querySelector('[data-elapsed]');if(clock&&task)clock.textContent=elapsed(task.started);
-    const select=detail.querySelector('select');if(select&&task&&document.activeElement!==select)select.value=task.manual||'';
     return;
   }
   detailFingerprint=fingerprint;
@@ -899,12 +908,6 @@ function inspect(){
   const head=el('div',undefined,'detail-head');head.append(el('h3',task.title),statusBadge(task.status));detail.append(head);
   for(const [key,value]of[['Project',projectName(task.project)],['Elapsed',elapsed(task.started)]]){const row=el('div',undefined,'kv'),node=el('span',value);if(key==='Elapsed')node.dataset.elapsed='';row.append(el('span',key),node);detail.append(row)}
   if(task.codexUrl){const link=el('a','Open in Codex','codex-link');link.href=task.codexUrl;detail.append(link)}
-  if(!project)return; // the override only changes placement and colour in Project layout
-  detail.append(el('label','Override project for this task','label field'));
-  const select=el('select',undefined,'full');select.dataset.task=task.id;select.setAttribute('aria-label','Task project override');selectOptions(select,'Use Codex assignment');select.value=task.manual||'';
-  select.onchange=()=>action('/api/task',{id:task.id,project:select.value||null});
-  // A rejected override must not linger once the select loses focus.
-  select.onblur=()=>{detailFingerprint=''};detail.append(select);
 }
 function pendingText(){
   const p=state.pending,parts=[];
@@ -965,7 +968,7 @@ function readout(){
   });
 }
 async function refresh(){if(refreshing)return;refreshing=true;try{const r=await fetch('/api/state');const data=await r.json();if(!r.ok)throw Error(data.error);state=data;render()}catch(e){endAssembly();$('connection').textContent='Disconnected · retrying';$('connection').classList.add('offline');message(e.message,true)}finally{refreshing=false}}
-for(const id of ['classic','project'])$(id).onclick=()=>action('/api/settings',{style:id});for(const mode of ['work','free','quiet'])$(mode).onclick=()=>action('/api/mode',{mode});$('coverage').onchange=()=>action('/api/settings',{coverage:$('coverage').value});$('assign').onclick=()=>action('/api/assign',{lines:Object.fromEntries([...selected].map(id=>[id,{project:$('assignProject').value||null}]))});$('swap').onclick=()=>action('/api/assign',{lines:Object.fromEntries(state.lines.filter(l=>selected.has(l.id)).map(l=>[l.id,{signature:1-l.signature}]))});$('locate').onclick=()=>{const id=[...selected][0],group=$('wall').querySelector(`[data-line="${id}"]`);if(group){group.classList.remove('locating');void group.getBBox();group.classList.add('locating');setTimeout(()=>group.classList.remove('locating'),1000)}action('/api/locate',{line:id})};$('rotate').onclick=()=>action('/api/settings',{rotation:(state.settings.rotation+90)%360});$('flipX').onclick=()=>action('/api/settings',{flip_x:1-state.settings.flip_x});$('flipY').onclick=()=>action('/api/settings',{flip_y:1-state.settings.flip_y});new ResizeObserver(sizeLineNumbers).observe($('wallHost'));refresh();setInterval(refresh,1000);
+for(const id of ['classic','project'])$(id).onclick=()=>action('/api/settings',{style:id});for(const mode of ['work','free','quiet'])$(mode).onclick=()=>action('/api/mode',{mode});$('coverage').onchange=()=>action('/api/settings',{coverage:$('coverage').value});$('assignProject').onchange=()=>{const value=$('assignProject').value;if(value==='mixed')return;action('/api/assign',{lines:Object.fromEntries([...selected].map(id=>[id,{project:value||null}]))})};$('swap').onclick=()=>action('/api/assign',{lines:Object.fromEntries(state.lines.filter(l=>selected.has(l.id)).map(l=>[l.id,{signature:1-l.signature}]))});$('locate').onclick=()=>{const id=[...selected][0],group=$('wall').querySelector(`[data-line="${id}"]`);if(group){group.classList.remove('locating');void group.getBBox();group.classList.add('locating');setTimeout(()=>group.classList.remove('locating'),1000)}action('/api/locate',{line:id})};$('rotate').onclick=()=>action('/api/settings',{rotation:(state.settings.rotation+90)%360});$('flipX').onclick=()=>action('/api/settings',{flip_x:1-state.settings.flip_x});$('flipY').onclick=()=>action('/api/settings',{flip_y:1-state.settings.flip_y});new ResizeObserver(sizeLineNumbers).observe($('wallHost'));refresh();setInterval(refresh,1000);
 $('showNumbers').onclick=()=>{showAllNumbers=!showAllNumbers;try{showAllNumbers?localStorage.setItem(showAllNumbersKey,'1'):localStorage.removeItem(showAllNumbersKey)}catch{}syncNumberControl()};
 syncNumberControl();
 window.matchMedia?.('(prefers-reduced-motion: reduce)')?.addEventListener('change',()=>requestAnimationFrame(anchorPulses));

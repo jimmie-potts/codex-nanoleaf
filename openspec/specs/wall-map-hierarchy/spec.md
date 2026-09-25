@@ -51,19 +51,19 @@ The Line total SHALL appear only in the wall heading, the task total only in the
 
 ### Requirement: One context card with layout-conditional editing
 
-The inspector SHALL show one context card for the current selection. It SHALL name the selected Line, list several selected Lines, or say that a focused task is waiting for a Line; show the task's title, status, project or "No project", elapsed time and Open in Codex link when it qualifies; and offer Locate, disabled for more than one Line and in Free. The task's title and project SHALL appear once in the inspector outside the task tiles. In Classic layout no reservation, half-swap or override control SHALL be visible. In Project layout the card SHALL add the reservation select with a Reserve action, Swap halves and the task's project override, using the existing settings, assignment and task endpoints and the existing pending-edit rules. Escape SHALL close an open Options menu first and otherwise clear the selection; a click on empty wall canvas SHALL clear the selection; both return focus to the wall heading. The Locate explanation SHALL appear only in Free. Selection, opening the card and switching layout SHALL send no request beyond the existing settings request for a layout change. Covers issue #135 decisions 3 to 6.
+The inspector SHALL show one context card for the current selection. It SHALL name the selected Line, list several selected Lines, or say that a focused task is waiting for a Line; show the task's title, status, project or "No project", elapsed time and Open in Codex link when it qualifies; and offer Locate, disabled for more than one Line and in Free. The task's title and project SHALL appear once in the inspector outside the task tiles. In Classic layout no reservation or half-swap control SHALL be visible. In Project layout the card SHALL show a Reserved for select above the task, applied on change to every selected Line through the existing assignment request and pending-edit rules, showing a disabled "Several reservations" choice when the selected Lines differ, and Swap halves. The map SHALL NOT offer a per-task project override; that operation remains available to the machine API. Escape SHALL close an open Options menu first and otherwise clear the selection; a click on empty wall canvas SHALL clear the selection; both return focus to the wall heading. The Locate explanation SHALL appear only in Free. Selection, opening the card and switching layout SHALL send no request beyond the existing settings request for a layout change. Covers issue #135 decisions 3 to 6 as revised on 2026-09-24.
 
 #### Scenario: Classic selection
 - **WHEN** a Line with a task is selected in Classic layout
 - **THEN** the card names the Line, shows the task once with its status, project and elapsed time, offers an enabled Locate and no reservation, half-swap, override or Locate explanation
 
-#### Scenario: Project layout editing
+#### Scenario: Project layout reservation
 - **WHEN** Project layout is active and a Line is selected
-- **THEN** the card also shows the reservation select with Reserve, Swap halves and the task's override, the hint states the Line's reservation or Shared pool, and Reserve sends the existing assignment request
+- **THEN** the card shows Reserved for with the Line's project or Shared pool and Swap halves, choosing another project sends the existing assignment request for the selected Lines, a rejected choice returns to the saved value after focus leaves, and no task override is shown
 
 #### Scenario: Waiting task and several Lines
 - **WHEN** a waiting task is chosen from the list, or several Lines are selected
-- **THEN** the card says the task is waiting for a Line with its details and no Line actions, or lists the Line numbers with Locate disabled and asks for one Line to inspect a task
+- **THEN** the card says the task is waiting for a Line with its details and no Line actions, or lists the Line numbers with Locate disabled, asks for one Line to inspect a task, and in Project layout shows Several reservations when their reservations differ
 
 #### Scenario: Clearing and Locate hint
 - **WHEN** the user presses Escape with a selection, presses Escape while Options is open, clicks empty canvas, or switches to Free

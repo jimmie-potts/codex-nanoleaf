@@ -7,7 +7,9 @@ module.exports = async function(page, root) {
   snapshot.lines.forEach(line => {line.task=null;line.project='saved-0'});
   snapshot.settings.style = 'project';
   const route = request => request.fulfill({json:snapshot});
+  const assignRoute = request => {for (const [id, edit] of Object.entries(request.request().postDataJSON().lines || {})) Object.assign(snapshot.lines.find(line => line.id === id), edit); return request.fulfill({json:{ok:true}})};
   await page.route('**/api/state', route);
+  await page.route('**/api/assign', assignRoute);
   const refresh = () => page.evaluate(async () => {while(refreshing) await new Promise(resolve=>setTimeout(resolve,10));await refresh()});
   const rows=()=>page.locator('#projectList [data-project]').evaluateAll(nodes=>nodes.map(n=>n.dataset.project));
   const project=id=>page.locator(`#projectList [data-project="${id}"]`);
@@ -122,11 +124,12 @@ module.exports = async function(page, root) {
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'Narrow layout must not overflow');
     await page.setViewportSize({width:1440,height:1000});
     await page.screenshot({path:path.join(root,'test-results/current-projects-active.png'),fullPage:true});
-    assert.deepEqual(writes,[],'Filtering, polling and disclosure send no writes');
+    assert.deepEqual(writes.map(url => new URL(url).pathname),['/api/assign'],'Only the explicit reservation choice wrote; filtering, polling and disclosure send nothing');
   } finally {
     page.off('request',record);
     await page.evaluate(()=>{showSavedProjects=false;document.activeElement.blur()});
     await page.setViewportSize({width:1440,height:1000});
+    await page.unroute('**/api/assign',assignRoute);
     await page.unroute('**/api/state',route);await refresh();
   }
 };

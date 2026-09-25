@@ -121,9 +121,10 @@ failure ends assembly immediately. A future view can call
 owns that behavior. The
 [wall Line identification specification](../openspec/specs/wall-line-identification/spec.md)
 defines numbered project/task badges, Shared pool identification, selection,
-pending labels, and the explicit Locate boundary. In Project layout, select Lines,
-choose a project under **Reserve for** and click **Reserve**; choose Shared pool to
-release a reservation. Classic shows no reservation controls.
+pending labels, and the explicit Locate boundary. In Project layout, select Lines
+and choose a project under **Reserved for**; the choice applies at once to every
+selected Line, and Shared pool releases a reservation. Classic shows no
+reservation controls.
 The [current projects specification](../openspec/specs/wall-current-projects/spec.md)
 owns project visibility, activity ordering, saved-project access, and color editing.
 Use **Show saved projects** in the left column to find a project without current
@@ -213,11 +214,11 @@ after assembly. Polls, palette changes, selection, and layout rebuilds preserve
 that clock. Physical pulse and completion epochs remain unchanged. Reduced
 motion keeps static modes distinguishable.
 The [wall mode presentation specification](../openspec/specs/wall-mode-presentation/spec.md)
-owns that behavior and the readout. In Project layout the context card also
-offers the task's project override; it changes only the bridge's assignment.
-Choose "Use Codex assignment" to remove the override. Classic shows no override,
-and tasks without an attributed project read "No project". The status-first
-default screen is recorded in [ADR 0012](../docs/decisions/0012-wall-map-status-first.md).
+owns that behavior and the readout. The map offers no per-task project override;
+tasks without an attributed project read "No project", and the
+[integration settings extension](../docs/integration-api.md) keeps the manual
+override for machine clients. The status-first default screen is recorded in
+[ADR 0012](../docs/decisions/0012-wall-map-status-first.md).
 
 Shared Codex tasks use local titles and projects from the same configured metadata
 reader. A hub label takes precedence over the local title. Project allocation uses

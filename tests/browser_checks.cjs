@@ -6,7 +6,7 @@ await page.evaluate(async()=>{await action('/api/assign',{lines:Object.fromEntri
 await require('./wall_options.cjs').open(page);await page.locator('#project').click();await page.waitForFunction(()=>document.querySelector('#project').classList.contains('active'));
 const ids=await page.locator('.wall-line').evaluateAll(nodes=>nodes.map(n=>n.dataset.line));
 await page.locator(`[data-line="${ids[0]}"]`).click();await page.locator(`[data-line="${ids[1]}"]`).click({modifiers:['Control']});
-await page.locator('#assignProject').selectOption('a');await page.locator('#assign').click();await page.waitForFunction(()=>state.lines.filter(l=>l.project==='a').length===2);
+await page.locator('#assignProject').selectOption('a');await page.waitForFunction(()=>state.lines.filter(l=>l.project==='a').length===2);
 await page.locator('[aria-label="Notification Service color"]').evaluate(n=>{n.value='#9966ff';n.dispatchEvent(new Event('change',{bubbles:true}))});await page.waitForFunction(()=>state.projects.find(p=>p.id==='a').color==='#9966ff');
 await page.locator('#swap').click();await page.waitForFunction(()=>state.lines.filter(l=>l.project==='a').every(l=>l.signature===1));
 await require('./wall_options.cjs').open(page);await page.locator('#coverage').selectOption('status');await page.waitForFunction(()=>state.settings.coverage==='status');
@@ -15,7 +15,7 @@ await page.locator('#flipX').click();await page.waitForFunction(()=>state.settin
 await page.locator(`[data-line="${ids[0]}"]`).click();await page.locator('#locate').click();
 await page.locator('#free').click();await page.waitForFunction(()=>state.mode==='free');if(!await page.locator('#locate').isDisabled())throw Error('Locate must be disabled in Free');
 await page.locator('#work').click();await page.waitForFunction(()=>state.mode==='work');await require('./wall_options.cjs').open(page);await page.locator('#classic').click();await page.waitForFunction(()=>state.settings.style==='classic');await page.locator('#project').click();await page.waitForFunction(()=>state.settings.style==='project');
-const firstTaskId=await page.evaluate(()=>state.tasks[0].id);await page.locator(`#taskList [data-task="${firstTaskId}"] .task-title`).click();await page.locator('[aria-label="Task project override"]').selectOption('b');await page.waitForFunction(()=>state.tasks[0].manual==='b');await page.locator('[aria-label="Task project override"]').selectOption('');await page.waitForFunction(()=>!state.tasks[0].manual);
+const firstTaskId=await page.evaluate(()=>state.tasks[0].id);await page.locator(`#taskList [data-task="${firstTaskId}"] .task-title`).click();await page.waitForFunction(id=>document.querySelector('#taskDetail').textContent.includes(state.tasks.find(t=>t.id===id).title),firstTaskId);
 await page.locator(`[data-line="${ids[0]}"]`).focus();await page.waitForTimeout(1100);if(await page.evaluate(()=>document.activeElement.dataset.line)!==ids[0])throw Error('Map polling lost keyboard focus');
 await page.evaluate(()=>{state.pending={settings:{style:'classic'},lines:{[state.lines[0].id]:{project:'a'}},tasks:{}};render()});if(!await page.locator('#busy').textContent().then(t=>t.includes('classic layout')&&t.includes('Notification Service')))throw Error('Pending change details missing');if(await page.locator('.wall-line.pending').count()!==1)throw Error('Pending Line highlight missing');await page.evaluate(()=>refresh());
 if(await page.locator('#taskList b').count())throw Error('Task title interpreted as HTML');

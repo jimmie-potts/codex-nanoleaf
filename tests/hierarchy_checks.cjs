@@ -177,9 +177,9 @@ module.exports = async function(page, root) {
       current = dense; await page.setViewportSize({width, height}); await refresh(); await settle();
       await page.locator('#taskList [data-task="task-00"] .task-title').click(); await refresh();
       assert.match(await page.locator('#taskDetail').textContent(), /A long retained task title/, `${width}px: the selected task shows its details`);
-      const override = page.getByRole('combobox', {name: 'Task project override'});
-      await override.scrollIntoViewIfNeeded();
-      assert.equal(await override.isVisible(), true, `${width}px: the override control is usable`);
+      const reservation = page.locator('#assignProject');
+      await reservation.scrollIntoViewIfNeeded();
+      assert.equal(await reservation.isVisible(), true, `${width}px: the reservation control is usable in Project layout`);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `${width}px: long labels do not overflow`);
       if (width === 1440) assert.equal(await page.evaluate(() => new Set([...document.querySelectorAll('#taskList .task')].map(node => Math.round(node.getBoundingClientRect().left))).size), 2, 'The compact grid keeps two desktop columns');
       await page.evaluate(() => {selected.clear(); taskFocus = null; document.activeElement.blur(); render()});
