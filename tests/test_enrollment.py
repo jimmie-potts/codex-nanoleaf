@@ -20,7 +20,7 @@ import enrollment
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = json.loads((ROOT / 'tests/fixtures/nl22-panels-fixture.json').read_text())['panelLayout']
-LINES_IP, PANELS_IP, OTHER_IP = '192.0.2.1', '192.0.2.2', '192.0.2.3'
+LINES_IP, PANELS_IP, OTHER_IP, NEW_IP = '192.0.2.1', '192.0.2.2', '192.0.2.3', '192.0.2.4'
 LINES_TOKEN, PANELS_TOKEN = 'fakeLines', 'fakePanelsCredential1'
 
 
@@ -31,6 +31,8 @@ class FakeDevices:
         self.info = {PANELS_IP: {'name': 'Light Panels', 'model': 'NL22', 'firmwareVersion': '5.2.2',
                                  'panelLayout': copy.deepcopy(FIXTURE)},
                      LINES_IP: {'name': 'Lines', 'model': 'NL59', 'firmwareVersion': '9.0.0'}}
+        # The same Panels after a new DHCP lease.
+        self.info[NEW_IP] = copy.deepcopy(self.info[PANELS_IP])
         self.unreachable = set()
         self.seen = []
 
@@ -499,6 +501,117 @@ class RemoveTest(EnrollmentTest):
         self.assertIn('Removed', out)
         code, out, err = self.run_command('device-remove', '--device', 'wall')
         self.assertEqual(code, 1)
+
+
+class AddressTest(EnrollmentTest):
+    # #114: change a registered device's address without re-enrolling.
+    def setUp(self):
+        super().setUp()
+        self.enroll()
+        self.mode('quiet', 'panels')
+        element = self.layout()['devices']['panels']['elements'][0]['id']
+        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+            db.execute("INSERT INTO line_prefs (line_id, project, signature, device) VALUES (?, 'beta', 0, 'panels')", (element,))
+            db.execute("INSERT INTO slots (session, slot, device) VALUES ('a', 0, 'panels')")
+        (self.directory / devices.scene_file('panels')).write_text('{"version": 1, "scene": "Forest"}')
+        self.fake.seen.clear()
+
+    def change(self, device='panels', ip=NEW_IP):
+        return enrollment.change_address(self.directory, b, device, ip)
+
+    # AC1: only the address changes; the device keeps its identity and saved state.
+    def test_changes_only_the_registered_address(self):
+        files, rows, hooks = self.snapshot()
+        result = self.change()
+        self.assertEqual(result, {'device': 'panels', 'ip': NEW_IP, 'triangles': 18})
+        config = self.config()
+        before = json.loads(files['config.json'])
+        before['devices']['panels']['ip'] = NEW_IP
+        self.assertEqual(config, before)
+        self.assertEqual(list(config['devices']), ['wall', 'panels'])
+        after = self.snapshot()
+        self.assertEqual({k: v for k, v in after[0].items() if k != 'config.json'},
+                         {k: v for k, v in files.items() if k != 'config.json'})
+        self.assertEqual(after[1], rows)
+        self.assertEqual(after[2], hooks)
+        self.assertEqual(b.get_status(self.directory, 'panels')['mode'], 'quiet')
+        # AC3: one verification read with the stored credential, and no light write.
+        self.assertEqual(self.fake.seen, [(NEW_IP, PANELS_TOKEN, 'GET', '')])
+        self.assertEqual(b.load_config(self.directory, 'panels')['ip'], NEW_IP)
+
+    # AC2: the new address is checked before anything is written.
+    def test_address_in_use_or_not_private_is_refused_before_contacting_a_device(self):
+        before = self.snapshot()
+        for ip, reason in ((LINES_IP, 'already uses'), (PANELS_IP, 'already registered at'),
+                           ('8.8.8.8', 'private IPv4'), ('fd00::1', 'private IPv4'), ('not-an-ip', 'address')):
+            with self.subTest(ip=ip), self.assertRaisesRegex(ValueError, reason):
+                self.change(ip=ip)
+            self.assertEqual(self.snapshot(), before)
+        self.assertEqual(self.fake.seen, [])
+
+    def test_a_different_device_at_the_new_address_is_refused(self):
+        before = self.snapshot()
+        self.fake.info[NEW_IP]['model'] = 'NL59'
+        with self.assertRaisesRegex(ValueError, 'NL22'):
+            self.change()
+        self.assertEqual(self.snapshot(), before)
+        self.fake.info[NEW_IP]['model'] = 'NL22'
+        self.fake.info[NEW_IP]['panelLayout']['layout']['positionData'].pop()
+        with self.assertRaisesRegex(ValueError, 'saved layout'):
+            self.change()
+        self.assertEqual(self.snapshot(), before)
+        self.fake.info[NEW_IP]['panelLayout']['layout']['positionData'][0]['shapeType'] = 7
+        with self.assertRaisesRegex(ValueError, 'Unsupported'):
+            self.change()
+        self.assertEqual(self.snapshot(), before)
+
+    def test_unreachable_address_writes_nothing(self):
+        before = self.snapshot()
+        self.fake.unreachable.add(NEW_IP)
+        with self.assertRaises(OSError):
+            self.change()
+        self.assertEqual(self.snapshot(), before)
+
+    def test_lines_and_unknown_ids_are_refused(self):
+        before = self.snapshot()
+        for device, reason in (('wall', 'Lines'), ('missing', 'Unknown'), ('bad id', 'Invalid device')):
+            with self.subTest(device=device), self.assertRaisesRegex(ValueError, reason):
+                self.change(device)
+        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(self.fake.seen, [])
+
+    def test_malformed_layout_is_refused_before_any_request(self):
+        b.write_json(self.directory / 'layout.json', {'version': 99, 'devices': {}})
+        before = self.snapshot()
+        with self.assertRaisesRegex(ValueError, 'layout'):
+            self.change()
+        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(self.fake.seen, [])
+
+    # AC4: the credential stays out of output and errors.
+    def test_command_reports_the_change_without_the_credential(self):
+        code, out, err = self.run_command('device-address', '--device', 'panels', '--ip', NEW_IP)
+        self.assertEqual(code, 0, err)
+        self.assertIn(NEW_IP, out)
+        self.assertIn('No service restart', out)
+        self.assertNotIn(PANELS_TOKEN, out + err)
+        self.fake.unreachable.add(PANELS_IP)
+        code, out, err = self.run_command('device-address', '--device', 'panels', '--ip', PANELS_IP)
+        self.assertEqual(code, 1)
+        self.assertIn('Nothing was changed', err)
+        self.assertNotIn(PANELS_TOKEN, out + err)
+        self.assertNotIn('Traceback', err)
+
+    def test_command_reports_a_device_error_without_the_credential(self):
+        def refuse(config, method, endpoint='', payload=None):
+            raise urllib.error.HTTPError(f'http://{config["ip"]}:16021/api/v1/{config["token"]}', 401,
+                                         'Unauthorized', {}, io.BytesIO())
+        with patch.object(b, 'light_request', refuse):
+            code, out, err = self.run_command('device-address', '--device', 'panels', '--ip', NEW_IP)
+        self.assertEqual(code, 1)
+        self.assertIn('HTTP 401', err)
+        self.assertNotIn(PANELS_TOKEN, out + err)
+        self.assertEqual(self.config()['devices']['panels']['ip'], PANELS_IP)
 
 
 class DispatchTest(EnrollmentTest):
