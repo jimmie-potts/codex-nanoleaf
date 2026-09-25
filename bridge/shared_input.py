@@ -206,10 +206,19 @@ def check_envelope(value, config, minimum_revision=0):
     checked = validate_snapshot(value['snapshot'])
     if not checked['ok'] or checked['value']['apiVersion']!='1.1' or checked['value']['revision'] < minimum_revision:
         raise FeedError('invalid-feed')
-    sources = {dumps(source) for source in config['qualifiedSources']}
-    if any(dumps({k: session['identity'][k] for k in SOURCE}) not in sources for session in checked['value']['sessions']):
-        raise FeedError('unqualified-source')
     return dict(value, snapshot=checked['value'])
+
+
+def declared(snapshot, config):
+    """Keep sessions from declared sources. Others are counted, never presented or
+    acknowledged, and take no part in parent grouping."""
+    sources = {dumps(source) for source in config['qualifiedSources']}
+    kept, skipped = [], []
+    for session in snapshot['sessions']:
+        source = dumps({k: session['identity'][k] for k in SOURCE})
+        if source in sources: kept.append(session)
+        else: skipped.append(source)
+    return dict(snapshot, sessions=kept), {'sessions': len(skipped), 'sources': [decode(source) for source in sorted(set(skipped))]}
 
 
 def fetch_snapshot(config, minimum_revision=0):
@@ -464,7 +473,9 @@ def _forget_task(db, key):
 def _project(db, bridge, envelope, config, instant, resync=False, targets=(DEFAULT_DEVICE,), metadata=None):
     current = state(db)
     previous = current['envelope']
-    snapshot = envelope['snapshot']
+    # The stored envelope holds only declared sessions, plus a local count of the skipped ones.
+    snapshot, skipped = declared(envelope['snapshot'], config)
+    envelope = dict(envelope, snapshot=snapshot, skipped=skipped)
     prior = {identity_key(s['identity']):s for s in previous['snapshot']['sessions']} if previous else {}
     resync = (resync or not previous or current['connection'] != 'current'
               or snapshot['revision'] > previous['snapshot']['revision'] + 1
@@ -590,7 +601,8 @@ def failed(directory, bridge, generation, code='feed-unavailable'):
 def inspect(directory, now=time.time):
     path = Path(directory) / 'status.sqlite'
     default = {'source':'legacy','configured':False,'connection':'unavailable','ownerId':None,
-               'consumerId':None,'revision':None,'receivedAt':None,'error':None,'sessions':[]}
+               'consumerId':None,'revision':None,'receivedAt':None,'error':None,'sessions':[],
+               'skipped':{'sessions':0,'sources':[]}}
     if not path.exists(): return default
     try:
         with contextlib.closing(sqlite3.connect(path.resolve().as_uri() + '?mode=ro', uri=True)) as db:
@@ -605,6 +617,8 @@ def inspect(directory, now=time.time):
                 disconnected=elapsed < 0 or elapsed > 4 or current['connection'] != 'current'
                 if disconnected and current['source']=='shared': view['connection']='stale'
                 snap=envelope['snapshot']; view.update(revision=snap['revision'],receivedAt=current['received'],collector=snap['collector'],lossCount=snap['lossCount'])
+                # Envelopes stored before #111 never held an undeclared session.
+                view['skipped']=envelope.get('skipped',default['skipped'])
                 for session in snap['sessions']:
                     age=session['observationAgeMs']+max(0,elapsed)*1000
                     view['sessions'].append({'id':identity_key(session['identity']),'identity':session['identity'],
@@ -665,7 +679,8 @@ def acknowledge(directory, bridge, session_key, notice_id, retry=False):
     else:
         if retry: raise FeedError('no-pending-acknowledgment')
         envelope=fetch_snapshot(before['config'],minimum_revision=before['envelope']['snapshot']['revision'])
-        session=next((s for s in envelope['snapshot']['sessions'] if identity_key(s['identity'])==session_key),None)
+        sessions=declared(envelope['snapshot'],before['config'])[0]['sessions']
+        session=next((s for s in sessions if identity_key(s['identity'])==session_key),None)
         if not session or not any(n['id']==notice_id for n in session['notices']): raise FeedError('notice-unavailable')
         body={'operation':'acknowledge','requestId':envelope['nextRequestId'],'identity':session['identity'],
               'noticeId':notice_id,'consumerId':before['config']['consumerId']}
