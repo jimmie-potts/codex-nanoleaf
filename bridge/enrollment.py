@@ -1,4 +1,4 @@
-"""Enroll NL22 Light Panels beside the original Lines device, or remove them again."""
+"""Enroll NL22 Light Panels beside the original Lines device, change their address, or remove them again."""
 import argparse
 import contextlib
 import getpass
@@ -151,7 +151,8 @@ def check_target(config, device, ip):
     existing = registry.get(device)
     if existing and (existing['kind'] != KIND or existing['ip'] != ip):
         raise ValueError(f'Device `{device}` is registered at another address or as another kind. '
-                         'Remove it first; enrollment never redirects an identity.')
+                         'Move registered Panels with device-address, or remove the device first; '
+                         'enrollment never redirects an identity.')
     key = existing['token_ref'] if existing else 'token@' + device
     for other, entry in registry.items():
         if other == device:
@@ -210,6 +211,51 @@ def enroll(directory, b, *, ip, token, device=KIND, request=None):
                 raise Partial() from error
     return {'device': device, 'triangles': len(layout['elements']), 'repeat': bool(existing),
             'firmware': info.get('firmwareVersion')}
+
+
+def change_address(directory, b, device, ip, *, request=None):
+    """Move a registered Panels device to a verified new address; its identity and saved state stay."""
+    directory = state_directory(directory)
+    if device == devices.DEFAULT:
+        raise ValueError('device-address moves Light Panels only; it does not move the Lines device `wall`.')
+    device = device_id(device)
+    ip = private_address(ip)
+    with exclusive(directory / 'registry-lock.sqlite'):
+        config = read_config(directory)
+        check_layout(directory)
+        registry = devices.registry(config)
+        entry = registry.get(device)
+        if entry is None:
+            raise ValueError('Unknown device.')
+        if entry['kind'] != KIND:
+            raise ValueError(f'Device `{device}` is not Light Panels.')
+        if entry['ip'] == ip:
+            raise ValueError(f'Device `{device}` is already registered at that address.')
+        for other, registered in registry.items():
+            if other != device and registered['ip'] == ip:
+                raise ValueError(f'Device `{other}` already uses that address.')
+        saved = devices.layout_devices(json.loads((directory / 'layout.json').read_text())
+                                       if (directory / 'layout.json').exists() else {}).get(device)
+        if saved is None or saved['kind'] != KIND:
+            raise ValueError(f'Device `{device}` has no saved layout. Remove it and enroll it again.')
+        token = devices.credential(config, entry)
+        if not token:
+            raise ValueError(f'Device `{device}` has no stored credential. Remove it and enroll it again.')
+        # One read with the stored credential; no light write reaches the device.
+        info = (request or b.light_request)({'ip': ip, 'token': token}, 'GET')
+        if not isinstance(info, dict) or info.get('model') != MODEL:
+            raise ValueError('The device at that address is not NL22 Light Panels.')
+        import panels
+        reported = panels.read_layout(info.get('panelLayout'))
+        # The same physical set: equal triangles, positions and neighbors, not just an equal count.
+        if (reported['elements'] != saved['elements']
+                or reported['panel_geometry'] != saved.get('panel_geometry')):
+            raise ValueError('The triangles at that address do not match the saved layout. '
+                             'Check the address, or remove the device and enroll it again.')
+        # Only the registry changes; a running worker reads the address again on its next pass.
+        config['devices'][device]['ip'] = ip
+        b.write_json(directory / 'config.json', config)
+    return {'device': device, 'ip': ip, 'triangles': len(saved['elements'])}
 
 
 def remove(directory, b, device, *, force=False, wait=REMOVE_WAIT_SECONDS, sleep=time.sleep):
@@ -285,14 +331,17 @@ def command(argv, b):
         source.add_argument('--token-file', type=Path, help='Private token-only file; otherwise use a hidden prompt.')
         source.add_argument('--pair', action='store_true',
                             help="Obtain a credential from the device's pairing window.")
+    elif argv[0] == 'device-address':
+        parser.add_argument('--device', required=True, help='Registered Light Panels id to move.')
+        parser.add_argument('--ip', required=True, help='New private IPv4 address of the same device.')
     elif argv[0] == 'device-remove':
         parser.add_argument('--device', required=True, help='Registered device id to remove.')
         parser.add_argument('--force', action='store_true',
                             help='Remove an unreachable device whose Free handoff cannot finish.')
     else:
-        parser.error('Use device-enroll or device-remove.')
+        parser.error('Use device-enroll, device-address or device-remove.')
     args = parser.parse_args(argv[1:])
-    action = 'Device removal' if argv[0] == 'device-remove' else 'Device enrollment'
+    action = {'device-remove': 'Device removal', 'device-address': 'Address change'}.get(argv[0], 'Device enrollment')
     directory = args.state_dir or b.data_dir()
     try:
         if argv[0] == 'device-remove':
@@ -302,6 +351,12 @@ def command(argv, b):
             else:
                 print(f'Removed the `{result["device"]}` registration, but its worker is still stopping. '
                       f'Run `device-remove --device {result["device"]}` again to finish removing its saved state.')
+            return 0
+        if argv[0] == 'device-address':
+            result = change_address(directory, b, args.device, args.ip)
+            print(f'Moved `{result["device"]}` to {result["ip"]} after checking its {result["triangles"]} triangles. '
+                  'Its mode, layout, reservations and scene are unchanged.')
+            print('No service restart is needed: its worker sends to the new address from its next pass.')
             return 0
         check(directory, args.device, args.ip)
         if args.pair:

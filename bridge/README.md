@@ -388,8 +388,14 @@ configuration key, saves the reported geometry and starts the device in Free, so
 the Panels receive nothing until `mode work --device panels` or `mode quiet
 --device panels`. It refuses the `wall` id, an address another device uses, and
 an existing id at a new address. Repeating it for the same id and address
-replaces only the credential. `nanoleaf device-remove --device panels` removes a
-device after its Free handoff has applied; `--force` removes an unreachable one.
+replaces only the credential. `nanoleaf device-address --device panels --ip
+<new>` moves a registered Panels device to a new address after checking,
+with its stored credential, that the device there reports NL22 and the saved
+triangles in the same places. It changes only the registered address, sends no
+light write, and a running worker uses the new address from its next pass. It
+refuses `wall`, an address another device uses and a device that does not
+match. `nanoleaf device-remove --device panels` removes a device after its Free
+handoff has applied; `--force` removes an unreachable one.
 It stops that device's worker and deletes its registration, credential, layout
 entry, device-scoped rows and saved scene. Lines and shared tasks are unchanged.
 Neither command changes hooks, listeners or machine credentials, and no service

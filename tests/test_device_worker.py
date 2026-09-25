@@ -21,7 +21,7 @@ import shared_input
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = json.loads((ROOT / 'tests/fixtures/nl22-panels-fixture.json').read_text())['panelLayout']
-LINES_IP, PANELS_IP = '192.0.2.1', '192.0.2.2'
+LINES_IP, PANELS_IP, MOVED_IP = '192.0.2.1', '192.0.2.2', '192.0.2.4'
 
 
 def triangles(count):
@@ -37,9 +37,12 @@ class Devices:
         self.lines, self.panels = Device(clock), Device(clock)
         self.panels.names = ['Forest', 'Sunset']
         self.panels.selected, self.panels.brightness = 'Forest', 64
+        self.addresses = []
 
     def request(self, config, method, endpoint='', payload=None):
-        target = {LINES_IP: self.lines, PANELS_IP: self.panels}[config['ip']]
+        self.addresses.append((config['ip'], method, endpoint))
+        # The same Panels answer at their new address after a DHCP change.
+        target = {LINES_IP: self.lines, PANELS_IP: self.panels, MOVED_IP: self.panels}[config['ip']]
         return target.request(config, method, endpoint, payload)
 
 
@@ -223,6 +226,33 @@ class MirroredTest(DeviceWorkerTest):
         self.assertFalse((self.directory / 'scene-state.json').exists())
         self.assertEqual((self.fake.panels.selected, self.fake.panels.brightness), ('Forest', 64))
         self.assertEqual(self.fake.lines.calls, [])
+
+
+class AddressChangeTest(DeviceWorkerTest):
+    # #114 AC3: a running instance follows a registered address change without a restart.
+    def test_running_worker_sends_to_the_new_address_on_its_next_pass(self):
+        self.event('UserPromptSubmit')
+        def move():
+            config = json.loads((self.directory / 'config.json').read_text())
+            config['devices']['panels']['ip'] = MOVED_IP
+            b.write_json(self.directory / 'config.json', config)
+            self.fake.addresses.append('moved')
+        self.run_worker('panels', [(self.clock.now() + 2, move)] + self.free_after(4, 'panels'))
+        moved = self.fake.addresses.index('moved')
+        before, after = self.fake.addresses[:moved], self.fake.addresses[moved + 1:]
+        self.assertTrue(before and all(ip == PANELS_IP for ip, _, _ in before))
+        self.assertTrue(any(method == 'PUT' for _, method, _ in after))
+        self.assertEqual({ip for ip, _, _ in after}, {MOVED_IP})
+
+    def test_unreadable_configuration_keeps_the_current_transport(self):
+        config = {'ip': PANELS_IP, 'token': 'fakePanels'}
+        (self.directory / 'config.json').write_text('{')
+        b.follow_registry(self.directory, config, 'panels')
+        self.assertEqual(config, {'ip': PANELS_IP, 'token': 'fakePanels'})
+        b.write_json(self.directory / 'config.json', {'devices': {'panels': {'kind': 'panels', 'ip': MOVED_IP, 'token_ref': 'panelsToken'}},
+                                                      'panelsToken': 'rotatedPanels'})
+        b.follow_registry(self.directory, config, 'panels')
+        self.assertEqual(config, {'ip': MOVED_IP, 'token': 'rotatedPanels'})
 
 
 class SmallPanelsTest(DeviceWorkerTest):
