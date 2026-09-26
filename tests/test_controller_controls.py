@@ -5,6 +5,8 @@ import unittest
 from unittest.mock import patch
 import test_scene_restore as scenes
 from test_bridge import b
+import database
+import modes
 import controller_server as server
 import controller_state as state
 
@@ -17,12 +19,12 @@ class ControlsTest(unittest.TestCase):
 
     def setUp(self):
         scenes.SceneTest.setUp(self)
-        server.configure(self.directory, b, 'controller', 'device', 'source')
-        self.token = server.issue(self.directory, b, 'client', ['read', 'control'])
-        self.app = server.App(self.directory, b, launch=lambda _: None)
+        server.configure(self.directory, 'controller', 'device', 'source')
+        self.token = server.issue(self.directory, 'client', ['read', 'control'])
+        self.app = server.App(self.directory, launch=lambda _: None)
 
     def mode(self, name):
-        b.set_mode(self.directory, name, launch=lambda _: None, now=self.clock.now)
+        modes.set_mode(self.directory, name, launch=lambda _: None, now=self.clock.now)
 
     def command(self, command):
         snap = self.app.snapshot()
@@ -107,7 +109,7 @@ class ControlsTest(unittest.TestCase):
         self.mode('free'); self.run_worker()
         req, (code, _) = self.command({'kind': 'scene.activate', 'sceneId': ids[1]})
         self.assertEqual(code, 202)
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             db.execute('BEGIN IMMEDIATE')
             state.discovered(db, ['Beach Waves'])
         self.device.calls.clear(); self.run_worker()
@@ -278,7 +280,7 @@ class ControlsTest(unittest.TestCase):
                 if method == 'GET' and endpoint == '/effects' and not admitted:
                     admitted.append(self.command(command)[1][1]['outcome'])
                 return original(config, method, endpoint, payload)
-            with patch.object(b, 'light_request', request):
+            with patch.object(self.device, 'request', request):
                 self.run_worker([(1002, lambda: self.event('Interrupt', 'race'))])
             self.assertEqual(admitted, ['queued'])
             value, writes = check()
@@ -304,7 +306,7 @@ class ControlsTest(unittest.TestCase):
             self.assertLess(self.clock.now(), 1025, 'Worker did not release control after idle')
             while pending and self.clock.now() >= pending[0][0]:
                 pending.pop(0)[1]()
-        b.run_worker(self.directory, sleep=advance, now=self.clock.now, read_unread=unread)
+        b.run_worker(self.directory, sleep=advance, now=self.clock.now, read_unread=unread, request=self.device.request)
         self.assertEqual(admitted, ['queued'])
         self.assertEqual([p for e, p in self.puts() if 'on' in p], [{'on': {'value': False}}])
         self.assertFalse(self.device.on)
@@ -331,7 +333,7 @@ class ControlsTest(unittest.TestCase):
     def test_ledger_without_scene_key_publishes_new_ids_with_an_event(self):
         self.run_worker()
         before = self.app.snapshot()
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             db.execute('BEGIN IMMEDIATE')
             data = state.read(db); del data['sceneKey']; state.save(db, data)
         self.assertEqual(self.scene_ids(), [])

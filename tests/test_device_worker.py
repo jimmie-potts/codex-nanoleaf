@@ -11,6 +11,14 @@ import unittest
 from unittest.mock import patch
 
 from test_bridge import b, Clock, decode
+import edits
+import configuration
+import database
+import jsonfile
+import launcher
+import modes
+import shared_source
+import store
 from test_scene_restore import Device
 import controller_server as server
 import controller_state
@@ -55,25 +63,22 @@ class DeviceWorkerTest(unittest.TestCase):
         self.fake = Devices(self.clock)
         entries = {'wall': {'kind': 'lines', 'ip': LINES_IP, 'token_ref': 'token'},
                    'panels': {'kind': 'panels', 'ip': PANELS_IP, 'token_ref': 'panelsToken'}}
-        b.write_json(self.directory / 'config.json', {
+        jsonfile.write_json(self.directory / 'config.json', {
             'ip': LINES_IP, 'token': 'fakeLines', 'panelsToken': 'fakePanels',
             'devices': {name: entries[name] for name in order}})
         lines = devices.lines_entry([[100 + i * 2, 101 + i * 2] for i in range(15)], [[i * 10, 0] for i in range(15)])
         devices.save_layout(self.directory / 'layout.json', {'wall': lines, 'panels': triangles(panel_count)})
         self.unread = set()
-        patcher = patch.object(b, 'light_request', self.fake.request)
-        patcher.start()
-        self.addCleanup(patcher.stop)
 
     def event(self, name, session='a', turn='1', **extra):
         b.handle_event(self.directory, {'hook_event_name': name, 'session_id': session, 'turn_id': turn, **extra},
                        launch=lambda _: None, now=self.clock.now)
 
     def mode(self, name, device='wall'):
-        b.set_mode(self.directory, name, launch=lambda _: None, now=self.clock.now, device=device)
+        modes.set_mode(self.directory, name, launch=lambda _: None, now=self.clock.now, device=device)
 
     def query(self, sql, *params):
-        with contextlib.closing(b.connect_state(self.directory)) as db:
+        with contextlib.closing(database.connect_state(self.directory)) as db:
             return db.execute(sql, params).fetchall()
 
     def run_worker(self, device='wall', scheduled=(), read_unread=None):
@@ -90,7 +95,7 @@ class DeviceWorkerTest(unittest.TestCase):
             reads[0] += 1
             self.assertLess(reads[0], 3000, 'Worker looped without sleeping')
             return self.clock.now()
-        result = b.run_worker(self.directory, sleep=advance, now=now,
+        result = b.run_worker(self.directory, sleep=advance, now=now, request=self.fake.request,
                               read_unread=read_unread or (lambda: self.unread), device=device)
         self.assertEqual(pending, [])
         return result
@@ -110,16 +115,16 @@ class LaunchAndTargetTest(DeviceWorkerTest):
     # AC9 and the linux-runtime writer requirement: one locked instance per device.
     def test_launch_starts_one_instance_per_registered_device(self):
         commands = []
-        with patch.object(b.subprocess, 'Popen', lambda command, **options: commands.append(command)):
-            b.launch_worker(self.directory)
+        with patch.object(launcher.subprocess, 'Popen', lambda command, **options: commands.append(command)):
+            launcher.launch_worker(self.directory)
         self.assertEqual([c[c.index('--device') + 1] for c in commands], ['wall', 'panels'])
         self.assertTrue(all(c[2] == 'worker' for c in commands))
 
     def test_unreadable_registry_launches_the_original_device(self):
         (self.directory / 'config.json').write_text('{')
         commands = []
-        with patch.object(b.subprocess, 'Popen', lambda command, **options: commands.append(command)):
-            b.launch_worker(self.directory)
+        with patch.object(launcher.subprocess, 'Popen', lambda command, **options: commands.append(command)):
+            launcher.launch_worker(self.directory)
         self.assertEqual([c[c.index('--device') + 1] for c in commands], ['wall'])
 
     def test_second_instance_for_a_device_exits_without_sending(self):
@@ -135,20 +140,19 @@ class LaunchAndTargetTest(DeviceWorkerTest):
     # AC6: explicit CLI targets, Lines by default, unknown targets rejected.
     def cli(self, *arguments):
         output = io.StringIO()
-        with patch.object(sys, 'argv', ['bridge.py', *arguments, '--state-dir', str(self.directory)]), \
-                patch.object(b, 'launch_worker', lambda directory: None), contextlib.redirect_stdout(output):
-            b.main()
+        with patch.object(sys, 'argv', ['bridge.py', *arguments, '--state-dir', str(self.directory)]), contextlib.redirect_stdout(output):
+            b.main(launch=lambda directory: None, request=self.fake.request)
         return output.getvalue()
 
     def test_cli_mode_and_status_accept_a_device_target(self):
         self.cli('mode', 'quiet', '--device', 'panels')
-        self.assertEqual(b.get_status(self.directory, 'panels')['mode'], 'quiet')
-        self.assertEqual(b.get_status(self.directory)['mode'], 'work')
+        self.assertEqual(modes.get_status(self.directory, 'panels')['mode'], 'quiet')
+        self.assertEqual(modes.get_status(self.directory)['mode'], 'work')
         self.assertEqual(json.loads(self.cli('status', '--device', 'panels'))['mode'], 'quiet')
         self.assertEqual(json.loads(self.cli('status'))['mode'], 'work')
         self.cli('mode', 'free')
-        self.assertEqual(b.get_status(self.directory)['mode'], 'free')
-        self.assertEqual(b.get_status(self.directory, 'panels')['mode'], 'quiet')
+        self.assertEqual(modes.get_status(self.directory)['mode'], 'free')
+        self.assertEqual(modes.get_status(self.directory, 'panels')['mode'], 'quiet')
 
     def test_unknown_target_is_rejected_without_state_change(self):
         before = self.query('SELECT key, value FROM meta ORDER BY key')
@@ -167,16 +171,15 @@ class UninstallTest(DeviceWorkerTest):
         codex.mkdir()
         self.event('UserPromptSubmit')
         with patch.dict('os.environ', {'CODEX_HOME': str(codex)}), \
-                patch.object(b, 'launch_worker', lambda directory: None), \
                 contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             with patch.object(sys, 'argv', ['bridge.py', 'setup', '--uninstall', '--device', 'panels',
                                             '--state-dir', str(self.directory)]), self.assertRaises(SystemExit):
-                b.main()
+                b.main(launch=lambda directory: None, request=self.fake.request)
             self.assertFalse((codex / 'hooks.json').exists())
-            self.assertEqual(b.get_status(self.directory, 'panels')['mode'], 'work')
+            self.assertEqual(modes.get_status(self.directory, 'panels')['mode'], 'work')
             with patch.object(sys, 'argv', ['bridge.py', 'setup', '--uninstall', '--state-dir', str(self.directory)]):
-                b.main()
-        self.assertEqual((b.get_status(self.directory)['mode'], b.get_status(self.directory, 'panels')['mode']),
+                b.main(launch=lambda directory: None, request=self.fake.request)
+        self.assertEqual((modes.get_status(self.directory)['mode'], modes.get_status(self.directory, 'panels')['mode']),
                          ('free', 'free'))
 
 
@@ -185,11 +188,10 @@ class UntargetedOrderTest(DeviceWorkerTest):
         super().setUp(order=('panels', 'wall'))
 
     def test_untargeted_calls_address_lines_whatever_the_registry_order(self):
-        self.assertEqual(b.load_config(self.directory)['device'], 'wall')
-        with patch.object(sys, 'argv', ['bridge.py', 'mode', 'quiet', '--state-dir', str(self.directory)]), \
-                patch.object(b, 'launch_worker', lambda directory: None), contextlib.redirect_stdout(io.StringIO()):
-            b.main()
-        self.assertEqual((b.get_status(self.directory)['mode'], b.get_status(self.directory, 'panels')['mode']), ('quiet', 'work'))
+        self.assertEqual(configuration.load_config(self.directory)['device'], 'wall')
+        with patch.object(sys, 'argv', ['bridge.py', 'mode', 'quiet', '--state-dir', str(self.directory)]), contextlib.redirect_stdout(io.StringIO()):
+            b.main(launch=lambda directory: None, request=self.fake.request)
+        self.assertEqual((modes.get_status(self.directory)['mode'], modes.get_status(self.directory, 'panels')['mode']), ('quiet', 'work'))
 
 
 class MirroredTest(DeviceWorkerTest):
@@ -235,7 +237,7 @@ class AddressChangeTest(DeviceWorkerTest):
         def move():
             config = json.loads((self.directory / 'config.json').read_text())
             config['devices']['panels']['ip'] = MOVED_IP
-            b.write_json(self.directory / 'config.json', config)
+            jsonfile.write_json(self.directory / 'config.json', config)
             self.fake.addresses.append('moved')
         self.run_worker('panels', [(self.clock.now() + 2, move)] + self.free_after(4, 'panels'))
         moved = self.fake.addresses.index('moved')
@@ -247,11 +249,11 @@ class AddressChangeTest(DeviceWorkerTest):
     def test_unreadable_configuration_keeps_the_current_transport(self):
         config = {'ip': PANELS_IP, 'token': 'fakePanels'}
         (self.directory / 'config.json').write_text('{')
-        b.follow_registry(self.directory, config, 'panels')
+        configuration.follow_registry(self.directory, config, 'panels')
         self.assertEqual(config, {'ip': PANELS_IP, 'token': 'fakePanels'})
-        b.write_json(self.directory / 'config.json', {'devices': {'panels': {'kind': 'panels', 'ip': MOVED_IP, 'token_ref': 'panelsToken'}},
+        jsonfile.write_json(self.directory / 'config.json', {'devices': {'panels': {'kind': 'panels', 'ip': MOVED_IP, 'token_ref': 'panelsToken'}},
                                                       'panelsToken': 'rotatedPanels'})
-        b.follow_registry(self.directory, config, 'panels')
+        configuration.follow_registry(self.directory, config, 'panels')
         self.assertEqual(config, {'ip': MOVED_IP, 'token': 'rotatedPanels'})
 
 
@@ -321,22 +323,22 @@ class ModesTest(DeviceWorkerTest):
         self.run_worker('panels', self.free_after(3, 'panels'))
         self.assertEqual((self.fake.panels.selected, self.fake.panels.brightness), ('Forest', 64))
         self.fake.panels.calls.clear()
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
-            wall.request_patch(db, {'settings': {'coverage': 'status'}}, b.load_config(self.directory))
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
+            wall.request_patch(db, {'settings': {'coverage': 'status'}}, configuration.load_config(self.directory))
         self.event('PermissionRequest', tool_name='exec_command')
         self.run_worker('panels')
         self.assertEqual(self.fake.panels.calls, [])
         self.run_worker('wall', self.free_after(3, 'wall'))
         self.assertTrue(self.effects(self.fake.lines))
         self.assertEqual(self.fake.panels.calls, [])
-        self.assertEqual(b.get_status(self.directory, 'panels'), {'mode': 'free', 'pending': False, 'error': None})
+        self.assertEqual(modes.get_status(self.directory, 'panels'), {'mode': 'free', 'pending': False, 'error': None})
 
     def test_panels_free_keeps_the_lines_comet_and_pending_edit(self):
         self.event('UserPromptSubmit')
         self.event('Stop')
         self.unread.add('a')
-        lines = b.load_config(self.directory)
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        lines = configuration.load_config(self.directory)
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             db.execute("UPDATE comets SET source=0, started=? WHERE device='wall'", (self.clock.now(),))
             db.execute("INSERT INTO slots (session, slot, device) VALUES ('a', 0, 'wall')")
             self.assertTrue(wall.request_patch(db, {'settings': {'style': 'project'}}, lines))
@@ -344,7 +346,7 @@ class ModesTest(DeviceWorkerTest):
         self.run_worker('panels', [(self.clock.now() + 1, self.unread.clear)])
         self.assertEqual(self.query("SELECT device, started IS NOT NULL FROM comets"), [('wall', 1)])
         self.assertEqual(self.query("SELECT device FROM map_pending"), [('wall',)])
-        self.assertEqual(b.get_status(self.directory)['mode'], 'work')
+        self.assertEqual(modes.get_status(self.directory)['mode'], 'work')
 
     def test_unread_completion_shows_unread_color_on_both_devices(self):
         self.mode('quiet', 'wall')
@@ -358,11 +360,11 @@ class ModesTest(DeviceWorkerTest):
             raise Stop()
         for device in ('wall', 'panels'):
             with self.assertRaises(Stop):  # The unread task keeps each worker watching; stop after one pass.
-                b.run_worker(self.directory, sleep=stop_after_a_pass, now=self.clock.now,
+                b.run_worker(self.directory, sleep=stop_after_a_pass, now=self.clock.now, request=self.fake.request,
                              read_unread=lambda: self.unread, device=device)
         for fake, device in ((self.fake.lines, 'wall'), (self.fake.panels, 'panels')):
             slot = self.slots(device)['a']
-            zones = b.load_config(self.directory, device)['elements'][slot]['zones']
+            zones = configuration.load_config(self.directory, device)['elements'][slot]['zones']
             first = decode(self.effects(fake)[0])
             self.assertEqual({tuple(first[z][0][:3]) for z in zones}, {b.COLORS['unread']})
 
@@ -388,30 +390,30 @@ class ModesTest(DeviceWorkerTest):
         self.assertEqual(self.effects(self.fake.lines)[0]['write']['animType'], 'custom')
 
     def test_refresh_clears_only_its_target_display_cache(self):
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             for device in ('wall', 'panels'):
                 db.execute('INSERT INTO display_v3 (snapshot, looping, rendered, device) VALUES (?,1,0,?)', ('x', device))
         args = ['bridge.py', 'setup', '--refresh', '--device', 'panels', '--state-dir', str(self.directory)]
-        with patch.object(sys, 'argv', args), patch.object(b, 'launch_worker', lambda directory: None):
-            b.main()
+        with patch.object(sys, 'argv', args):
+            b.main(launch=lambda directory: None, request=self.fake.request)
         self.assertEqual(self.query('SELECT device FROM display_v3'), [('wall',)])
 
     def test_reset_says_it_resets_every_device(self):
         self.event('UserPromptSubmit')
         output = io.StringIO()
         args = ['bridge.py', 'setup', '--reset', '--state-dir', str(self.directory)]
-        with patch.object(sys, 'argv', args), patch.object(b, 'launch_worker', lambda directory: None), \
+        with patch.object(sys, 'argv', args), \
                 contextlib.redirect_stdout(output):
-            b.main()
+            b.main(launch=lambda directory: None, request=self.fake.request)
         self.assertIn('every device', output.getvalue())
         self.assertEqual(self.query('SELECT COUNT(*) FROM slots'), [(0,)])
 
     def test_panels_preview_is_scoped_to_panels(self):
         self.mode('quiet', 'wall')
         args = ['bridge.py', 'setup', '--notify', '--device', 'panels', '--state-dir', str(self.directory)]
-        with patch.object(sys, 'argv', args), patch.object(b, 'launch_worker', lambda directory: None), \
+        with patch.object(sys, 'argv', args), \
                 contextlib.redirect_stdout(io.StringIO()):
-            b.main()
+            b.main(launch=lambda directory: None, request=self.fake.request)
         self.assertEqual(self.query("SELECT key FROM meta WHERE key LIKE 'preview%'"), [('preview@panels',)])
         self.run_worker('wall', self.free_after(3, 'wall'))
         self.assertEqual(self.query("SELECT key FROM meta WHERE key LIKE 'preview%'"), [('preview@panels',)])
@@ -423,14 +425,12 @@ class ModesTest(DeviceWorkerTest):
 class LocateTest(DeviceWorkerTest):
     # AC12: an explicit Locate flashes one physical triangle and respects Panels' Free mode.
     def locate(self, element):
-        import wall_server
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             db.execute('BEGIN IMMEDIATE')
-            wall_server.apply_operation(db, b, b.load_config(self.directory, 'panels'), '/api/locate', {'line': element})
-            b.mark_dirty(db)
+            edits.locate(db, configuration.load_config(self.directory, 'panels'), element)
 
     def test_locate_flashes_one_triangle_on_panels_only(self):
-        config = b.load_config(self.directory, 'panels')
+        config = configuration.load_config(self.directory, 'panels')
         target = config['elements'][7]
         self.locate(target['id'])
         self.assertEqual(self.query('SELECT line_id, device FROM locate'), [(target['id'], 'panels')])
@@ -445,12 +445,12 @@ class LocateTest(DeviceWorkerTest):
 
     def test_locate_is_rejected_in_panels_free_and_for_lines_ids(self):
         self.mode('free', 'panels')
-        config = b.load_config(self.directory, 'panels')
+        config = configuration.load_config(self.directory, 'panels')
         with self.assertRaises(ValueError):
             self.locate(config['elements'][0]['id'])
         self.mode('work', 'panels')
         with self.assertRaises(ValueError):
-            self.locate(b.load_config(self.directory)['elements'][0]['id'])
+            self.locate(configuration.load_config(self.directory)['elements'][0]['id'])
         self.assertEqual(self.query('SELECT * FROM locate'), [])
 
 
@@ -460,7 +460,7 @@ class ContinuityTest(DeviceWorkerTest):
         config = json.loads((self.directory / 'config.json').read_text())
         registered = copy.deepcopy(config)
         del config['devices']['panels']
-        b.write_json(self.directory / 'config.json', config)
+        jsonfile.write_json(self.directory / 'config.json', config)
         self.event('UserPromptSubmit', 'a')
         self.event('UserPromptSubmit', 'b')
         self.event('Stop', 'b')
@@ -468,13 +468,13 @@ class ContinuityTest(DeviceWorkerTest):
         epochs = self.query('SELECT session, started FROM activity ORDER BY session')
         self.assertEqual(self.query('SELECT device FROM comets'), [('wall',)])
         self.clock.sleep(10)
-        b.write_json(self.directory / 'config.json', registered)
+        jsonfile.write_json(self.directory / 'config.json', registered)
         self.run_worker('panels', self.free_after(3, 'panels') + [(self.clock.now() + 3.5, self.unread.clear)])
         self.assertEqual(self.query("SELECT session, started FROM activity WHERE session='a'"), epochs[:1])
         self.assertEqual(self.query("SELECT COUNT(*) FROM comets WHERE device='panels'"), [(0,)])
         first = decode(self.effects(self.fake.panels)[0])
         occupied = {self.query("SELECT slot FROM slots WHERE device='panels' AND session=?", s)[0][0] for s in 'ab'}
-        zones = [e['zones'][0] for e in b.load_config(self.directory, 'panels')['elements']]
+        zones = [e['zones'][0] for e in configuration.load_config(self.directory, 'panels')['elements']]
         for index, zone in enumerate(zones):
             if index not in occupied:
                 self.assertEqual({tuple(f[:3]) for f in first[zone]}, {b.BASELINE})
@@ -483,19 +483,19 @@ class ContinuityTest(DeviceWorkerTest):
         self.event('UserPromptSubmit')
         self.event('Stop')
         self.unread.add('a')
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             db.execute("INSERT INTO projects VALUES ('p','P','#00ff00','[]'), ('q','Q','#ff00ff','[]')")
             db.execute("UPDATE task_info SET project='p'")
-            config = b.load_config(self.directory, 'panels')
+            config = configuration.load_config(self.directory, 'panels')
             ids = [e['id'] for e in config['elements']]
             wall.request_patch(db, {'settings': {'style': 'project'}, 'lines': {i: {'project': 'p'} for i in ids}}, config)
         observed = []
         def override():
-            with contextlib.closing(b.connect_state(self.directory)) as db, db:
+            with contextlib.closing(database.connect_state(self.directory)) as db, db:
                 started = db.execute("SELECT source FROM comets WHERE device='panels' AND started IS NOT NULL").fetchone()
                 observed.append(started)
-                self.assertFalse(wall.request_patch(db, {'tasks': {'a': 'q'}}, b.load_config(self.directory)))
-                b.mark_dirty(db)
+                self.assertFalse(wall.request_patch(db, {'tasks': {'a': 'q'}}, configuration.load_config(self.directory)))
+                store.mark_dirty(db)
         def during():
             observed.append(self.query("SELECT slot FROM slots WHERE device='panels'"))
         def after():
@@ -511,32 +511,32 @@ class ContinuityTest(DeviceWorkerTest):
 class IsolationTest(DeviceWorkerTest):
     # AC5: a failing device records only its own error and retries.
     def test_panels_outage_leaves_lines_update_and_outcome(self):
-        server.configure(self.directory, b, 'controller', 'wall', 'source')
+        server.configure(self.directory, 'controller', 'wall', 'source')
         self.event('UserPromptSubmit')
         self.fake.panels.fail = lambda method, endpoint, payload: True
         attempts, feeds = [], []
         original = b.run_worker
-        def run(directory, device='wall', feed=None):
+        def run(directory, device='wall', feed=None, request=None):
             attempts.append(device)
             feeds.append(feed)
             return original(directory, device=device, feed=feed, sleep=self.clock.sleep, now=self.clock.now,
-                            read_unread=lambda: self.unread)
+                            read_unread=lambda: self.unread, request=request)
         with patch.object(sys, 'argv', ['bridge.py', 'worker', '--device', 'panels', '--state-dir', str(self.directory)]), \
                 patch.object(b, 'run_worker', side_effect=run), \
                 patch.object(b.time, 'sleep', lambda seconds: self.assertEqual(seconds, 2) or self.mode('free', 'panels')):
-            b.main()
+            b.main(launch=lambda directory: None, request=self.fake.request)
         self.assertEqual(attempts, ['panels', 'panels'])
         # The retry loop hands every attempt the same feed state, so a failed pass cannot force a resync.
         self.assertIsInstance(feeds[0], dict)
         self.assertIs(feeds[0], feeds[1])
-        self.assertIsNone(b.get_status(self.directory)['error'])
-        with contextlib.closing(b.connect_state(self.directory)) as db:
+        self.assertIsNone(modes.get_status(self.directory)['error'])
+        with contextlib.closing(database.connect_state(self.directory)) as db:
             self.assertIsNone(db.execute("SELECT value FROM meta WHERE key='control_error'").fetchone())
             outcome = controller_state.read(db)['lastOutcome']
         self.assertEqual(outcome, {'status': 'unknown'})
         self.run_worker('wall', self.free_after(3, 'wall'))
         self.assertTrue(self.effects(self.fake.lines))
-        self.assertIsNone(b.get_status(self.directory)['error'])
+        self.assertIsNone(modes.get_status(self.directory)['error'])
 
     def test_failed_pass_records_panels_error_only(self):
         self.event('UserPromptSubmit')
@@ -544,14 +544,14 @@ class IsolationTest(DeviceWorkerTest):
         with self.assertRaises(OSError):
             self.run_worker('panels')
         b.record_failure(self.directory, 'panels')
-        self.assertEqual(b.get_status(self.directory, 'panels')['error'], 'Light update failed; retrying.')
-        self.assertIsNone(b.get_status(self.directory)['error'])
+        self.assertEqual(modes.get_status(self.directory, 'panels')['error'], 'Light update failed; retrying.')
+        self.assertIsNone(modes.get_status(self.directory)['error'])
 
     def test_waiting_panels_instance_wakes_even_after_lines_clears_dirty(self):
         self.event('UserPromptSubmit')
         def change():
             self.event('PermissionRequest', tool_name='exec_command')
-            with contextlib.closing(b.connect_state(self.directory)) as db, db:
+            with contextlib.closing(database.connect_state(self.directory)) as db, db:
                 db.execute("DELETE FROM meta WHERE key='dirty'")  # The Lines instance already applied it.
         start = self.clock.now()
         self.run_worker('panels', [(start + 4.1, change), (start + 4.6, lambda: self.mode('free', 'panels'))])
@@ -564,9 +564,9 @@ class ProtectedApiTest(DeviceWorkerTest):
     # #43 AC7, kept by #113 for a registry without a Panels ledger: machine requests, overrides and the hold stay on Lines.
     def setUp(self):
         super().setUp()
-        server.configure(self.directory, b, 'controller', 'wall', 'source')
-        self.token = server.issue(self.directory, b, 'client', ['read', 'control'])
-        self.app = server.App(self.directory, b, launch=lambda _: None)
+        server.configure(self.directory, 'controller', 'wall', 'source')
+        self.token = server.issue(self.directory, 'client', ['read', 'control'])
+        self.app = server.App(self.directory, launch=lambda _: None)
 
     def command(self, command):
         snap = self.app.snapshot()
@@ -580,7 +580,7 @@ class ProtectedApiTest(DeviceWorkerTest):
         self.command({'kind': 'mode.set', 'mode': 'Quiet'})
         self.command({'kind': 'brightness.set', 'percent': 55})
         self.run_worker('panels', self.free_after(3, 'panels'))
-        self.assertEqual(b.get_status(self.directory, 'panels')['mode'], 'free')
+        self.assertEqual(modes.get_status(self.directory, 'panels')['mode'], 'free')
         panel_levels = [p['brightness']['value'] for _, m, e, p in self.fake.panels.calls if m == 'PUT' and e == '/state' and 'on' in p]
         self.assertEqual(panel_levels[0], 30)
         self.assertNotIn(55, [p.get('brightness', {}).get('value') for _, m, e, p in self.fake.panels.calls if m == 'PUT'])
@@ -619,7 +619,7 @@ class ProtectedApiTest(DeviceWorkerTest):
         # Give Panels the same revision number, so a hold that ignored the device would match it.
         revision = lambda: self.query("SELECT value FROM meta WHERE key='mode_revision@panels'")
         while int((revision() or [('0',)])[0][0]) < int(held):
-            self.mode('quiet' if b.get_status(self.directory, 'panels')['mode'] == 'work' else 'work', 'panels')
+            self.mode('quiet' if modes.get_status(self.directory, 'panels')['mode'] == 'work' else 'work', 'panels')
         self.assertEqual(revision(), [(held,)])
         self.event('UserPromptSubmit')
         self.run_worker('panels', self.free_after(3, 'panels'))
@@ -642,17 +642,17 @@ class ProtectedApiTest(DeviceWorkerTest):
             self.run_worker('wall', self.free_after(3, 'wall'))
         self.assertIn('integration', calls)
         self.assertIn('discovered', calls)
-        with contextlib.closing(b.connect_state(self.directory)) as db:
+        with contextlib.closing(database.connect_state(self.directory)) as db:
             names = controller_state.read(db).get('scenes', [])
         self.assertNotIn('Forest', names)
 
     def test_panels_pass_keeps_the_lines_error(self):
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             db.execute("INSERT INTO meta VALUES ('control_error', 'Light update failed; retrying.')")
         self.event('UserPromptSubmit')
         self.run_worker('panels', self.free_after(3, 'panels'))
-        self.assertEqual(b.get_status(self.directory)['error'], 'Light update failed; retrying.')
-        self.assertIsNone(b.get_status(self.directory, 'panels')['error'])
+        self.assertEqual(modes.get_status(self.directory)['error'], 'Light update failed; retrying.')
+        self.assertIsNone(modes.get_status(self.directory, 'panels')['error'])
 
     def test_lines_outage_keeps_panels_comets_in_shared_input(self):
         import test_shared_input as shared
@@ -661,7 +661,7 @@ class ProtectedApiTest(DeviceWorkerTest):
                   'clearOnNewTurn': True,
                   'qualifiedSources': [{'provider': 'codex', 'client': 'desktop', 'hostId': 'host', 'sourceId': 'source'}],
                   'bindings': []}
-        shared_input.configure(self.directory, b, config)
+        shared_source.configure(self.directory, config)
         active = shared.envelope(); first = active['snapshot']['sessions'][0]; notice = first['notices'].pop()
         first['activity'] = 'active'; active['snapshot']['revision'] = 1
         done = copy.deepcopy(active); done['snapshot']['revision'] = 2
@@ -669,7 +669,7 @@ class ProtectedApiTest(DeviceWorkerTest):
         feed = [active]
         fetch = lambda config, minimum_revision=0: feed[0]
         with patch.object(shared_input, 'fetch_snapshot', fetch):
-            shared_input.select_source(self.directory, b, 'shared', fetch=fetch, now=self.clock.now)
+            shared_source.select_source(self.directory, 'shared', fetch=fetch, now=self.clock.now)
             self.fake.lines.fail = lambda method, endpoint, payload: True
             state = {}
             for attempt in range(3):
@@ -678,13 +678,13 @@ class ProtectedApiTest(DeviceWorkerTest):
                     feed[0] = done
                 self.clock.sleep(2)
                 with self.assertRaises(OSError):
-                    b.run_worker(self.directory, sleep=self.clock.sleep, now=self.clock.now,
+                    b.run_worker(self.directory, sleep=self.clock.sleep, now=self.clock.now, request=self.fake.request,
                                  read_unread=lambda: self.unread, device='wall', feed=state)
         self.assertEqual(sorted(self.query('SELECT device FROM comets')), [('panels',), ('wall',)])
 
     def test_panels_instance_never_polls_the_shared_feed(self):
         ticks = []
-        with patch.object(shared_input.Poller, 'tick', lambda poller, instant: ticks.append(instant) or False):
+        with patch.object(shared_source.Poller, 'tick', lambda poller, instant: ticks.append(instant) or False):
             self.event('UserPromptSubmit')
             self.run_worker('panels', self.free_after(3, 'panels'))
             self.assertEqual(ticks, [])
@@ -697,9 +697,9 @@ class UnregisteredDeviceTest(DeviceWorkerTest):
     def unregister(self, device='panels'):
         config = json.loads((self.directory / 'config.json').read_text())
         del config['devices'][device]
-        b.write_json(self.directory / 'config.json', config)
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
-            b.mark_dirty(db)
+        jsonfile.write_json(self.directory / 'config.json', config)
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
+            store.mark_dirty(db)
 
     def test_waiting_instance_exits_after_its_device_is_removed(self):
         self.event('UserPromptSubmit')
@@ -714,7 +714,7 @@ class UnregisteredDeviceTest(DeviceWorkerTest):
         class Stop(BaseException):
             pass
         attempts = []
-        def run(directory, device='wall', feed=None):
+        def run(directory, device='wall', feed=None, request=None):
             attempts.append(device)
             if len(attempts) > 1:
                 raise Stop()
@@ -723,7 +723,7 @@ class UnregisteredDeviceTest(DeviceWorkerTest):
         with patch.object(sys, 'argv', ['bridge.py', 'worker', '--device', 'panels', '--state-dir', str(self.directory)]), \
                 patch.object(b, 'run_worker', side_effect=run), patch.object(b.time, 'sleep', lambda seconds: None):
             try:
-                b.main()
+                b.main(launch=lambda directory: None, request=self.fake.request)
             except Stop:
                 pass
         self.assertEqual(attempts, ['panels'])

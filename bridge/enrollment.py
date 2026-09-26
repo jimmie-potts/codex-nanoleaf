@@ -15,7 +15,14 @@ import urllib.error
 import urllib.request
 import warnings
 
+import configuration
+import controller_state
+import database
 import devices
+import jsonfile
+import panels
+import store
+import transport
 
 KIND = 'panels'
 MODEL = 'NL22'
@@ -133,17 +140,16 @@ def check_layout(directory):
                          'Repair it before enrolling or removing a device.') from None
 
 
-def purge(directory, b, device):
+def purge(directory, device):
     """Delete a device's rows, meta keys, layout entry and saved scene; shared tasks stay."""
-    with contextlib.closing(b.connect_state(directory)) as db, db:
+    with contextlib.closing(database.connect_state(directory)) as db, db:
         db.execute('BEGIN IMMEDIATE')
         for table in devices.SCHEMAS:
             db.execute('DELETE FROM ' + table + ' WHERE device=?', (device,))
         suffix = '@' + device
         db.execute('DELETE FROM meta WHERE substr(key, -?) = ?', (len(suffix), suffix))
-        import controller_state
         controller_state.drop(db, device)  # Its controller ledger goes with it; the listener then forbids the ID.
-    devices.save_device_layout(directory / 'layout.json', device, None, b.write_json)
+    devices.save_device_layout(directory / 'layout.json', device, None, jsonfile.write_json)
     (directory / devices.scene_file(device)).unlink(missing_ok=True)
 
 
@@ -173,7 +179,7 @@ def check(directory, device, ip):
         check_target(read_config(directory), device_id(device), private_address(ip))
 
 
-def enroll(directory, b, *, ip, token, device=KIND, request=None):
+def enroll(directory, *, ip, token, device=KIND, request=None):
     """Verify an NL22 device and register it in Free; nothing is written unless every check passes."""
     directory = state_directory(directory)
     device = device_id(device)
@@ -183,16 +189,15 @@ def enroll(directory, b, *, ip, token, device=KIND, request=None):
     with exclusive(directory / 'registry-lock.sqlite'):
         config = read_config(directory)
         existing = check_target(config, device, ip)
-        info = (request or b.light_request)({'ip': ip, 'token': token}, 'GET')
+        info = (request or transport.light_request)({'ip': ip, 'token': token}, 'GET')
         if not isinstance(info, dict) or info.get('model') != MODEL:
             raise ValueError('The device at that address is not NL22 Light Panels.')
-        import panels
         layout = panels.read_layout(info.get('panelLayout'))
         token_ref = 'token@' + device
         if existing:
             # A repeat replaces only the credential; layout, mode and reservations stay.
             config[existing['token_ref']] = token
-            b.write_json(directory / 'config.json', config)
+            jsonfile.write_json(directory / 'config.json', config)
         else:
             check_layout(directory)
             lock = worker_lock(directory, device)
@@ -200,22 +205,22 @@ def enroll(directory, b, *, ip, token, device=KIND, request=None):
                 raise ValueError(f'A worker for `{device}` is still running. Retry in a moment.')
             try:
                 with contextlib.closing(lock):
-                    purge(directory, b, device)
-                    with contextlib.closing(b.connect_state(directory)) as db, db:
+                    purge(directory, device)
+                    with contextlib.closing(database.connect_state(directory)) as db, db:
                         # No revision keys: revision and applied both read 0, so nothing is pending.
                         db.execute('INSERT INTO meta VALUES (?, ?)', (devices.meta_key('mode', device), 'free'))
-                    devices.save_device_layout(directory / 'layout.json', device, layout, b.write_json)
+                    devices.save_device_layout(directory / 'layout.json', device, layout, jsonfile.write_json)
                 config.setdefault('devices', {})[device] = {'kind': KIND, 'ip': ip, 'token_ref': token_ref}
                 config[token_ref] = token
                 # The registry is written last, so an earlier failure leaves only unread state for an unregistered id.
-                b.write_json(directory / 'config.json', config)
+                jsonfile.write_json(directory / 'config.json', config)
             except Exception as error:
                 raise Partial() from error
     return {'device': device, 'triangles': len(layout['elements']), 'repeat': bool(existing),
             'firmware': info.get('firmwareVersion')}
 
 
-def change_address(directory, b, device, ip, *, request=None):
+def change_address(directory, device, ip, *, request=None):
     """Move a registered Panels device to a verified new address; its identity and saved state stay."""
     directory = state_directory(directory)
     if device == devices.DEFAULT:
@@ -244,10 +249,9 @@ def change_address(directory, b, device, ip, *, request=None):
         if not token:
             raise ValueError(f'Device `{device}` has no stored credential. Remove it and enroll it again.')
         # One read with the stored credential; no light write reaches the device.
-        info = (request or b.light_request)({'ip': ip, 'token': token}, 'GET')
+        info = (request or transport.light_request)({'ip': ip, 'token': token}, 'GET')
         if not isinstance(info, dict) or info.get('model') != MODEL:
             raise ValueError('The device at that address is not NL22 Light Panels.')
-        import panels
         reported = panels.read_layout(info.get('panelLayout'))
         # The same physical set: equal triangles, positions and neighbors, not just an equal count.
         if (reported['elements'] != saved['elements']
@@ -256,11 +260,11 @@ def change_address(directory, b, device, ip, *, request=None):
                              'Check the address, or remove the device and enroll it again.')
         # Only the registry changes; a running worker reads the address again on its next pass.
         config['devices'][device]['ip'] = ip
-        b.write_json(directory / 'config.json', config)
+        jsonfile.write_json(directory / 'config.json', config)
     return {'device': device, 'ip': ip, 'triangles': len(saved['elements'])}
 
 
-def remove(directory, b, device, *, force=False, wait=REMOVE_WAIT_SECONDS, sleep=time.sleep):
+def remove(directory, device, *, force=False, wait=REMOVE_WAIT_SECONDS, sleep=time.sleep):
     """Unregister a device, stop its worker and delete what it owned; Lines and shared tasks stay."""
     directory = state_directory(directory)
     device = device_id(device)
@@ -269,8 +273,8 @@ def remove(directory, b, device, *, force=False, wait=REMOVE_WAIT_SECONDS, sleep
         check_layout(directory)
         entry = (config.get('devices') or {}).get(device)
         if entry is not None:
-            with contextlib.closing(b.connect_state(directory)) as db:
-                control = b.control_state(db, device)
+            with contextlib.closing(database.connect_state(directory)) as db:
+                control = store.control_state(db, device)
             if not force and control['mode'] != 'free':
                 raise ValueError(f'Hand the device back first: run `mode free --device {device}`, '
                                  'wait until status shows nothing pending, then remove it.')
@@ -281,34 +285,33 @@ def remove(directory, b, device, *, force=False, wait=REMOVE_WAIT_SECONDS, sleep
             if entry['token_ref'] != 'token' and all(other['token_ref'] != entry['token_ref']
                                                      for other in config['devices'].values()):
                 config.pop(entry['token_ref'], None)
-            b.write_json(directory / 'config.json', config)
-        elif not leftovers(directory, b, device):
+            jsonfile.write_json(directory / 'config.json', config)
+        elif not leftovers(directory, device):
             raise ValueError('Unknown device.')
         try:
             if entry is not None:
-                with contextlib.closing(b.connect_state(directory)) as db, db:
-                    b.mark_dirty(db)  # A waiting instance wakes, sees the device is gone and exits.
+                with contextlib.closing(database.connect_state(directory)) as db, db:
+                    store.mark_dirty(db)  # A waiting instance wakes, sees the device is gone and exits.
             lock = worker_lock(directory, device, wait, sleep)
             if lock is None:
                 return {'device': device, 'cleaned': False}
             with contextlib.closing(lock):
-                purge(directory, b, device)
+                purge(directory, device)
         except Exception as error:
             raise Partial() from error
     return {'device': device, 'cleaned': True}
 
 
-def leftovers(directory, b, device):
+def leftovers(directory, device):
     if (directory / devices.scene_file(device)).exists():
         return True
     layout = directory / 'layout.json'
     if layout.exists() and device in devices.layout_devices(json.loads(layout.read_text())):
         return True
     suffix = '@' + device
-    with contextlib.closing(b.connect_state(directory)) as db:
+    with contextlib.closing(database.connect_state(directory)) as db:
         if db.execute('SELECT 1 FROM meta WHERE substr(key, -?) = ?', (len(suffix), suffix)).fetchone():
             return True
-        import controller_state
         if controller_state.present(db, device):
             return True
         return any(db.execute('SELECT 1 FROM ' + table + ' WHERE device=? LIMIT 1', (device,)).fetchone()
@@ -326,7 +329,8 @@ def reason(error, action):
     return 'the device or saved state could not be reached'
 
 
-def command(argv, b):
+def command(argv, request=None):
+    """`bridge.py device-*`; request reaches the device (transport.light_request by default)."""
     parser = argparse.ArgumentParser(prog='nanoleaf ' + argv[0], description=__doc__)
     parser.add_argument('--state-dir', type=Path, help=argparse.SUPPRESS)
     if argv[0] == 'device-enroll':
@@ -347,10 +351,10 @@ def command(argv, b):
         parser.error('Use device-enroll, device-address or device-remove.')
     args = parser.parse_args(argv[1:])
     action = {'device-remove': 'Device removal', 'device-address': 'Address change'}.get(argv[0], 'Device enrollment')
-    directory = args.state_dir or b.data_dir()
+    directory = args.state_dir or configuration.data_dir()
     try:
         if argv[0] == 'device-remove':
-            result = remove(directory, b, args.device, force=args.force)
+            result = remove(directory, args.device, force=args.force)
             if result['cleaned']:
                 print(f'Removed `{result["device"]}`. Lines and shared tasks are unchanged.')
             else:
@@ -358,7 +362,7 @@ def command(argv, b):
                       f'Run `device-remove --device {result["device"]}` again to finish removing its saved state.')
             return 0
         if argv[0] == 'device-address':
-            result = change_address(directory, b, args.device, args.ip)
+            result = change_address(directory, args.device, args.ip, request=request)
             print(f'Moved `{result["device"]}` to {result["ip"]} after checking its {result["triangles"]} triangles. '
                   'Its mode, layout, reservations and scene are unchanged.')
             print('No service restart is needed: its worker sends to the new address from its next pass.')
@@ -371,7 +375,7 @@ def command(argv, b):
             token = pair(args.ip)
         else:
             token = read_token(args.token_file)
-        result = enroll(directory, b, ip=args.ip, token=token, device=args.device)
+        result = enroll(directory, ip=args.ip, token=token, device=args.device, request=request)
     except Partial as error:
         print(f'{action} stopped after changing saved state: {reason(error.__cause__, action)}. '
               'Lines and shared tasks are unchanged; run the same command again to finish.', file=sys.stderr)

@@ -5,9 +5,11 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
 
 from test_bridge import b, Clock, decode
+import configuration
+import database
+import jsonfile
 import devices
 import panels
 import project_map as wall
@@ -101,10 +103,10 @@ class DiscoveryTest(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name)
-        b.write_json(self.directory / 'config.json', {
+        jsonfile.write_json(self.directory / 'config.json', {
             'ip': '192.0.2.1', 'token': 'fakeLines', 'panelsToken': 'fakePanels',
             'devices': {'panels': {'kind': 'panels', 'ip': '192.0.2.2', 'token_ref': 'panelsToken'}}})
-        b.write_json(self.directory / 'layout.json', {
+        jsonfile.write_json(self.directory / 'layout.json', {
             'line_groups': [[100 + i * 2, 101 + i * 2] for i in range(15)],
             'line_positions': [[i * 10, 0] for i in range(15)]})
         self.requests = []
@@ -114,10 +116,9 @@ class DiscoveryTest(unittest.TestCase):
         return {'name': 'Synthetic panels', 'panelLayout': layout()}
 
     def test_panels_layout_is_discovered_once_and_saved_beside_lines(self):
-        with patch.object(b, 'light_request', self.request):
-            config = b.load_config(self.directory, 'panels')
-            again = b.load_config(self.directory, 'panels')
-            lines = b.load_config(self.directory)
+        config = configuration.load_config(self.directory, 'panels', request=self.request)
+        again = configuration.load_config(self.directory, 'panels', request=self.request)
+        lines = configuration.load_config(self.directory, request=self.request)
         self.assertEqual(self.requests, [('192.0.2.2', 'fakePanels', 'GET', '')])
         self.assertEqual((config['kind'], len(config['line_groups'])), ('panels', 18))
         self.assertEqual(again['elements'], config['elements'])
@@ -131,8 +132,8 @@ class DiscoveryTest(unittest.TestCase):
         disk = (self.directory / 'layout.json').read_bytes()
         def broken(config, method, endpoint='', payload=None):
             return {'panelLayout': layout(lambda p: p[0].update(shapeType=17))}
-        with patch.object(b, 'light_request', broken), self.assertRaises(ValueError):
-            b.load_config(self.directory, 'panels')
+        with self.assertRaises(ValueError):
+            configuration.load_config(self.directory, 'panels', request=broken)
         self.assertEqual((self.directory / 'layout.json').read_bytes(), disk)
 
 
@@ -228,7 +229,7 @@ class ReservationTest(unittest.TestCase):
         self.clock = Clock()
 
     def db(self):
-        return contextlib.closing(b.connect_state(self.directory))
+        return contextlib.closing(database.connect_state(self.directory))
 
     # AC11: a six-triangle region reserved by one ordinary multi-element edit.
     def test_six_triangle_reservation_and_shared_overflow(self):

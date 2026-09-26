@@ -8,6 +8,8 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from test_bridge import b, decode
+import database
+import modes
 import test_project_map
 import project_map as w
 import wall_server
@@ -42,7 +44,7 @@ class PaletteStateTest(PaletteCase):
         self.assertEqual(self.palette(app), DEFAULTS)
         app.update('/api/settings', {'palette': {'unread': '#FF00C0', 'base': '#000000'}})
         app.update('/api/project', {'id': 'a', 'color': '#113355'})
-        reopened = wall_server.App(self.directory, b, self.config, launch=lambda _: None)
+        reopened = wall_server.App(self.directory, self.config, launch=lambda _: None)
         self.assertEqual(self.palette(reopened), dict(DEFAULTS, unread='#ff00c0', base='#000000'))
         reopened.update('/api/settings', {'palette': 'default'})
         state = reopened.state()
@@ -96,14 +98,14 @@ class PaletteStateTest(PaletteCase):
         self.assign(app, [2], 'a')
         app.update('/api/project', {'id': 'a', 'color': '#113355'})
         app.update('/api/settings', {'style': 'project', 'coverage': 'status', 'rotation': 90})
-        b.set_mode(self.directory, 'quiet', launch=lambda *_: None, now=self.clock.now)
+        modes.set_mode(self.directory, 'quiet', launch=lambda *_: None, now=self.clock.now)
         scene = self.directory / 'scene-state.json'
         scene.write_text(json.dumps({'version': 1, 'scene': {'name': 'Beach Waves', 'brightness': 43}, 'owned': False}))
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             db.execute('DROP TABLE palette')  # The state an earlier version left behind.
         before = (self.query('SELECT * FROM projects'), self.query('SELECT * FROM line_prefs'),
                   self.query('SELECT * FROM map_settings'), scene.read_text())
-        state = wall_server.App(self.directory, b, self.config, launch=lambda _: None).state()
+        state = wall_server.App(self.directory, self.config, launch=lambda _: None).state()
         self.assertEqual(state['palette'], DEFAULTS)
         self.assertEqual(state['mode'], 'quiet')
         self.assertEqual(before, (self.query('SELECT * FROM projects'), self.query('SELECT * FROM line_prefs'),
@@ -111,7 +113,7 @@ class PaletteStateTest(PaletteCase):
 
     def test_damaged_rows_fall_back_to_defaults(self):
         self.projects()
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             db.executemany('INSERT OR REPLACE INTO palette VALUES (?,?)',
                            [('unread', 'violet'), ('comet', '#ffffff'), ('base', '#000000')])
             self.assertEqual(w.palette(db), dict(DEFAULTS, base='#000000'))
@@ -214,7 +216,7 @@ class PaletteFrameTest(PaletteCase):
             self.assertTrue(all(abs(a - c * level) <= 1 for a, c in zip(color, violet)), color)
 
     def palette(self):
-        with contextlib.closing(b.connect_state(self.directory)) as db:
+        with contextlib.closing(database.connect_state(self.directory)) as db:
             return w.palette(db)
 
     # AC12: the Panels use the same palette.
@@ -226,7 +228,7 @@ class PaletteFrameTest(PaletteCase):
         entry = panels.read_layout(test_panels.layout())
         cfg = dict(devices.projection(entry), device='panels', ip='192.0.2.2', token='fake')
         count = len(cfg['line_groups'])
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             w.render_config(db, cfg, [None] * count)
         snapshot = [('working', 900)] + [None] * (count - 1)
         frames = decode(b.effect_payload(cfg, snapshot, 1000, True))
@@ -297,7 +299,7 @@ class PaletteWorkerTest(PaletteCase):
         app = self.projects()
         app.update('/api/settings', {'palette': {'base': '#000000', 'working': '#00e5ff'}})
         self.task('a', None)
-        self.run_worker([(1003, lambda: b.set_mode(self.directory, 'free', launch=lambda *_: None, now=self.clock.now))])
+        self.run_worker([(1003, lambda: modes.set_mode(self.directory, 'free', launch=lambda *_: None, now=self.clock.now))])
         self.assertTrue(self.effects(0), 'Work showed the task before Free')
         self.assertEqual(self.effects(1003), [], 'Free sends no task frames')
         restored = [at for at, method, _, payload in self.device.calls
@@ -309,9 +311,9 @@ class PaletteWorkerTest(PaletteCase):
         app = self.projects()
         app.update('/api/settings', {'palette': {'base': '#000000'}})
         self.device.selected = '*Dynamic*'
-        manager = b.SceneRestorer(self.directory, self.config)
+        manager = b.SceneRestorer(self.directory, self.config, request=self.device.request)
         manager.observe()
-        with contextlib.closing(b.connect_state(self.directory)) as db:
+        with contextlib.closing(database.connect_state(self.directory)) as db:
             cfg = dict(self.config)
             w.render_config(db, cfg, [None] * 15)
         manager.send(cfg, self.active, 1000, True)

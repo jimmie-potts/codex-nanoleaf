@@ -4,9 +4,10 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
 
 from test_bridge import b, Clock, decode
+import database
+import jsonfile
 
 
 class Device:
@@ -63,12 +64,9 @@ class SceneTest(unittest.TestCase):
         self.active = [('working', 1000)] + [None]*14
         self.idle = [None]*15
         self.unread = set()
-        self.patcher = patch.object(b, 'light_request', self.device.request)
-        self.patcher.start()
-        self.addCleanup(self.patcher.stop)
 
     def manager(self):
-        return b.SceneRestorer(self.directory, self.config)
+        return b.SceneRestorer(self.directory, self.config, request=self.device.request)
 
     def saved(self):
         return json.loads((self.directory/'scene-state.json').read_text())
@@ -78,7 +76,7 @@ class SceneTest(unittest.TestCase):
                        'turn_id': '1', **kwargs}, launch=lambda _: None, now=self.clock.now)
 
     def query(self, sql):
-        with contextlib.closing(b.connect_state(self.directory)) as db:
+        with contextlib.closing(database.connect_state(self.directory)) as db:
             return db.execute(sql).fetchall()
 
     def run_worker(self, scheduled=()):
@@ -90,7 +88,7 @@ class SceneTest(unittest.TestCase):
             while pending and self.clock.now() >= pending[0][0]:
                 _, action = pending.pop(0)
                 action()
-        b.run_worker(self.directory, sleep=advance, now=self.clock.now,
+        b.run_worker(self.directory, sleep=advance, now=self.clock.now, request=self.device.request,
                      read_unread=lambda: self.unread)
         self.assertEqual(pending, [])
 
@@ -233,7 +231,7 @@ class SceneTest(unittest.TestCase):
 
     def test_legacy_quiet_state_file_keeps_remembered_brightness_after_upgrade(self):
         # Files written before the recorded level existed only ever dimmed to 10.
-        b.write_json(self.directory / 'scene-state.json',
+        jsonfile.write_json(self.directory / 'scene-state.json',
                      {'version': 1, 'scene': {'name': 'Beach Waves', 'brightness': 43}, 'owned': True, 'quiet_scene': 'Beach Waves'})
         self.device.brightness = 10
         manager = self.manager()
@@ -242,7 +240,7 @@ class SceneTest(unittest.TestCase):
         self.assertEqual(self.saved()['scene'], {'name': 'Beach Waves', 'brightness': 43})
         manager.send(dict(self.config, _mode='free'), self.idle, 1000, True)
         self.assertEqual(self.device.brightness, 43)
-        b.write_json(self.directory / 'scene-state.json', {'version': 1, 'scene': None, 'owned': False, 'quiet_scene': None, 'quiet_brightness': 101})
+        jsonfile.write_json(self.directory / 'scene-state.json', {'version': 1, 'scene': None, 'owned': False, 'quiet_scene': None, 'quiet_brightness': 101})
         with self.assertRaises(ValueError):
             self.manager()
 
@@ -250,7 +248,7 @@ class SceneTest(unittest.TestCase):
         self.event('UserPromptSubmit')
         self.device.selected = '*Dynamic*'
         self.clock.value = 1004
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             snapshot = b.dashboard(db, self.config, 1004)
             db.execute('INSERT INTO display_v3 (snapshot, looping, rendered) VALUES (?, 1, 1004)', (json.dumps(snapshot),))
         self.run_worker([(1007, lambda: self.event('Interrupt'))])

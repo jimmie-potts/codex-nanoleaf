@@ -1,32 +1,36 @@
 """Local Codex lifecycle indicator. Python standard library only."""
 import argparse
 import contextlib
-import ipaddress
 import json
 import math
 import os
 from pathlib import Path
-import shlex
 import sqlite3
-import subprocess
 import sys
-import tempfile
 import time
 import urllib.error
-import urllib.request
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import codex_hooks
+import configuration
+import controller_state
+import database
 import devices
 import effects
+import integration_api
+import jsonfile
+import launcher
+import modes
 import project_map as wall
 import shared_input
+import shared_source
+from store import control_state, mark_dirty
+import transport
 
-EVENTS = ('UserPromptSubmit', 'PreToolUse', 'PermissionRequest',
-          'PostToolUse', 'Stop', 'Interrupt', 'SessionEnd')
 # The operator's palette replaces these defaults on every pass; priority stays keyed by status.
 PALETTE = wall.palette_rgb(wall.DEFAULT_PALETTE)
 BASELINE = PALETTE['base']
-COLORS = {status: PALETTE[status] for status in ('working', 'question', 'blocked', 'unread')}
+COLORS = {status: PALETTE[status] for status in wall.STATUSES}
 # Shown only before a scene has been remembered or after it was deleted.
 FALLBACK = (25, 60, 255)
 PRIORITY = {'working': 1, 'question': 2, 'blocked': 3, 'unread': 0}
@@ -42,109 +46,7 @@ COMET_TAIL = 0.6
 READ_SETTLE_SECONDS = 5.0
 # Another device's pass may hold the write lock for two 1.2-second requests.
 WORKER_BUSY_SECONDS = 5.0
-MARKER = 'nanoleaf-codex-status-v1'
 INPUT_TOOLS = {'request_user_input', 'request_user_input_async', 'request_permissions'}
-
-
-def data_dir():
-    adjacent = Path(__file__).resolve().parent
-    if (adjacent / 'config.json').exists():
-        return adjacent
-    return Path.home() / '.local' / 'share' / 'codex-nanoleaf'
-
-
-def light_request(config, method, endpoint='', payload=None):
-    ip = ipaddress.ip_address(config['ip'])
-    if ip.version != 4 or not ip.is_private:
-        raise ValueError('Use a private IPv4 address for the lights.')
-    token = config['token']
-    if not token or not token.isalnum():
-        raise ValueError('The token must contain only letters and numbers.')
-    url = f'http://{ip}:16021/api/v1/{token}{endpoint}'
-    body = None if payload is None else json.dumps(payload).encode()
-    request = urllib.request.Request(url, data=body, method=method,
-                                     headers={'Content-Type': 'application/json'})
-    # Keep local-device traffic off configured HTTP proxies.
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-    with opener.open(request, timeout=1.2) as response:
-        data = response.read()
-        return json.loads(data) if data else None
-
-
-def pair_lines(panel_layout):
-    """Pair the two collinear light zones of each NL59 Line, excluding connectors."""
-    zones = [p for p in panel_layout['layout']['positionData'] if p['shapeType'] == 18]
-    if not zones or len(zones) % 2:
-        raise ValueError('Expected two light zones per Line.')
-    nearest = {}
-    by_id = {p['panelId']: p for p in zones}
-    for a in zones:
-        candidates = []
-        angle = math.radians(a['o'])
-        for other in zones:
-            if a == other or (a['o'] - other['o']) % 180:
-                continue
-            dx, dy = other['x'] - a['x'], other['y'] - a['y']
-            # Orientation zero follows the y axis in the controller's layout.
-            if abs(dx * math.cos(angle) + dy * math.sin(angle)) < 3:
-                candidates.append((math.hypot(dx, dy), other['panelId']))
-        if not candidates:
-            raise ValueError('Could not pair a Line zone.')
-        nearest[a['panelId']] = min(candidates)[1]
-    pairs = set()
-    for first, second in nearest.items():
-        if nearest.get(second) != first:
-            raise ValueError('Line zone pairing is ambiguous.')
-        pairs.add(tuple(sorted((first, second))))
-    # Follow the installed orientation for a spatially ordered notification sweep.
-    orientation = math.radians(panel_layout['globalOrientation']['value'])
-    def location(pair):
-        x = sum(by_id[p]['x'] for p in pair) / 2
-        y = sum(by_id[p]['y'] for p in pair) / 2
-        return (round(x * math.cos(orientation) - y * math.sin(orientation)),
-                round(x * math.sin(orientation) + y * math.cos(orientation)))
-    return [list(pair) for pair in sorted(pairs, key=location)]
-
-
-def load_config(directory, device=devices.DEFAULT):
-    """Configuration and layout for one registered device; the original Lines device by default."""
-    config = json.loads((directory / 'config.json').read_text())
-    registry = devices.registry(config)
-    if device not in registry:
-        raise ValueError('Unknown device.')
-    entry = registry[device]
-    layout_file = directory / 'layout.json'
-    saved = json.loads(layout_file.read_text()) if layout_file.exists() else {}
-    known = devices.layout_devices(saved)  # A malformed file is rejected and left in place.
-    layout = known.get(device)
-    if layout is None or any(element['position'] is None for element in layout['elements']):
-        transport = {'ip': entry['ip'], 'token': devices.credential(config, entry)}
-        panel_layout = light_request(transport, 'GET')['panelLayout']
-    if entry['kind'] == 'panels' and (layout is None or any(element['position'] is None for element in layout['elements'])):
-        # Reported triangles only; unsupported geometry fails before anything is saved.
-        import panels
-        layout = panels.read_layout(panel_layout)
-        devices.save_device_layout(layout_file, device, layout, write_json)
-    elif layout is None or any(element['position'] is None for element in layout['elements']):
-        groups = [element['zones'] for element in layout['elements']] if layout else pair_lines(panel_layout)
-        zones = {p['panelId']: p for p in panel_layout['layout']['positionData']}
-        positions = [[sum(zones[p]['x'] for p in pair) / 2,
-                      sum(zones[p]['y'] for p in pair) / 2] for pair in groups]
-        layout = devices.lines_entry(groups, positions, layout)
-        devices.save_device_layout(layout_file, device, layout, write_json)
-    config.update(devices.projection(layout))
-    config['device'] = device
-    for key, value in (('ip', entry['ip']), ('token', devices.credential(config, entry))):
-        if value is not None:
-            config[key] = value
-    groups = config['line_groups']
-    ids = [p for pair in groups for p in pair]
-    if (not groups or any(len(pair) != devices.KINDS[entry['kind']] for pair in groups) or
-            len(ids) != len(set(ids)) or any(not isinstance(p, int) for p in ids)):
-        raise ValueError('Invalid physical Line mapping.')
-    if len(config.get('line_positions', ())) != len(groups):
-        raise ValueError('Each Line needs a position for outward pulses.')
-    return config
 
 
 def pulse_amplitude(age):
@@ -355,7 +257,7 @@ def effect_payload(config, snapshot, instant, loop):
 
 
 def render(config, snapshot, instant, loop):
-    request = config.get('_controller_request', light_request)
+    request = config.get('_controller_request', transport.light_request)
     now = config.get('_now', time.time)
     effect = effect_payload(config, snapshot, instant, loop)
     send_started = now()
@@ -387,8 +289,8 @@ class SceneRestorer:
     def __init__(self, directory, config, request=None, draw=None):
         self.path = directory / devices.scene_file(devices.device_of(config))
         self.config = config
-        self.request = request or light_request
-        self.draw = draw or render
+        self.request = request or transport.light_request
+        self.draw = draw or self.render
         # quiet_scene names the playing scene whose brightness the bridge changed while idle
         # (Quiet's 10% or a native override); quiet_brightness is the level it wrote.
         self.state = {'version': 1, 'scene': None, 'owned': False, 'quiet_scene': None, 'quiet_brightness': None}
@@ -407,6 +309,12 @@ class SceneRestorer:
         self.available = set()
         self.names = []
 
+    def render(self, config, snapshot, instant, loop):
+        """Draw through this restorer's transport unless the worker pass supplies its own."""
+        if '_controller_request' not in config:
+            config = dict(config, _controller_request=self.request)
+        return render(config, snapshot, instant, loop)
+
     @staticmethod
     def valid_scene(scene):
         return (isinstance(scene, dict) and isinstance(scene.get('name'), str) and
@@ -416,7 +324,7 @@ class SceneRestorer:
     def save(self, **changes):
         updated = {**self.state, **changes}
         if updated != self.state:
-            write_json(self.path, updated)
+            jsonfile.write_json(self.path, updated)
             self.state = updated
 
     def observe(self):
@@ -501,123 +409,10 @@ class SceneRestorer:
         self.save(owned=quiet)
 
 
-def connect_state(directory, timeout=2.5):
-    db = sqlite3.connect(directory / 'status.sqlite', timeout=timeout)
-    try:
-        with db:
-            db.execute('BEGIN IMMEDIATE')
-            wall.init(db)
-            shared_input.init(db)
-            import integration_api
-            integration_api.init(db)
-            db.execute('CREATE TABLE IF NOT EXISTS sessions '
-                       '(id TEXT PRIMARY KEY, turn TEXT, status TEXT, updated REAL)')
-            devices.create(db, 'slots')
-            db.execute('CREATE TABLE IF NOT EXISTS waits '
-                       '(session TEXT, turn TEXT, key TEXT, kind TEXT, tool TEXT, '
-                       'PRIMARY KEY(session, turn, key))')
-            db.execute('CREATE TABLE IF NOT EXISTS activity '
-                       '(session TEXT PRIMARY KEY, turn TEXT, status TEXT, started REAL)')
-            db.execute('CREATE TABLE IF NOT EXISTS receipts '
-                       '(session TEXT PRIMARY KEY, turn TEXT, completed REAL, observed INTEGER)')
-            devices.create(db, 'display_v3')
-            devices.create(db, 'comets')
-            db.execute('CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)')
-            # Existing Linux state gains its device key in place; a repeat is a no-op.
-            devices.migrate(db)
-            wall.seed(db)
-            if db.execute("SELECT value FROM meta WHERE key='model_version'").fetchone() != ('4',):
-                # This is only the integration's own database. Replace old lighting
-                # notifications and initialize the outward pulse for current work.
-                for table in ('signals', 'notifications'):
-                    if db.execute('SELECT 1 FROM sqlite_master WHERE name=?', (table,)).fetchone():
-                        db.execute('DELETE FROM ' + table)
-                db.execute("UPDATE sessions SET status='blocked' WHERE status='approval'")
-                db.execute('INSERT OR REPLACE INTO activity '
-                           "SELECT id,turn,status,? FROM sessions WHERE status IN ('working','question','blocked','unread')",
-                           (time.time(),))
-                db.execute("INSERT OR REPLACE INTO meta VALUES ('model_version','4')")
-    except BaseException:
-        db.close()
-        raise
-    return db
-
-
-MODES = ('work', 'free', 'quiet')
-
-
-def control_state(db, device=devices.DEFAULT):
-    meta = dict(db.execute('SELECT key,value FROM meta'))
-    key = lambda name: devices.meta_key(name, device)
-    return {'mode': meta.get(key('mode'), 'work'),
-            'revision': int(meta.get(key('mode_revision'), '0')),
-            'applied': int(meta.get(key('mode_applied'), '0')),
-            'wave_cutoff': float(meta.get(key('wave_cutoff'), '-inf')),
-            'error': meta.get(key('control_error'))}
-
-
-def change_mode(db, mode, instant, notify=True, device=devices.DEFAULT):
-    import controller_state
-    key = lambda name: devices.meta_key(name, device)
-    state = control_state(db, device)
-    # Only a device with a controller ledger publishes its mode changes; other devices stay local.
-    ledger = controller_state.present(db, device)
-    notify = notify and ledger
-    # Any explicit mode command, including the same mode, ends that device's native power/brightness overrides.
-    overridden = ledger and any(value is not None for value in controller_state.overrides(db, device).values())
-    if overridden:
-        db.execute('DELETE FROM meta WHERE key IN (?, ?)', (key('controller_power'), key('controller_brightness')))
-    if state['mode'] == mode and overridden:
-        db.execute('INSERT OR REPLACE INTO meta VALUES (?, ?)', (key('mode_revision'), str(state['revision'] + 1)))
-        mark_dirty(db)
-        if notify:
-            controller_state.changed(db, mode=True, device=device)
-        return True
-    if state['mode'] != mode:
-        values = {key('mode'): mode, key('mode_revision'): str(state['revision'] + 1)}
-        if mode == 'work':
-            values[key('wave_cutoff')] = str(instant)
-        db.executemany('INSERT OR REPLACE INTO meta VALUES (?, ?)', values.items())
-        db.execute('DELETE FROM meta WHERE key=?', (key('preview'),))
-        db.execute('DELETE FROM comets WHERE device=?', (device,))
-        db.execute('DELETE FROM locate WHERE device=?', (device,))
-        mark_dirty(db)
-        if notify:
-            controller_state.changed(db, mode=True, device=device)
-        return True
-    if notify:
-        controller_state.changed(db, mode=True, device=device)
-    return state['revision'] != state['applied'] or bool(state['error'])
-
-
-def set_mode(directory, mode, launch=None, now=time.time, device=devices.DEFAULT):
-    if mode not in MODES:
-        raise ValueError('Unknown lighting mode.')
-    with contextlib.closing(connect_state(directory)) as db, db:
-        db.execute('BEGIN IMMEDIATE')
-        needed = change_mode(db, mode, now(), device=device)
-    if needed:
-        (launch or launch_worker)(directory)
-
-
-def get_status(directory, device=devices.DEFAULT):
-    # Status reads never initialize or migrate a database.
-    with contextlib.closing(sqlite3.connect(
-            (directory / 'status.sqlite').resolve().as_uri() + '?mode=ro', uri=True, timeout=0.2)) as db:
-        state = control_state(db, device)
-    return {'mode': state['mode'], 'pending': state['revision'] != state['applied'],
-            'error': state['error']}
-
-
-def mark_dirty(db):
-    db.execute("INSERT INTO meta VALUES ('event_revision', '1') ON CONFLICT(key) DO UPDATE SET value=CAST(value AS INTEGER)+1")
-    db.execute("INSERT OR REPLACE INTO meta VALUES ('dirty', '1')")
-
-
 def transition(db, event, now, targets=(devices.DEFAULT,)):
     """Separate a question during work from a request that blocks progress."""
     name, session = event.get('hook_event_name'), event.get('session_id')
-    if name not in EVENTS or not isinstance(session, str) or not session:
+    if name not in codex_hooks.EVENTS or not isinstance(session, str) or not session:
         return False
     old = db.execute('SELECT turn, status FROM sessions WHERE id=?', (session,)).fetchone()
     if name == 'SessionEnd':
@@ -691,7 +486,6 @@ def transition(db, event, now, targets=(devices.DEFAULT,)):
 
 def dashboard(db, config, instant):
     rows = shared_input.visible_tasks(db, devices.device_of(config))
-    active = {row[0] for row in rows}
     db.execute('DELETE FROM slots WHERE session NOT IN (SELECT id FROM sessions)')
     count = len(config['line_groups'])
     reserved = {row[0] for row in db.execute('SELECT source FROM comets WHERE started IS NOT NULL AND device=?',
@@ -754,41 +548,9 @@ def update_display(db, config, snapshot, instant, loop, send=None):
                    (encoded, int(loop), instant, device))
 
 
-def registered_devices(directory):
-    """Registered device ids, the original Lines device first; an unreadable configuration means Lines only."""
-    try:
-        registry = devices.registry(json.loads((directory / 'config.json').read_text(encoding='utf-8-sig')))
-    except (OSError, ValueError):
-        return [devices.DEFAULT]
-    return [devices.DEFAULT] + [device for device in registry if device != devices.DEFAULT]
-
-
-def follow_registry(directory, config, device):
-    """Point a running pass at its device's registered address and credential; keep them if unreadable."""
-    try:
-        saved = json.loads((directory / 'config.json').read_text(encoding='utf-8-sig'))
-        entry = devices.registry(saved).get(device)
-    except (OSError, ValueError):
-        return
-    if entry is None:
-        return
-    for key, value in (('ip', entry['ip']), ('token', devices.credential(saved, entry))):
-        if value is not None:
-            config[key] = value
-
-
-def launch_worker(directory, device=None):
-    """Wake one worker instance per registered device, or only the named device."""
-    options = {'stdin': subprocess.DEVNULL, 'stdout': subprocess.DEVNULL,
-               'stderr': subprocess.DEVNULL, 'close_fds': True, 'start_new_session': True}
-    for target in [device] if device else registered_devices(directory):
-        subprocess.Popen([sys.executable, str(Path(__file__).resolve()), 'worker',
-                          '--state-dir', str(directory.resolve()), '--device', target], **options)
-
-
 def handle_event(directory, event, launch=None, now=time.time):
-    targets = registered_devices(directory)
-    with contextlib.closing(connect_state(directory)) as db, db:
+    targets = configuration.registered_devices(directory)
+    with contextlib.closing(database.connect_state(directory)) as db, db:
         db.execute('BEGIN IMMEDIATE')
         instant = now()
         if shared_input.selected(db):
@@ -801,13 +563,13 @@ def handle_event(directory, event, launch=None, now=time.time):
         needed = db.execute("SELECT 1 FROM meta WHERE key IN ('dirty','rendering','preview') "
                             "OR key LIKE 'rendering@%' OR key LIKE 'preview@%' LIMIT 1").fetchone()
     if needed:
-        (launch or launch_worker)(directory)
+        (launch or launcher.launch_worker)(directory)
 
 
 def record_failure(directory, device=devices.DEFAULT):
     """Record a failed pass for this device only; False when even that cannot be written."""
     try:
-        with contextlib.closing(connect_state(directory)) as db, db:
+        with contextlib.closing(database.connect_state(directory)) as db, db:
             db.execute('INSERT OR REPLACE INTO meta VALUES (?, ?)',
                        (devices.meta_key('control_error', device), 'Light update failed; retrying.'))
             mark_dirty(db)
@@ -840,13 +602,18 @@ def play_preview(config, choice, send, sleep, now):
 
 
 def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unread=None,
-               scene_factory=SceneRestorer, device=devices.DEFAULT, feed=None):
+               scene_factory=SceneRestorer, device=devices.DEFAULT, feed=None, request=None):
+    """One worker pass loop for one device; False when another instance holds its lock.
+
+    request is the device transport (transport.light_request by default) for layout reads, scene
+    observation and every write; send replaces the rendered-effect sender.
+    """
     # One locked instance per device. Each instance owns its own device's controller ledger:
     # journal, controls, overrides, hold and scene discovery. Only the original Lines instance
     # polls the shared feed and runs the integration settings queue and requested animations.
     primary = device == devices.DEFAULT
     key = lambda name: devices.meta_key(name, device)
-    connect = lambda: connect_state(directory, WORKER_BUSY_SECONDS)
+    connect = lambda: database.connect_state(directory, WORKER_BUSY_SECONDS)
     with contextlib.closing(sqlite3.connect(directory / devices.lock_file(device), timeout=0)) as guard:
         try:
             guard.execute('BEGIN EXCLUSIVE')
@@ -854,8 +621,6 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
             if error.sqlite_errorcode == sqlite3.SQLITE_BUSY:
                 return False
             raise
-        import controller_state
-        import integration_api
         held_at = lambda db, revision: controller_state.held(db, revision, device)
         current_overrides = lambda db: controller_state.overrides(db, device)
         with contextlib.closing(connect()) as db, db:
@@ -866,14 +631,14 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
                 integration_api.recover_attempts(db)
             if held_at(db, control_state(db, device)['revision']) and not shared_input.selected(db):
                 return
-        config = load_config(directory, device)
+        request = request or transport.light_request
+        config = configuration.load_config(directory, device, request=request)
         config['_now'] = now
         read_unread = read_unread or unread_reader(config)
-        scenes = scene_factory(directory, config) if scene_factory else None
+        scenes = scene_factory(directory, config, request=request) if scene_factory else None
         metadata = wall.Metadata(directory, config)
         sender = send or (scenes.send if scenes else render)
         active_execution = [None]
-        request = scenes.request if scenes else light_request
         def controller_request(*args, **kwargs):
             execution = active_execution[0]
             if execution is not None and args[1] != 'GET':
@@ -882,18 +647,14 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
         config['_controller_request'] = controller_request
         if scenes:
             scenes.request = controller_request
-        from types import SimpleNamespace
-        projection = SimpleNamespace(connect_state=connect_state, mark_dirty=mark_dirty,
-                                     control_state=control_state, COLORS=COLORS, wall=wall,
-                                     registered_devices=registered_devices)
         # The caller's feed state survives a failed Lines pass, so a Lines outage does not turn
         # every later feed read into a resync that drops the other devices' comets and waves.
         feed = {} if feed is None else feed
-        poller = feed.setdefault('poller', shared_input.Poller(directory, projection, metadata=metadata)) if primary else None
+        poller = feed.setdefault('poller', shared_source.Poller(directory, metadata=metadata)) if primary else None
         while True:
-            if not primary and device not in registered_devices(directory):
+            if not primary and device not in configuration.registered_devices(directory):
                 return  # The device was removed; its instance stops without another request.
-            follow_registry(directory, config, device)
+            configuration.follow_registry(directory, config, device)
             if poller:
                 shared = poller.tick(now())
             else:
@@ -966,7 +727,7 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
                 if not shared_input.selected(db): reconcile_read_state(db, unread, started)
                 prune_comets(db, started, mode, device)
                 if primary:
-                    integration_api.process(db, projection, config, now=started)
+                    integration_api.process(db, config, now=started)
                 if wall.apply_pending(db, device): mark_dirty(db)
                 config['_locate'] = wall.locate_state(db, config, started, mode)
                 snapshot = dashboard(db, config, started)
@@ -1081,369 +842,41 @@ class PreviewCancelled(Exception):
     pass
 
 
-def hook_command(script, state_dir=None):
-    state_args = ['--state-dir', str(state_dir)] if state_dir is not None else []
-    return shlex.join([sys.executable, str(script), 'hook', *state_args])
-
-
-def merge_hooks(original, command, remove=False):
-    result = json.loads(json.dumps(original))
-    hooks = result.setdefault('hooks', {})
-    for name in EVENTS:
-        groups = hooks.get(name, [])
-        # Remove only handlers belonging to this integration, keeping others intact.
-        clean = []
-        for group in groups:
-            item = dict(group)
-            item['hooks'] = [h for h in group.get('hooks', [])
-                             if h.get('statusMessage') != MARKER]
-            if item['hooks']:
-                clean.append(item)
-        if not remove:
-            handler = {'type': 'command', 'command': command,
-                       'timeout': 3 if name in ('SessionEnd', 'Interrupt') else 5,
-                       'statusMessage': MARKER}
-            clean.append({'hooks': [handler]})
-        if clean:
-            hooks[name] = clean
-        else:
-            hooks.pop(name, None)
-    return result
-
-
-def write_json(path, value):
-    temporary = path.with_suffix(path.suffix + '.tmp')
-    temporary.write_text(json.dumps(value, indent=2) + '\n', encoding='utf-8')
-    temporary.chmod(0o600)
-    temporary.replace(path)
-
-
-def parse_hooks_json(raw):
-    """Validate current files and backups with the same unambiguous structure."""
-    original = json.loads(raw.decode('utf-8-sig')) if raw is not None else {}
-    if raw is not None:
-        json_spans(raw.decode('utf-8-sig'))
-    if type(original) is not dict or type(original.get('hooks', {})) is not dict:
-        raise ValueError('invalid hooks.json structure')
-    hooks = original.get('hooks', {})
-    if any(type(groups) is not list or any(type(group) is not dict
-           or type(group.get('hooks', [])) is not list
-           or any(type(handler) is not dict for handler in group.get('hooks', []))
-           for group in groups) for groups in hooks.values()):
-        raise ValueError('invalid hooks.json structure')
-    return original
-
-
-def manage_hooks(codex_home, operation, script, state_dir=None):
-    """Change this integration's hooks in one explicitly selected Codex home."""
-    if operation not in ('remove', 'register'):
-        raise ValueError('invalid hook operation')
-    codex_home = Path(codex_home)
-    hooks_file = codex_home / 'hooks.json'
-    original_bytes = hooks_file.read_bytes() if hooks_file.exists() else None
-    original = parse_hooks_json(original_bytes)
-    command = hook_command(Path(script), state_dir=state_dir)
-    saved = original if has_legacy_hooks_value(original) else None
-    saved_bytes = original_bytes if saved is not None else None
-    if operation == 'register' and saved is None:
-        for candidate in sorted(codex_home.glob('hooks.nanoleaf-backup-*.json'), reverse=True):
-            try:
-                candidate_bytes = candidate.read_bytes()
-                value = parse_hooks_json(candidate_bytes)
-            except (OSError, ValueError, UnicodeError):
-                continue
-            if type(value) is dict and has_legacy_hooks_value(value):
-                saved = value
-                saved_bytes = candidate_bytes
-                break
-    if operation == 'remove':
-        if not has_legacy_hooks_value(original):
-            return False
-        rendered = remove_marked_hooks_json(original_bytes)
-    else:
-        fresh = merge_hooks({}, command)
-        groups_by_event = marked_groups(fresh)
-        if saved is not None:
-            groups_by_event.update(marked_groups(saved))
-        # Hook trust is indexed by event/group/handler position. Existing handlers
-        # must stay in place, including marked handlers inside mixed groups.
-        rendered = original_bytes if original_bytes is not None else b'{}'
-        if saved_bytes is not None and remove_marked_hooks_json(saved_bytes) == rendered:
-            # Undo our own removal byte for byte only if nothing else changed.
-            rendered = saved_bytes
-        present = marked_groups(parse_hooks_json(rendered))
-        for event, groups in groups_by_event.items():
-            if event not in present:
-                rendered = append_hook_groups_json(rendered, event, groups)
-        # Re-registering an already-correct configuration must not rewrite bytes.
-    if isinstance(rendered, str):
-        bom = b'\xef\xbb\xbf' if original_bytes is not None and original_bytes.startswith(b'\xef\xbb\xbf') else b''
-        rendered = bom + rendered.encode('utf-8')
-    if original_bytes is not None and json.loads(rendered.decode('utf-8-sig')) == original:
-        return False
-    codex_home.mkdir(parents=True, exist_ok=True)
-    if original_bytes is not None:
-        backup = hooks_file.with_name('hooks.nanoleaf-backup-' + str(time.time_ns()) + '.json')
-        descriptor = os.open(backup, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(descriptor, 'wb') as backup_file:
-            backup_file.write(original_bytes)
-    temporary = None
-    try:
-        with tempfile.NamedTemporaryFile(dir=codex_home, prefix='.hooks-', suffix='.tmp', delete=False) as output:
-            temporary = Path(output.name)
-            output.write(rendered)
-        temporary.replace(hooks_file)
-    finally:
-        if temporary is not None:
-            temporary.unlink(missing_ok=True)
-    return True
-
-
-def hooks_command(argv):
-    parser = argparse.ArgumentParser(description='Manage Nanoleaf hooks in one Codex home.')
-    parser.add_argument('operation', choices=('remove', 'register'))
-    parser.add_argument('--codex-home', type=Path, required=True)
-    parser.add_argument('--state-dir', type=Path, help=argparse.SUPPRESS)
-    args = parser.parse_args(argv)
-    directory = args.state_dir or data_dir()
-    if args.operation == 'remove':
-        if shared_input.inspect(directory)['source'] != 'shared':
-            parser.error('Cannot remove legacy hooks while legacy input is selected.')
-    try:
-        changed = manage_hooks(args.codex_home, args.operation, Path(__file__).resolve(), state_dir=directory)
-    except (OSError, ValueError, UnicodeError, json.JSONDecodeError):
-        parser.error('Cannot update hooks.json; it is malformed or unavailable, and no changes were made.')
-    print(('Updated' if changed else 'Already current') + ' Nanoleaf hooks in ' + str(args.codex_home / 'hooks.json'))
-    print('Restart Codex to reload hook configuration.')
-    print('Review required hooks marked new or modified after reload, including retained shared hooks.')
-
-
-def has_legacy_hooks(codex_home):
-    """Legacy input needs marked handlers for every lifecycle event."""
-    hooks_file = Path(codex_home) / 'hooks.json'
-    try:
-        text = hooks_file.read_text(encoding='utf-8-sig')
-        value = json.loads(text)
-        json_spans(text)
-        hooks = value.get('hooks', {}) if type(value) is dict else {}
-        return type(hooks) is dict and all(
-            has_legacy_hooks_value({'hooks': {event: hooks.get(event)}}) for event in EVENTS)
-    except (OSError, ValueError, UnicodeError):
-        return False
-
-
-def has_legacy_hooks_value(value):
-    hooks = value.get('hooks', {}) if type(value) is dict else {}
-    return type(hooks) is dict and any(
-        type(groups) is list and any(type(group) is dict and type(group.get('hooks', [])) is list
-        and any(type(handler) is dict and handler.get('statusMessage') == MARKER
-                for handler in group.get('hooks', [])) for group in groups)
-        for name, groups in hooks.items() if name in EVENTS)
-
-
-def marked_groups(value):
-    hooks = value.get('hooks', {}) if type(value) is dict else {}
-    result = {}
-    if type(hooks) is not dict:
-        return result
-    for event in EVENTS:
-        groups = hooks.get(event, [])
-        if type(groups) is not list:
-            continue
-        selected = []
-        for group in groups:
-            if type(group) is not dict or type(group.get('hooks', [])) is not list:
-                continue
-            marked = [handler for handler in group['hooks']
-                      if type(handler) is dict and handler.get('statusMessage') == MARKER]
-            if marked:
-                selected.append({**group, 'hooks': marked})
-        if selected:
-            result[event] = selected
-    return result
-
-
-def json_spans(text):
-    """Parse JSON while retaining value and property byte-span boundaries."""
-    def whitespace(index):
-        while index < len(text) and text[index] in ' \t\r\n':
-            index += 1
-        return index
-
-    def parse(index):
-        index = whitespace(index)
-        start = index
-        char = text[index]
-        if char == '{':
-            index = whitespace(index + 1)
-            members = []
-            if text[index] == '}':
-                return ('object', start, index + 1, members), index + 1
-            while True:
-                key_start = index
-                key_node, index = parse(index)
-                if key_node[0] != 'string':
-                    raise ValueError('invalid JSON object key')
-                key = json.loads(text[key_node[1]:key_node[2]])
-                if any(member[0] == key for member in members):
-                    raise ValueError('duplicate JSON object key')
-                index = whitespace(index)
-                if text[index] != ':':
-                    raise ValueError('invalid JSON object')
-                value_node, index = parse(index + 1)
-                members.append((key, key_start, key_node[2], value_node))
-                index = whitespace(index)
-                if text[index] == '}':
-                    return ('object', start, index + 1, members), index + 1
-                if text[index] != ',':
-                    raise ValueError('invalid JSON object')
-                index = whitespace(index + 1)
-        if char == '[':
-            index = whitespace(index + 1)
-            values = []
-            if text[index] == ']':
-                return ('array', start, index + 1, values), index + 1
-            while True:
-                value_node, index = parse(index)
-                values.append(value_node)
-                index = whitespace(index)
-                if text[index] == ']':
-                    return ('array', start, index + 1, values), index + 1
-                if text[index] != ',':
-                    raise ValueError('invalid JSON array')
-                index = whitespace(index + 1)
-        if char == '"':
-            index += 1
-            escaped = False
-            while index < len(text):
-                current = text[index]
-                index += 1
-                if escaped:
-                    escaped = False
-                elif current == '\\':
-                    escaped = True
-                elif current == '"':
-                    return ('string', start, index, None), index
-            raise ValueError('invalid JSON string')
-        while index < len(text) and text[index] not in ',]} \t\r\n':
-            index += 1
-        json.loads(text[start:index])
-        return ('value', start, index, None), index
-
-    node, end = parse(0)
-    if whitespace(end) != len(text):
-        raise ValueError('trailing JSON data')
-    return node
-
-
-def json_member(node, key):
-    if node[0] != 'object':
-        return None
-    return next((member for member in node[3] if member[0] == key), None)
-
-
-def remove_marked_hooks_json(raw):
-    """Remove marked handlers while retaining every unrelated JSON value verbatim."""
-    if raw is None:
-        return b'{}'
-    bom = b'\xef\xbb\xbf' if raw.startswith(b'\xef\xbb\xbf') else b''
-    text = raw.decode('utf-8-sig')
-    root = json_spans(text)
-    hooks_member = json_member(root, 'hooks')
-    if not hooks_member:
-        return raw
-    hooks = hooks_member[3]
-    patches = []
-    if hooks[0] != 'object':
-        return raw
-    for event in EVENTS:
-        event_member = json_member(hooks, event)
-        if not event_member or event_member[3][0] != 'array':
-            continue
-        groups = event_member[3]
-        updated_groups = []
-        changed = False
-        for group in groups[3]:
-            hooks_member = json_member(group, 'hooks')
-            if not hooks_member or hooks_member[3][0] != 'array':
-                updated_groups.append(text[group[1]:group[2]])
-                continue
-            array = hooks_member[3]
-            retained = [item for item in array[3]
-                        if not (type(json.loads(text[item[1]:item[2]])) is dict
-                                and json.loads(text[item[1]:item[2]]).get('statusMessage') == MARKER)]
-            if len(retained) == len(array[3]):
-                updated_groups.append(text[group[1]:group[2]])
-                continue
-            changed = True
-            if not retained:
-                continue
-            group_text = text[group[1]:group[2]]
-            left = array[1] - group[1] + 1
-            right = array[2] - group[1] - 1
-            replacement = ','.join(text[item[1]:item[2]] for item in retained)
-            updated_groups.append(group_text[:left] + replacement + group_text[right:])
-        if changed:
-            array = groups
-            left = array[1] + 1
-            right = array[2] - 1
-            patches.append((left, right, ','.join(updated_groups)))
-    for left, right, replacement in sorted(patches, reverse=True):
-        text = text[:left] + replacement + text[right:]
-    return bom + text.encode('utf-8')
-
-
-def append_hook_groups_json(raw, event, groups):
-    text = raw.decode('utf-8-sig') if isinstance(raw, bytes) else raw
-    root = json_spans(text)
-    hooks_member = json_member(root, 'hooks')
-    serialized = ','.join(json.dumps(group, ensure_ascii=True) for group in groups)
-    if not hooks_member:
-        hooks_text = '{' + json.dumps(event) + ':[' + serialized + ']}'
-        insert = (', ' if root[3] else '') + json.dumps('hooks') + ': ' + hooks_text
-        return text[:root[2] - 1] + insert + text[root[2] - 1:]
-    hooks = hooks_member[3]
-    event_member = json_member(hooks, event)
-    if event_member:
-        array = event_member[3]
-        insert = (',' if array[3] else '') + serialized
-        return text[:array[2] - 1] + insert + text[array[2] - 1:]
-    insert = (', ' if hooks[3] else '') + json.dumps(event) + ': [' + serialized + ']'
-    return text[:hooks[2] - 1] + insert + text[hooks[2] - 1:]
-
-
-def setup(args):
-    directory = getattr(args, 'state_dir', None) or data_dir()
+def setup(args, launch=None, request=None):
+    """Checks, previews, reset and hook removal for an existing installation."""
+    launch = launch or launcher.launch_worker
+    request = request or transport.light_request
+    directory = getattr(args, 'state_dir', None) or configuration.data_dir()
     directory.mkdir(parents=True, exist_ok=True)
     if args.check or args.demo or args.reset or args.notify or args.refresh or args.comet:
         # Previews, checks and refresh address one device; reset clears the shared tasks of every device.
         device = getattr(args, 'device', None) or devices.DEFAULT
         preview = devices.meta_key('preview', device)
-        config = load_config(directory, device)
-        if (args.demo or args.notify) and get_status(directory, device)['mode'] == 'free':
+        config = configuration.load_config(directory, device, request=request)
+        if (args.demo or args.notify) and modes.get_status(directory, device)['mode'] == 'free':
             print('Choose Work or Quiet before running a preview.')
             return
         if args.comet:
-            if get_status(directory, device)['mode'] != 'work':
+            if modes.get_status(directory, device)['mode'] != 'work':
                 print('Choose Work before previewing a completion comet.')
                 return
-            with contextlib.closing(connect_state(directory)) as db, db:
+            with contextlib.closing(database.connect_state(directory)) as db, db:
                 db.execute("INSERT OR REPLACE INTO meta VALUES (?,'comet')", (preview,))
-            launch_worker(directory)
+            launch(directory)
             print('Previewing one completion comet; live status returns afterward.')
         if args.check:
-            info = light_request(config, 'GET')
+            info = request(config, 'GET')
             print('Connected:', info.get('name', 'Nanoleaf'), 'at', config['ip'],
                   'with', len(config['line_groups']), 'physical Lines' if config.get('kind', 'lines') == 'lines' else 'triangles')
-            saved = SceneRestorer(directory, config).state['scene']
+            saved = SceneRestorer(directory, config, request=request).state['scene']
             print('Restore scene:', saved['name'] if saved else 'Choose a scene in the Nanoleaf app.')
         if args.demo:
-            with contextlib.closing(connect_state(directory)) as db, db:
+            with contextlib.closing(database.connect_state(directory)) as db, db:
                 db.execute("INSERT OR REPLACE INTO meta VALUES (?,'all')", (preview,))
-            launch_worker(directory)
+            launch(directory)
             print('Previewing working, question, blocked, and unread pulses in the current colors; live status returns afterward.')
         if args.reset:
-            with contextlib.closing(connect_state(directory)) as db, db:
+            with contextlib.closing(database.connect_state(directory)) as db, db:
                 db.execute('DELETE FROM comets')
                 db.execute('DELETE FROM sessions')
                 db.execute('DELETE FROM display_v3')
@@ -1453,18 +886,18 @@ def setup(args):
                 db.execute('DELETE FROM waits')
                 db.execute("DELETE FROM meta WHERE key='preview' OR key LIKE 'preview@%'")
                 mark_dirty(db)
-            launch_worker(directory)
+            launch(directory)
             print('Status cleared on every device. Each saved scene returns, or blue if no scene has been remembered.')
         if args.notify:
-            with contextlib.closing(connect_state(directory)) as db, db:
+            with contextlib.closing(database.connect_state(directory)) as db, db:
                 db.execute("INSERT OR REPLACE INTO meta VALUES (?,'working')", (preview,))
-            launch_worker(directory)
+            launch(directory)
             print('Queued one outward working pulse, then a local pulse. Live status returns afterward.')
         if args.refresh:
-            with contextlib.closing(connect_state(directory)) as db, db:
+            with contextlib.closing(database.connect_state(directory)) as db, db:
                 db.execute('DELETE FROM display_v3 WHERE device=?', (device,))
                 mark_dirty(db)
-            launch_worker(directory)
+            launch(directory)
         return
     codex_base = os.environ.get('CODEX_HOME', str(Path.home() / '.codex'))
     codex_dir = Path(codex_base)
@@ -1473,31 +906,32 @@ def setup(args):
     if args.uninstall:
         if (directory / 'status.sqlite').exists():
             # Removing the hooks hands every registered device back to the Nanoleaf app.
-            for device in registered_devices(directory):
-                set_mode(directory, 'free', device=device)
-        write_json(hooks_file, merge_hooks(original, '', remove=True))
+            for device in configuration.registered_devices(directory):
+                modes.set_mode(directory, 'free', launch=launch, device=device)
+        jsonfile.write_json(hooks_file, codex_hooks.merge_hooks(original, '', remove=True))
         print('Removed Nanoleaf hooks. Restart Codex. Saved light credentials remain in', directory)
         return
 
 
-def main():
+def main(launch=None, request=None):
+    """The bridge.py CLI. launch wakes workers and request reaches the device; both default to the real ones."""
+    # Each command family owns its parser. The controller, enrollment and wall-map families load
+    # only when they run, so hooks and status never import HTTP listeners or optional dependencies.
     if sys.argv[1:2] and sys.argv[1].startswith('shared-'):
-        from types import SimpleNamespace
-        return shared_input.command(sys.argv[1:], SimpleNamespace(**globals()))
+        return shared_source.command(sys.argv[1:], launch=launch)
     if sys.argv[1:2] and sys.argv[1] == 'hooks':
-        return hooks_command(sys.argv[2:])
+        return codex_hooks.command(sys.argv[2:])
     if sys.argv[1:2] and sys.argv[1].startswith('controller-'):
         import controller_server
-        return controller_server.command(sys.argv[1:], sys.modules[__name__])
+        return controller_server.command(sys.argv[1:], launch=launch)
     if sys.argv[1:2] and sys.argv[1].startswith('device-'):
         # Linux-only enrollment; it refuses Windows and Windows-mounted state itself.
         import enrollment
-        from types import SimpleNamespace
-        raise SystemExit(enrollment.command(sys.argv[1:], SimpleNamespace(**globals())))
+        raise SystemExit(enrollment.command(sys.argv[1:], request=request))
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('mode', choices=['setup', 'hook', 'worker', 'mode', 'status', 'map', 'serve', 'style', 'map-status'])
     parser.add_argument('--state-dir', type=Path, help=argparse.SUPPRESS)
-    parser.add_argument('selection', nargs='?', choices=MODES + ('classic', 'project'))
+    parser.add_argument('selection', nargs='?', choices=modes.MODES + ('classic', 'project'))
     parser.add_argument('--json', action='store_true')
     parser.add_argument('--port', type=int, help='Wall-map loopback port; overrides the installation setting.')
     parser.add_argument('--no-open', action='store_true', help='Accepted for compatibility; the map never opens a browser.')
@@ -1509,37 +943,37 @@ def main():
     if args.mode == 'setup' and not any(
             getattr(args, flag) for flag in ('check', 'demo', 'reset', 'uninstall', 'notify', 'refresh', 'comet')):
         parser.error('Use bridge/install_linux.py from the reviewed source checkout for a fresh Linux installation.')
-    directory = args.state_dir or data_dir()
+    directory = args.state_dir or configuration.data_dir()
     device = devices.DEFAULT
     if args.device is not None:
         # An unknown target never falls back to the original device.
         targeted = args.mode in ('mode', 'status', 'worker') or (args.mode == 'setup' and any(
             getattr(args, flag) for flag in ('check', 'demo', 'notify', 'refresh', 'comet')))
-        if not targeted or args.device not in registered_devices(directory):
+        if not targeted or args.device not in configuration.registered_devices(directory):
             parser.error('Unknown or unsupported device target.')
         device = args.device
     if args.mode == 'map-status':
-        with contextlib.closing(connect_state(directory)) as db:
-            print(json.dumps({**get_status(directory), **wall.settings(db), 'map_pending': wall.pending(db) is not None}))
+        with contextlib.closing(database.connect_state(directory)) as db:
+            print(json.dumps({**modes.get_status(directory), **wall.settings(db), 'map_pending': wall.pending(db) is not None}))
         return
     if args.mode in ('map', 'serve', 'style'):
         import wall_server
         try:
-            wall_server.command(args, directory, sys.modules[__name__])
+            wall_server.command(args, directory, launch=launch, request=request)
         except RuntimeError as error:
             parser.exit(1, f'Wall map: {error}\n')
         except Exception:
             parser.exit(1, 'Wall map command failed. Check local configuration and the selected port.\n')
         return
     if args.mode == 'mode':
-        if args.selection not in MODES:
+        if args.selection not in modes.MODES:
             parser.error('Choose work, free, or quiet.')
-        set_mode(directory, args.selection, device=device)
-        print(json.dumps(get_status(directory, device)))
+        modes.set_mode(directory, args.selection, launch=launch, device=device)
+        print(json.dumps(modes.get_status(directory, device)))
         return
     if args.mode == 'status':
         try:
-            print(json.dumps(get_status(directory, device)))
+            print(json.dumps(modes.get_status(directory, device)))
         except Exception:
             print(json.dumps({'mode': None, 'pending': True, 'error': 'Local status unavailable.'}))
             sys.exit(1)
@@ -1548,28 +982,28 @@ def main():
         feed = {}
         while True:
             try:
-                if run_worker(directory, device=device, feed=feed) is False: return
-                with contextlib.closing(connect_state(directory)) as db:
+                if run_worker(directory, device=device, feed=feed, request=request) is False: return
+                with contextlib.closing(database.connect_state(directory)) as db:
                     resume_shared = shared_input.selected(db)
                 if not resume_shared: return
                 time.sleep(1)
             except Exception:
                 # A failed pass records and retries this device only, while it is still registered.
-                if device not in registered_devices(directory) or not record_failure(directory, device):
+                if device not in configuration.registered_devices(directory) or not record_failure(directory, device):
                     return
                 # Release locks between attempts. All retries read the newest mode.
                 time.sleep(2)
     if args.mode == 'hook':
         try:
             event = json.load(sys.stdin)
-            handle_event(directory, event)
+            handle_event(directory, event, launch=launch)
         except Exception:
             # Never block an agent or put a credential-containing exception in its output.
             print('Nanoleaf status hook could not update. Run setup --check.', file=sys.stderr)
         print('{}')
         return
     try:
-        setup(args)
+        setup(args, launch=launch, request=request)
     except urllib.error.HTTPError as error:
         print('Nanoleaf HTTP status:', error.code, file=sys.stderr)
         sys.exit(1)

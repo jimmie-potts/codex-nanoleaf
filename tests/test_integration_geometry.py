@@ -8,6 +8,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 from test_bridge import b
+import configuration
+import launcher
+import transport
 from test_device_worker import ROOT, triangles
 from test_panels_controller import PanelsControllerTest
 import controller_server as server
@@ -19,7 +22,7 @@ import project_map as wall
 def lines_entry():
     """The Lines entry that the Linux installer saves from the fixture layout, with both geometry caches."""
     raw = json.loads((ROOT / 'tests/fixtures/lines-layout.json').read_text())
-    groups = b.pair_lines(raw)
+    groups = configuration.pair_lines(raw)
     orientation = raw['globalOrientation']['value']
     zones = {p['panelId']: p for p in raw['layout']['positionData']}
     geometry = {'zone_geometry': {'orientation': orientation,
@@ -39,8 +42,8 @@ class GeometryTest(PanelsControllerTest):
     def pure(self, device):
         """Read the route and require unchanged state and layout bytes, no configuration load and no device request."""
         before = [(self.directory / name).read_bytes() for name in ('status.sqlite', 'layout.json')]
-        with patch.object(b, 'load_config', side_effect=AssertionError('not a pure read')), \
-                patch.object(b, 'launch_worker', side_effect=AssertionError('read launched work')):
+        with patch.object(configuration, 'load_config', side_effect=AssertionError('not a pure read')), \
+                patch.object(launcher, 'launch_worker', side_effect=AssertionError('read launched work')):
             view = self.app.integration_geometry(self.token, device)
         self.assertEqual(before, [(self.directory / name).read_bytes() for name in ('status.sqlite', 'layout.json')])
         self.assertEqual(self.fake.addresses, [])
@@ -81,7 +84,7 @@ class GeometryTest(PanelsControllerTest):
                                     kind=None, elements=[], connectors=None))
         self.assertEqual(view['identity']['deviceId'], 'panels')
         (self.directory / 'layout.json').unlink()
-        with patch.object(b, 'light_request', side_effect=AssertionError('discovered geometry')):
+        with patch.object(transport, 'light_request', side_effect=AssertionError('discovered geometry')):
             self.assertEqual(self.app.integration_geometry(self.token, 'wall')['elements'], [])
 
     def test_a_layout_without_drawable_geometry_keeps_its_elements(self):
@@ -102,7 +105,7 @@ class GeometryTest(PanelsControllerTest):
                 self.assertEqual(geometry.exception.code, snapshot.exception.code)
 
     def test_read_scope_and_no_private_values(self):
-        reader = server.issue(self.directory, b, 'reader', ['read'])
+        reader = server.issue(self.directory, 'reader', ['read'])
         raw = json.dumps([self.app.integration_geometry(reader, device) for device in ('wall', 'panels')])
         for private in ('192.0.2', 'fakeLines', 'fakePanels', 'token', 'ip', str(self.directory), reader, self.token):
             self.assertNotIn(private, raw)

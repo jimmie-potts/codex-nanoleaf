@@ -127,7 +127,8 @@ ticket with different content conflicts. Foreign, expired and out-of-order ticke
 cannot execute. Invalid, unsupported, stale and capacity-rejected requests consume
 no ticket. After rejection, refresh before an explicit new user decision.
 
-The worker applies queued edits through the same operation as the wall under its
+The worker applies queued edits through the same operation as the wall
+([ADR 0016](decisions/0016-module-ownership-and-dependency-direction.md)) under its
 write transaction, with an atomic receipt. It waits for active comets, preserving
 their source reservations. Existing pending wall work rejects admission; a later
 wall/mode/association edit invalidates queued extension work. Cancellation,

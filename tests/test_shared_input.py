@@ -4,6 +4,11 @@ from pathlib import Path
 import unittest
 
 from test_bridge import b
+import codex_hooks
+import database
+import jsonfile
+import modes
+import shared_source
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -129,23 +134,23 @@ class SelectionTest(unittest.TestCase):
         self.codex_home = self.path / 'codex-home'
         codex_environment = patch.dict(b.os.environ, {'CODEX_HOME': str(self.codex_home)})
         codex_environment.start(); self.addCleanup(codex_environment.stop)
-        b.manage_hooks(self.codex_home, 'register', script=Path(b.__file__))
+        codex_hooks.manage_hooks(self.codex_home, 'register', script=Path(b.__file__))
         self.config={'version':1,'ownerId':'owner','consumerId':'nanoleaf',
                      'endpoint':'http://127.0.0.1:12345/api/monitor/v1','tokenFile':str(self.path/'token'),
                      'clearOnNewTurn':True,'qualifiedSources':[{'provider':'codex','client':'desktop','hostId':'host','sourceId':'source'}],
                      'bindings':[{'identity':fixture()['sessions'][0]['identity'],'legacySessionId':'legacy'}]}
         b.handle_event(self.path,{'session_id':'legacy','turn_id':'turn','hook_event_name':'UserPromptSubmit'},launch=lambda _:None,now=lambda:self.instant)
-        with contextlib.closing(b.connect_state(self.path)) as db,db:
+        with contextlib.closing(database.connect_state(self.path)) as db,db:
             db.execute("INSERT INTO slots (session, slot) VALUES ('legacy',0)")
             db.execute("INSERT INTO projects VALUES ('project','LOCAL TITLE','#112233','[]')")
             db.execute("UPDATE task_info SET project='project',manual_project='project' WHERE session='legacy'")
-        self.s.configure(self.path,b,self.config)
+        shared_source.configure(self.path,self.config)
 
     def select(self, value=None):
-        return self.s.select_source(self.path,b,'shared',fetch=lambda config,minimum_revision=0:value or envelope(),now=lambda:self.instant)
+        return shared_source.select_source(self.path,'shared',fetch=lambda config,minimum_revision=0:value or envelope(),now=lambda:self.instant)
 
     def rows(self, sql):
-        with contextlib.closing(b.connect_state(self.path)) as db:
+        with contextlib.closing(database.connect_state(self.path)) as db:
             return db.execute(sql).fetchall()
 
     def test_atomic_cutover_identity_and_legacy_suppression(self):
@@ -163,9 +168,9 @@ class SelectionTest(unittest.TestCase):
         self.assertEqual(self.rows('SELECT * FROM comets'),[])
 
     def test_failed_preflight_and_comet_reservation_preserve_legacy(self):
-        with self.assertRaises(self.s.FeedError): self.s.select_source(self.path,b,'shared',fetch=lambda *a,**k:(_ for _ in ()).throw(self.s.FeedError('feed-unavailable')))
+        with self.assertRaises(self.s.FeedError): shared_source.select_source(self.path,'shared',fetch=lambda *a,**k:(_ for _ in ()).throw(self.s.FeedError('feed-unavailable')))
         self.assertEqual(self.s.inspect(self.path)['source'],'legacy')
-        with contextlib.closing(b.connect_state(self.path)) as db,db:
+        with contextlib.closing(database.connect_state(self.path)) as db,db:
             db.execute("INSERT INTO comets (session, turn, queued, source, started) VALUES ('legacy','turn',1000,0,1000)")
         with self.assertRaises(self.s.FeedError):self.select()
         self.assertEqual(self.rows('SELECT id FROM sessions'),[('legacy',)])
@@ -175,16 +180,16 @@ class SelectionTest(unittest.TestCase):
         before=self.rows('SELECT id,status FROM sessions')
         with patch.dict(b.os.environ, {'CODEX_HOME': str(self.path/'empty-codex-home')}):
             with self.assertRaisesRegex(self.s.FeedError, r'hooks register'):
-                self.s.select_source(self.path,b,'legacy',now=lambda:self.instant+1)
+                shared_source.select_source(self.path,'legacy',now=lambda:self.instant+1)
         self.assertEqual(self.s.inspect(self.path)['source'],'shared')
         self.assertEqual(self.rows('SELECT id,status FROM sessions'),before)
 
     def test_rollback_preserves_mode_and_current_bound_assignment(self):
         self.select(); key=self.s.identity_key(fixture()['sessions'][0]['identity'])
-        with contextlib.closing(b.connect_state(self.path)) as db,db:
+        with contextlib.closing(database.connect_state(self.path)) as db,db:
             db.execute('UPDATE slots SET slot=2 WHERE session=?',(key,))
             db.execute("INSERT OR REPLACE INTO meta VALUES ('mode','free')")
-        self.s.select_source(self.path,b,'legacy',now=lambda:1005)
+        shared_source.select_source(self.path,'legacy',now=lambda:1005)
         self.assertEqual(self.rows('SELECT id,status FROM sessions'),[('legacy','working')])
         self.assertEqual(self.rows('SELECT session,slot FROM slots'),[('legacy',2)])
         self.assertEqual(self.rows("SELECT value FROM meta WHERE key='mode'"),[('free',)])
@@ -195,13 +200,13 @@ class SelectionTest(unittest.TestCase):
         b.handle_event(self.path,{'session_id':'legacy','turn_id':'turn','hook_event_name':'Stop'},
                        launch=lambda _:None,now=lambda:self.instant)
         self.select()
-        self.s.select_source(self.path,b,'legacy',now=lambda:1005)
+        shared_source.select_source(self.path,'legacy',now=lambda:1005)
         self.assertEqual(self.rows('SELECT status FROM sessions'),[('unread',)])
         self.assertEqual(self.rows('SELECT * FROM receipts'),[])
         b.handle_event(self.path,{'session_id':'next','turn_id':'new','hook_event_name':'UserPromptSubmit'},
                        launch=lambda _:None,now=lambda:1006)
         config={'line_groups':[[100,101]],'line_positions':[[0,0]]}
-        with contextlib.closing(b.connect_state(self.path)) as db,db:
+        with contextlib.closing(database.connect_state(self.path)) as db,db:
             b.reconcile_read_state(db,None,1060)
             b.dashboard(db,config,1060)
             self.assertEqual(db.execute('SELECT session FROM slots').fetchall(),[('legacy',)])
@@ -220,7 +225,7 @@ class SelectionTest(unittest.TestCase):
         hooks_file.write_text(json.dumps(hooks))
         before = self.rows('SELECT id,status FROM sessions')
         with self.assertRaisesRegex(self.s.FeedError, r'hooks register'):
-            self.s.select_source(self.path,b,'legacy',now=lambda:self.instant+1)
+            shared_source.select_source(self.path,'legacy',now=lambda:self.instant+1)
         self.assertEqual(self.s.inspect(self.path)['source'],'shared')
         self.assertEqual(self.rows('SELECT id,status FROM sessions'),before)
 
@@ -229,21 +234,21 @@ class SelectionTest(unittest.TestCase):
         self.select(value)
         value=copy.deepcopy(value);value['snapshot']['revision']=3
         session=value['snapshot']['sessions'][0];session['activity']='idle';session['notices'][0]['acknowledgedBy'].append('nanoleaf')
-        self.s.accept(self.path,b,value,now=lambda:1001)
+        shared_source.accept(self.path,value,now=lambda:1001)
         self.assertEqual(self.rows('SELECT status FROM sessions'),[('idle',)])
         value['snapshot']['revision']=4;session['notices'][0]['acknowledgedBy']=['pixoo'];session['read']='read'
-        self.s.accept(self.path,b,value,now=lambda:1002)
+        shared_source.accept(self.path,value,now=lambda:1002)
         self.assertEqual(self.rows('SELECT status FROM sessions'),[('idle',)])
         session['read']='unknown';session['projectId']='chosen';other=copy.deepcopy(session);other['identity']['sessionId']='other'
         value['snapshot']['sessions'].append(other);value['snapshot']['revision']=5
-        self.s.accept(self.path,b,value,now=lambda:1003)
+        shared_source.accept(self.path,value,now=lambda:1003)
         self.assertEqual(len(self.rows('SELECT id FROM sessions')),2)
         self.assertEqual(len(self.rows('SELECT DISTINCT project FROM task_info')),1)
 
     def test_wall_projects_survive_retirement_recreation_restart_and_source_switch(self):
         import wall_server
         config={'line_groups':[[100,101],[102,103]],'line_positions':[[0,0],[10,0]]}
-        with contextlib.closing(b.connect_state(self.path)) as db,db:
+        with contextlib.closing(database.connect_state(self.path)) as db,db:
             db.execute("UPDATE projects SET roots='[\"/synthetic/project\"]' WHERE id='project'")
             db.execute("INSERT INTO line_prefs (line_id,project,signature,device) VALUES ('100:101','project',1,'wall')")
         saved=self.rows('SELECT * FROM projects')
@@ -251,10 +256,10 @@ class SelectionTest(unittest.TestCase):
         value=envelope();value['snapshot']['sessions'][0]['activity']='active'
         self.select(value)
         key=self.s.identity_key(fixture()['sessions'][0]['identity'])
-        with contextlib.closing(b.connect_state(self.path)) as db,db:
+        with contextlib.closing(database.connect_state(self.path)) as db,db:
             db.execute("UPDATE task_info SET manual_project='project' WHERE session=?",(key,))
         def view(device='wall'):
-            return wall_server.App(self.path,b,{**config,'device':device},launch=lambda _:None).state()
+            return wall_server.App(self.path,{**config,'device':device},launch=lambda _:None).state()
         with patch.object(wall_server,'ensure_geometry',return_value=False):
             first=view()
             self.assertEqual(first['projects'][0]['active'],1)
@@ -267,11 +272,11 @@ class SelectionTest(unittest.TestCase):
             # Retained unread is still current; only owner disappearance retires it.
             value['snapshot']['revision']+=1
             value['snapshot']['sessions'][0]['activity']='idle'
-            self.s.accept(self.path,b,value,now=lambda:1001)
+            shared_source.accept(self.path,value,now=lambda:1001)
             self.assertEqual(view()['tasks'][0]['status'],'unread')
             retired=copy.deepcopy(value);retired['snapshot']['revision']+=1
             retired['snapshot']['sessions']=[]
-            self.s.accept(self.path,b,retired,now=lambda:1002)
+            shared_source.accept(self.path,retired,now=lambda:1002)
             for _ in range(2):
                 empty=view()  # Reopen the map against the same saved state.
                 self.assertEqual(empty['tasks'],[])
@@ -280,12 +285,12 @@ class SelectionTest(unittest.TestCase):
                 self.assertEqual(self.rows('SELECT * FROM line_prefs'),reservations)
             fresh=copy.deepcopy(value);fresh['snapshot']['revision']=retired['snapshot']['revision']+1
             fresh['snapshot']['sessions'][0].pop('projectId',None)
-            self.s.accept(self.path,b,fresh,now=lambda:1003)
+            shared_source.accept(self.path,fresh,now=lambda:1003)
             self.assertIsNone(view()['tasks'][0]['project'],'Retired task overrides do not return without new attribution')
-            with contextlib.closing(b.connect_state(self.path)) as db,db:
+            with contextlib.closing(database.connect_state(self.path)) as db,db:
                 db.execute("UPDATE task_info SET manual_project='project' WHERE session=?",(key,))
             self.assertEqual(view()['projects'][0]['active'],1)
-            self.s.select_source(self.path,b,'legacy',now=lambda:1005)
+            shared_source.select_source(self.path,'legacy',now=lambda:1005)
             self.assertEqual(view()['projects'][0]['color'],'#112233')
             self.assertEqual(self.rows('SELECT * FROM projects'),saved)
             self.assertEqual(self.rows('SELECT * FROM line_prefs'),reservations)
@@ -307,7 +312,7 @@ class RetirementTest(unittest.TestCase):
         value['snapshot']['sessions'].append(peer)
         self.select(value)
         key=self.s.identity_key(session['identity']);other=self.s.identity_key(peer['identity'])
-        with contextlib.closing(b.connect_state(self.path)) as db,db:
+        with contextlib.closing(database.connect_state(self.path)) as db,db:
             db.execute("UPDATE task_info SET manual_project='project'")
             db.execute('INSERT INTO slots (session,slot) VALUES (?,1)',(other,))
             db.execute('INSERT INTO receipts VALUES (?,?,?,?)',(key,'turn',1000,0))
@@ -319,7 +324,7 @@ class RetirementTest(unittest.TestCase):
         # Every operation opens the saved database; no in-memory generation cache survives.
         fresh=copy.deepcopy(value);fresh['snapshot']['revision']=4
         fresh['snapshot']['sessions'][0]['generation']=4
-        self.s.accept(self.path,b,fresh,now=lambda:1020)
+        shared_source.accept(self.path,fresh,now=lambda:1020)
         self.assertEqual(self.rows("SELECT manual_project FROM task_info WHERE session='"+key+"'"),[(None,)])
         self.assertEqual(self.rows('SELECT * FROM projects'),projects)
         self.assertEqual(self.rows("SELECT * FROM task_info WHERE session='"+other+"'"),peers)
@@ -328,14 +333,14 @@ class RetirementTest(unittest.TestCase):
         for table in ('waits','receipts','comets'):
             self.assertEqual(self.rows('SELECT * FROM '+table),[])
         self.assertNotEqual(self.rows("SELECT started FROM activity WHERE session='"+key+"'"),[(1000.0,)])
-        self.s.accept(self.path,b,fresh,now=lambda:1021)
+        shared_source.accept(self.path,fresh,now=lambda:1021)
         self.assertEqual(self.rows('SELECT session,slot FROM slots'),[(other,1)])
-        with contextlib.closing(b.connect_state(self.path)) as db:
+        with contextlib.closing(database.connect_state(self.path)) as db:
             generation=self.s.state(db)['generation']
-        self.s.failed(self.path,b,generation)
+        shared_source.failed(self.path,generation)
         self.assertEqual(len(self.rows('SELECT * FROM sessions')),2,'unavailable is not retirement')
         empty=copy.deepcopy(fresh);empty['snapshot']['revision']=5;empty['snapshot']['sessions']=[]
-        self.s.accept(self.path,b,empty,now=lambda:1022)
+        shared_source.accept(self.path,empty,now=lambda:1022)
         for table in ('sessions','slots','activity','task_info','comets','waits','receipts'):
             self.assertEqual(self.rows('SELECT * FROM '+table),[])
         self.assertEqual(self.rows('SELECT * FROM projects'),projects)
@@ -346,7 +351,7 @@ class RecoveryTest(SelectionTest):
         from test_bridge import decode as decode_effect
         layout={'line_groups':[[100,101]],'line_positions':[[0,0]],'_mode':'work'}
         def rendered_colors(instant):
-            with contextlib.closing(b.connect_state(self.path)) as db,db:
+            with contextlib.closing(database.connect_state(self.path)) as db,db:
                 snapshot=b.dashboard(db,layout,instant)
                 self.s.render_config(db,layout)
             colors={tuple(frame[:3]) for frame in decode_effect(b.effect_payload(layout,snapshot,instant,True))[100]}
@@ -360,36 +365,36 @@ class RecoveryTest(SelectionTest):
         self.assertTrue(all(red>blue for red,_,blue in rendered_colors(1000)))
         value=copy.deepcopy(value);value['snapshot']['revision']=3
         session=value['snapshot']['sessions'][0];session['freshness']='uncertain';session['restartUncertain']=True
-        self.s.accept(self.path,b,value,now=lambda:1001)
+        shared_source.accept(self.path,value,now=lambda:1001)
         self.assertEqual(self.rows('SELECT status FROM sessions'),[('blocked',)])
         self.assertTrue(all(red>blue for red,_,blue in rendered_colors(1001)))
         import wall_server
-        app=wall_server.App(self.path,b,config={'line_groups':[[100,101]],'line_positions':[[0,0]]},launch=lambda _:None)
+        app=wall_server.App(self.path,config={'line_groups':[[100,101]],'line_positions':[[0,0]]},launch=lambda _:None)
         self.assertEqual(app.state()['tasks'][0]['statusEvidence'],'uncertain')
         value=copy.deepcopy(value);value['snapshot']['revision']=4
         value['snapshot']['sessions'][0]['attention']=[]
-        self.s.accept(self.path,b,value,now=lambda:1002)
+        shared_source.accept(self.path,value,now=lambda:1002)
         self.assertEqual(self.rows('SELECT status FROM sessions'),[('unread',)])
         self.assertEqual(len(self.rows('SELECT * FROM shared_stale')),1)
         self.assertEqual(self.rows('SELECT * FROM comets'),[])
         self.assertTrue(all(blue>red for red,_,blue in rendered_colors(1002)))
-        with contextlib.closing(b.connect_state(self.path)) as db:
+        with contextlib.closing(database.connect_state(self.path)) as db:
             snapshot=b.dashboard(db,layout,1002)
         self.assertEqual(snapshot[0][0],'unread')
 
     def test_loss_freezes_colors_and_reconnect_preserves_epoch(self):
         value=envelope();value['snapshot']['sessions'][0]['activity']='active';self.select(value)
         epoch=self.rows('SELECT started FROM activity')
-        generation=self.s.source_config(self.path,b)['generation']
-        self.s.failed(self.path,b,generation)
+        generation=shared_source.source_config(self.path)['generation']
+        shared_source.failed(self.path,generation)
         config={'line_groups':[[100,101]],'line_positions':[[0,0]],'_mode':'work'}
-        with contextlib.closing(b.connect_state(self.path)) as db,db:
+        with contextlib.closing(database.connect_state(self.path)) as db,db:
             snapshot=b.dashboard(db,config,1001)
             self.s.render_config(db,config)
         from test_bridge import decode as decode_effect
         panels=decode_effect(b.effect_payload(config,snapshot,1001,True))
         self.assertEqual({tuple(frame[:3]) for frame in panels[100]}, {b.COLORS['working']})
-        self.s.accept(self.path,b,value,now=lambda:1002,resync=True)
+        shared_source.accept(self.path,value,now=lambda:1002,resync=True)
         self.assertEqual(self.rows('SELECT started FROM activity'),epoch)
         self.assertEqual(self.rows('SELECT * FROM comets'),[])
 
@@ -398,7 +403,7 @@ class RecoveryTest(SelectionTest):
         value=copy.deepcopy(value);value['snapshot']['revision']=3
         session=value['snapshot']['sessions'][0];session['activity']='idle'
         session['restartUncertain']=True;session['freshness']='uncertain'
-        self.s.accept(self.path,b,value,now=lambda:1001)
+        shared_source.accept(self.path,value,now=lambda:1001)
         self.assertEqual(self.rows('SELECT status FROM sessions'),[('working',)])
         self.assertEqual(self.rows('SELECT * FROM comets'),[])
 
@@ -407,13 +412,13 @@ class RecoveryTest(SelectionTest):
         stale=copy.deepcopy(healthy);stale['identity']['sessionId']='stale'
         stale['freshness']='uncertain';stale['restartUncertain']=True
         value['snapshot']['sessions'].append(stale);self.select(value)
-        with contextlib.closing(b.connect_state(self.path)) as db,db:
+        with contextlib.closing(database.connect_state(self.path)) as db,db:
             db.execute('INSERT INTO slots (session, slot) VALUES (?,1)',(self.s.identity_key(stale['identity']),))
         value=copy.deepcopy(value);value['snapshot']['revision']+=1
         value['snapshot']['sessions'][0]['turn']={'status':'known','id':'next'}
-        self.s.accept(self.path,b,value,now=lambda:1001)
+        shared_source.accept(self.path,value,now=lambda:1001)
         layout={'line_groups':[[100,101],[102,103],[104,105]],'line_positions':[[0,0],[1,0],[2,0]],'_mode':'work'}
-        with contextlib.closing(b.connect_state(self.path)) as db,db:
+        with contextlib.closing(database.connect_state(self.path)) as db,db:
             snapshot=b.dashboard(db,layout,1002);self.s.render_config(db,layout)
         delays=[b.travel_delays(layout,i) for i in range(3)]
         expected=b.pixel_color([snapshot[0],None,None],2,1002,delays)
@@ -424,13 +429,13 @@ class RecoveryTest(SelectionTest):
         value=envelope();value['snapshot']['sessions'][0]['activity']='active';self.select(value)
         value=copy.deepcopy(value);value['snapshot']['revision']+=1
         session=value['snapshot']['sessions'][0];session['turn']={'status':'known','id':'next'}
-        self.s.accept(self.path,b,value,now=lambda:1001)
+        shared_source.accept(self.path,value,now=lambda:1001)
         session['freshness']='uncertain';session['restartUncertain']=True
-        self.s.accept(self.path,b,value,now=lambda:1001.1)
+        shared_source.accept(self.path,value,now=lambda:1001.1)
         session['freshness']='current';session['restartUncertain']=False
-        self.s.accept(self.path,b,value,now=lambda:1001.2)
+        shared_source.accept(self.path,value,now=lambda:1001.2)
         layout={'line_groups':[[100,101],[102,103]],'line_positions':[[0,0],[1,0]],'_mode':'work'}
-        with contextlib.closing(b.connect_state(self.path)) as db,db:
+        with contextlib.closing(database.connect_state(self.path)) as db,db:
             snapshot=b.dashboard(db,layout,1002);self.s.render_config(db,layout)
         delays=[b.travel_delays(layout,i) for i in range(2)]
         self.assertEqual(self.rows('SELECT started FROM activity'),[(1001,)])
@@ -440,41 +445,41 @@ class RecoveryTest(SelectionTest):
     def test_read_during_comet_retains_source_until_finish(self):
         value=envelope();self.select(value)
         key=self.s.identity_key(value['snapshot']['sessions'][0]['identity'])
-        with contextlib.closing(b.connect_state(self.path)) as db,db:
+        with contextlib.closing(database.connect_state(self.path)) as db,db:
             db.execute('INSERT INTO comets (session, turn, queued, source, started) VALUES (?,?,?,0,?)',(key,'turn',1000,1000))
         value=copy.deepcopy(value);value['snapshot']['revision']+=1
         value['snapshot']['sessions'][0]['read']='read'
-        self.s.accept(self.path,b,value,now=lambda:1000.5)
+        shared_source.accept(self.path,value,now=lambda:1000.5)
         self.assertEqual(self.rows('SELECT session,source,started FROM comets'),[(key,0,1000)])
         self.assertEqual(self.rows('SELECT status FROM sessions'),[('idle',)])
 
     def test_new_turn_cancels_active_old_notice_comet(self):
         value=envelope();self.select(value)
         key=self.s.identity_key(value['snapshot']['sessions'][0]['identity'])
-        with contextlib.closing(b.connect_state(self.path)) as db,db:
+        with contextlib.closing(database.connect_state(self.path)) as db,db:
             db.execute('INSERT INTO comets (session, turn, queued, source, started) VALUES (?,?,?,0,?)',(key,'turn',1000,1000))
         value=copy.deepcopy(value);value['snapshot']['revision']+=1
         session=value['snapshot']['sessions'][0]
         session['turn']={'status':'known','id':'next'};session['activity']='active'
         session['notices'][0]['acknowledgedBy'].append('nanoleaf')
-        self.s.accept(self.path,b,value,now=lambda:1001)
+        shared_source.accept(self.path,value,now=lambda:1001)
         self.assertEqual(self.rows('SELECT * FROM comets'),[])
         self.assertEqual(self.rows('SELECT status FROM sessions'),[('working',)])
 
     def test_delayed_poll_cannot_overwrite_rollback(self):
         self.select()
-        generation=self.s.source_config(self.path,b)['generation']
-        self.s.select_source(self.path,b,'legacy',now=lambda:1001)
-        self.assertFalse(self.s.accept(self.path,b,envelope(),generation=generation))
-        self.s.failed(self.path,b,generation)
+        generation=shared_source.source_config(self.path)['generation']
+        shared_source.select_source(self.path,'legacy',now=lambda:1001)
+        self.assertFalse(shared_source.accept(self.path,envelope(),generation=generation))
+        shared_source.failed(self.path,generation)
         self.assertEqual(self.rows('SELECT id FROM sessions'),[('legacy',)])
         self.assertEqual(self.s.inspect(self.path)['source'],'legacy')
 
     def test_worker_polls_and_refreshes_metadata_in_free_without_legacy_unread_reads(self):
         value=envelope();value['snapshot']['sessions'][0]['activity']='active';self.select(value)
-        b.write_json(self.path/'config.json',{'ip':'192.0.2.1','token':'fake'})
-        b.write_json(self.path/'layout.json',{'line_groups':[[100,101]],'line_positions':[[0,0]]})
-        with contextlib.closing(b.connect_state(self.path)) as db,db:
+        jsonfile.write_json(self.path/'config.json',{'ip':'192.0.2.1','token':'fake'})
+        jsonfile.write_json(self.path/'layout.json',{'line_groups':[[100,101]],'line_positions':[[0,0]]})
+        with contextlib.closing(database.connect_state(self.path)) as db,db:
             db.execute("INSERT OR REPLACE INTO meta VALUES ('mode','free')")
         calls=[]
         def fetch(config,minimum_revision=0):
@@ -496,7 +501,7 @@ class CommandTest(SelectionTest):
 
     def test_acknowledgment_persists_exact_request_and_never_marks_read(self):
         self.config['controlTokenFile']=str(self.path/'control-token')
-        self.s.configure(self.path,b,self.config);self.select()
+        shared_source.configure(self.path,self.config);self.select()
         key=self.s.identity_key(fixture()['sessions'][0]['identity'])
         notice='a'*64; requests=[]
         def post(config,suffix,body=None,control=False):
@@ -504,14 +509,14 @@ class CommandTest(SelectionTest):
             if len(requests)==1:raise self.s.FeedError('feed-unavailable')
             return {'ok':True,'revision':3,'outcome':'applied'}
         with patch.object(self.s,'fetch_snapshot',return_value=envelope()),patch.object(self.s,'request',side_effect=post):
-            with self.assertRaises(self.s.FeedError):self.s.acknowledge(self.path,b,key,notice)
-            with self.assertRaises(self.s.FeedError):self.s.acknowledge(self.path,b,key,notice)
-            self.s.acknowledge(self.path,b,key,notice,retry=True)
+            with self.assertRaises(self.s.FeedError):shared_source.acknowledge(self.path,key,notice)
+            with self.assertRaises(self.s.FeedError):shared_source.acknowledge(self.path,key,notice)
+            shared_source.acknowledge(self.path,key,notice,retry=True)
         self.assertEqual(len(requests),2);self.assertEqual(requests[0],requests[1])
         self.assertEqual(requests[0]['consumerId'],'nanoleaf')
         self.assertEqual(requests[0]['requestId'],'request-1')
         self.assertEqual(self.rows('SELECT status FROM sessions'),[( 'unread',)])
-        self.assertEqual(self.s.source_config(self.path,b)['envelope']['snapshot']['sessions'][0]['read'],'unknown')
+        self.assertEqual(shared_source.source_config(self.path)['envelope']['snapshot']['sessions'][0]['read'],'unknown')
 
 class ReleaseTest(unittest.TestCase):
     def test_pinned_archive_and_extracted_files(self):
@@ -559,10 +564,10 @@ class StartupTest(SelectionTest):
         import wall_server
         config={'line_groups':[[100,101]],'line_positions':[[0,0]]}
         launches=[]
-        wall_server.App(self.path,b,config=config,launch=lambda path:launches.append(path))
+        wall_server.App(self.path,config=config,launch=lambda path:launches.append(path))
         self.assertEqual(launches,[])
         self.select()
-        wall_server.App(self.path,b,config=config,launch=lambda path:launches.append(path))
+        wall_server.App(self.path,config=config,launch=lambda path:launches.append(path))
         self.assertEqual(launches,[self.path])
 
 
@@ -571,20 +576,20 @@ class DeviceSwitchTest(unittest.TestCase):
     setUp=SelectionTest.setUp; select=SelectionTest.select; rows=SelectionTest.rows
 
     def test_switching_preserves_bound_placements_on_every_device(self):
-        with contextlib.closing(b.connect_state(self.path)) as db,db:
+        with contextlib.closing(database.connect_state(self.path)) as db,db:
             db.execute("INSERT INTO slots (session, slot, device) VALUES ('legacy',4,'panels')")
         self.select(); key=self.s.identity_key(fixture()['sessions'][0]['identity'])
         self.assertEqual(sorted(self.rows('SELECT session,slot,device FROM slots')),[(key,0,'wall'),(key,4,'panels')])
-        with contextlib.closing(b.connect_state(self.path)) as db,db:
+        with contextlib.closing(database.connect_state(self.path)) as db,db:
             db.execute("UPDATE slots SET slot=7 WHERE session=? AND device='panels'",(key,))
             db.execute("UPDATE slots SET slot=2 WHERE session=? AND device='wall'",(key,))
-        self.s.select_source(self.path,b,'legacy',now=lambda:1005)
+        shared_source.select_source(self.path,'legacy',now=lambda:1005)
         self.assertEqual(sorted(self.rows('SELECT session,slot,device FROM slots')),[('legacy',2,'wall'),('legacy',7,'panels')])
 
     def test_shared_completion_queues_comets_on_registered_work_devices(self):
-        b.write_json(self.path/'config.json',{'ip':'192.0.2.1','token':'fake','panelsToken':'other','devices':{
+        jsonfile.write_json(self.path/'config.json',{'ip':'192.0.2.1','token':'fake','panelsToken':'other','devices':{
             'panels':{'kind':'panels','ip':'192.0.2.2','token_ref':'panelsToken'}}})
-        b.set_mode(self.path,'quiet',launch=lambda _:None,device='panels')
+        modes.set_mode(self.path,'quiet',launch=lambda _:None,device='panels')
         def complete(revision):
             active=envelope(); first=active['snapshot']['sessions'][0]; notice=first['notices'].pop()
             first['activity']='active'; active['snapshot']['revision']=revision
@@ -593,14 +598,14 @@ class DeviceSwitchTest(unittest.TestCase):
             return active,done
         active,done=complete(1)
         self.select(active)
-        self.s.accept(self.path,b,done,now=lambda:1001)
+        shared_source.accept(self.path,done,now=lambda:1001)
         self.assertEqual(self.rows('SELECT device FROM comets'),[('wall',)])
-        with contextlib.closing(b.connect_state(self.path)) as db,db:
+        with contextlib.closing(database.connect_state(self.path)) as db,db:
             db.execute('DELETE FROM comets')
-        b.set_mode(self.path,'work',launch=lambda _:None,device='panels')
+        modes.set_mode(self.path,'work',launch=lambda _:None,device='panels')
         active,done=complete(3)
-        self.s.accept(self.path,b,active,now=lambda:1002)
-        self.s.accept(self.path,b,done,now=lambda:1003)
+        shared_source.accept(self.path,active,now=lambda:1002)
+        shared_source.accept(self.path,done,now=lambda:1003)
         self.assertEqual(sorted(self.rows('SELECT device FROM comets')),[('panels',),('wall',)])
 
 
@@ -649,14 +654,14 @@ class ChildSessionTest(SelectionTest):
 
     def advance(self, instant, resync=False):
         self.value = recount(copy.deepcopy(self.value)); self.value['snapshot']['revision'] += 1
-        self.s.accept(self.path, b, self.value, now=lambda: instant, resync=resync)
+        shared_source.accept(self.path, self.value, now=lambda: instant, resync=resync)
         self.root = self.value['snapshot']['sessions'][0]
 
     def tasks(self, instant):
         import wall_server
-        with contextlib.closing(b.connect_state(self.path)) as db, db:
+        with contextlib.closing(database.connect_state(self.path)) as db, db:
             b.dashboard(db, self.LAYOUT, instant)
-        app = wall_server.App(self.path, b, config={k: v for k, v in self.LAYOUT.items() if k != '_mode'}, launch=lambda _: None)
+        app = wall_server.App(self.path, config={k: v for k, v in self.LAYOUT.items() if k != '_mode'}, launch=lambda _: None)
         with patch.object(wall_server.time, 'time', return_value=instant):
             tasks = app.state()['tasks']
         lines = {'100:101': 100, '102:103': 102, None: None}
@@ -667,7 +672,7 @@ class ChildSessionTest(SelectionTest):
         self.assertEqual(self.tasks(1000)[self.key][:2], ('unread', 100))
         self.root['read'] = 'read'; self.advance(1001)
         self.assertEqual(self.tasks(1001)[self.key][:2], ('idle', 100))
-        with contextlib.closing(b.connect_state(self.path)) as db, db:
+        with contextlib.closing(database.connect_state(self.path)) as db, db:
             snap = b.dashboard(db, self.LAYOUT, 1001)
             config = copy.deepcopy(self.LAYOUT)
             self.s.render_config(db, config)
@@ -675,24 +680,24 @@ class ChildSessionTest(SelectionTest):
                 self.assertEqual(b.zone_color(config, snap, 0, 0, instant, [[0, 1], [1, 0]]), b.BASELINE)
         self.assertEqual(self.rows('SELECT session FROM comets'), [])
         self.value['snapshot']['sessions'] = []; self.value['snapshot']['revision'] += 1
-        self.s.accept(self.path, b, self.value, now=lambda:1003)
+        shared_source.accept(self.path, self.value, now=lambda:1003)
         self.assertEqual(self.tasks(1003), {})
         self.assertEqual(self.rows('SELECT session FROM slots'), [])
 
     def wall_app(self, device='wall'):
         import wall_server
-        return wall_server.App(self.path, b, config=dict(self.LAYOUT, device=device), launch=lambda _:None)
+        return wall_server.App(self.path, config=dict(self.LAYOUT, device=device), launch=lambda _:None)
 
     def test_eviction_is_device_local_and_survives_read_reconnect_and_restart(self):
         self.select(self.value)
         app = self.wall_app(); other = self.wall_app('panels')
         self.tasks(1000)
-        with contextlib.closing(b.connect_state(self.path)) as db, db:
+        with contextlib.closing(database.connect_state(self.path)) as db, db:
             b.dashboard(db, dict(self.LAYOUT, device='panels'), 1000)
             for device in ('wall', 'panels'):
                 db.execute('INSERT INTO comets (session,turn,queued,source,started,device) VALUES (?,?,?,?,?,?)',
                            (self.key, self.root['turn']['id'], 1000, 0, 1000, device))
-        before = copy.deepcopy(self.s.source_config(self.path,b)['envelope'])
+        before = copy.deepcopy(shared_source.source_config(self.path)['envelope'])
         task = app.state()['tasks'][0]
         payload = {'id':task['id'], 'evictionToken':task['evictionToken']}
         with patch.object(self.s, 'request', side_effect=AssertionError('Evict must not write to the shared owner')):
@@ -700,13 +705,13 @@ class ChildSessionTest(SelectionTest):
             app.update('/api/evict', payload)
         self.assertEqual(app.state()['tasks'], [])
         self.assertEqual(self.tasks(1000), {})
-        self.assertEqual(self.s.source_config(self.path,b)['envelope'], before)
+        self.assertEqual(shared_source.source_config(self.path)['envelope'], before)
         self.assertEqual(self.rows('SELECT device FROM slots'), [('panels',)])
         self.assertEqual(self.rows('SELECT device FROM comets'), [('panels',)])
         self.assertEqual(len(other.state()['tasks']), 1)
         self.root['read'] = 'read'; self.advance(1001)
-        generation = self.s.source_config(self.path,b)['generation']
-        self.s.failed(self.path,b,generation)
+        generation = shared_source.source_config(self.path)['generation']
+        shared_source.failed(self.path,generation)
         self.advance(1002, resync=True)
         self.assertEqual(self.wall_app().state()['tasks'], [], 'Saved eviction survives a new App/database connection')
         self.assertEqual(self.tasks(1002), {})
@@ -767,16 +772,16 @@ class ChildSessionTest(SelectionTest):
         self.root['activity']='active';self.advance(1001)
         self.root['activity']='idle';self.root['read']='read';self.advance(1002)
         self.assertEqual(self.tasks(1002),{})
-        self.s.select_source(self.path,b,'legacy',now=lambda:1003)
+        shared_source.select_source(self.path,'legacy',now=lambda:1003)
         self.assertNotIn('evictionToken',app.state()['tasks'][0])
         with self.assertRaises(ValueError): app.update('/api/evict',payload)
-        self.s.select_source(self.path,b,'shared',fetch=lambda *_,**kwargs:self.value,now=lambda:1004)
+        shared_source.select_source(self.path,'shared',fetch=lambda *_,**kwargs:self.value,now=lambda:1004)
         with self.assertRaises(ValueError): app.update('/api/evict',payload)
         self.assertIn(self.key,self.tasks(1004))
         task=app.state()['tasks'][0]
         app.update('/api/evict',{'id':task['id'],'evictionToken':task['evictionToken']})
         self.value['snapshot']['sessions']=[];self.value['snapshot']['revision']+=1
-        self.s.accept(self.path,b,self.value,now=lambda:1005)
+        shared_source.accept(self.path,self.value,now=lambda:1005)
         self.assertEqual(self.rows('SELECT session FROM shared_evictions'),[])
 
     def test_subagent_children_are_part_of_their_parent_task(self):
@@ -820,7 +825,7 @@ class ChildSessionTest(SelectionTest):
         peer_key = self.s.identity_key(peer['identity'])
         self.select(recount(self.value))
         # State that the earlier projection left behind: the child held the second Line.
-        with contextlib.closing(b.connect_state(self.path)) as db, db:
+        with contextlib.closing(database.connect_state(self.path)) as db, db:
             db.execute("INSERT INTO sessions VALUES (?,'','unread',1000)", (child_key,))
             db.execute("INSERT INTO activity VALUES (?,'','unread',1000)", (child_key,))
             db.execute("INSERT INTO task_info VALUES (?,'','',NULL,NULL,'',NULL)", (child_key,))
@@ -873,7 +878,7 @@ class ChildSessionTest(SelectionTest):
         self.advance(1004)
         self.assertEqual(self.tasks(1004), {self.key: ('unread', 100, 'current')})
         self.assertEqual(self.rows('SELECT session FROM comets'), [(self.key,)])
-        with contextlib.closing(b.connect_state(self.path)) as db, db: db.execute('DELETE FROM comets')
+        with contextlib.closing(database.connect_state(self.path)) as db, db: db.execute('DELETE FROM comets')
         epoch = self.rows('SELECT started FROM activity')
         # Uncertain evidence keeps the retained notice and its Line steady. Owner read evidence
         # or full acknowledgment would clear it (#88); uncertain activity does not.
@@ -917,7 +922,7 @@ class ChildSessionTest(SelectionTest):
         self.assertEqual(self.rows('SELECT started FROM activity'), [(992.0,)])
         # Before this, a first projection with no retained row also stays steady.
         self.value['snapshot']['sessions'][1] = child_of(self.root, 'late', attention=('approval',), fresh=False)
-        with contextlib.closing(b.connect_state(self.path)) as db, db: db.execute('DELETE FROM sessions')
+        with contextlib.closing(database.connect_state(self.path)) as db, db: db.execute('DELETE FROM sessions')
         self.advance(1004)
         self.assertEqual(self.tasks(1004), {self.key: ('blocked', 100, 'uncertain')})
         self.assertEqual(self.rows('SELECT started FROM activity'), [(994.0,)])
@@ -1045,13 +1050,13 @@ class StaleReadEvidenceTest(SelectionTest):
         value = copy.deepcopy(value); value['snapshot']['revision'] += 1
         for session in value['snapshot']['sessions']:
             session['freshness'] = 'uncertain'; session['restartUncertain'] = True
-        self.s.accept(self.path, b, value, now=lambda: 1001)
+        shared_source.accept(self.path, value, now=lambda: 1001)
         return value
 
     def change(self, value, instant, update, index=0):
         value = copy.deepcopy(value); value['snapshot']['revision'] += 1
         update(value['snapshot']['sessions'][index])
-        self.s.accept(self.path, b, value, now=lambda: instant)
+        shared_source.accept(self.path, value, now=lambda: instant)
         return value
 
     def stale_unread(self):
@@ -1105,7 +1110,7 @@ class StaleReadEvidenceTest(SelectionTest):
 
     def test_a_read_stale_task_keeps_its_line_until_evicted(self):
         def line_holders(instant):
-            with contextlib.closing(b.connect_state(self.path)) as db, db:
+            with contextlib.closing(database.connect_state(self.path)) as db, db:
                 b.dashboard(db, self.LAYOUT, instant)
                 return db.execute('SELECT session FROM slots').fetchall()
         value = envelope(); self.select(value)
@@ -1114,12 +1119,12 @@ class StaleReadEvidenceTest(SelectionTest):
         value = self.stale(value)
         waiting = copy.deepcopy(fixture()['sessions'][0]); waiting['identity']['sessionId'] = 'waiting'
         value = copy.deepcopy(value); value['snapshot']['revision'] += 1; value['snapshot']['sessions'].append(waiting)
-        self.s.accept(self.path, b, value, now=lambda: 1002)
+        shared_source.accept(self.path, value, now=lambda: 1002)
         self.assertEqual(line_holders(1002), [(stale_key,)])
         self.change(value, 1003, lambda session: session.update(read='read'))
         self.assertEqual(line_holders(1003), [(stale_key,)])
         import wall_server
-        app=wall_server.App(self.path,b,config=self.LAYOUT,launch=lambda _:None)
+        app=wall_server.App(self.path,config=self.LAYOUT,launch=lambda _:None)
         task=next(task for task in app.state()['tasks'] if task['id']==stale_key)
         app.update('/api/evict',{'id':stale_key,'evictionToken':task['evictionToken']})
         self.assertEqual(line_holders(1004), [(self.s.identity_key(waiting['identity']),)])
@@ -1162,7 +1167,7 @@ class UndeclaredSourceTest(SelectionTest):
         self.advance(1001)
         self.assertEqual(self.tasks(1001), {self.key: ('working', 100, 'current')})
         self.assertEqual(self.s.inspect(self.path, now=lambda: 1001)['connection'], 'current')
-        stored = self.s.source_config(self.path, b)['envelope']['snapshot']['sessions']
+        stored = shared_source.source_config(self.path)['envelope']['snapshot']['sessions']
         self.assertEqual([session['identity']['provider'] for session in stored], ['codex'])
         self.assertEqual(self.rows('SELECT * FROM comets'), [])
 
@@ -1188,11 +1193,11 @@ class UndeclaredSourceTest(SelectionTest):
         self.assertEqual(self.skipped()['sessions'], 2)
         # The skipped session's notice cannot be acknowledged through Nanoleaf.
         self.config['controlTokenFile'] = str(self.path / 'control-token')
-        with contextlib.closing(b.connect_state(self.path)) as db, db:
+        with contextlib.closing(database.connect_state(self.path)) as db, db:
             db.execute('UPDATE shared_input SET config=?', (self.s.dumps(self.config),))
         with patch.object(self.s, 'fetch_snapshot', return_value=self.value), patch.object(self.s, 'request') as post:
             with self.assertRaises(self.s.FeedError) as raised:
-                self.s.acknowledge(self.path, b, self.s.identity_key(parent['identity']), parent['notices'][0]['id'])
+                shared_source.acknowledge(self.path, self.s.identity_key(parent['identity']), parent['notices'][0]['id'])
         self.assertEqual(str(raised.exception), 'notice-unavailable'); post.assert_not_called()
 
     def test_declared_subagent_of_an_undeclared_parent_follows_the_missing_parent_rule(self):
@@ -1223,10 +1228,10 @@ class UndeclaredSourceTest(SelectionTest):
         self.value['snapshot']['sessions'][1]['activity'] = 'idle'
         self.value['snapshot']['sessions'][1]['notices'][0]['id'] = 'b' * 64
         self.advance(1001)
-        self.s.select_source(self.path, b, 'legacy', now=lambda: 1002)
-        self.s.configure(self.path, b, dict(self.config, qualifiedSources=[*self.config['qualifiedSources'], self.CLAUDE]))
+        shared_source.select_source(self.path, 'legacy', now=lambda: 1002)
+        shared_source.configure(self.path, dict(self.config, qualifiedSources=[*self.config['qualifiedSources'], self.CLAUDE]))
         self.value = recount(copy.deepcopy(self.value)); self.value['snapshot']['revision'] += 1
-        self.s.select_source(self.path, b, 'shared', fetch=lambda *_, **__: self.value, now=lambda: 1003)
+        shared_source.select_source(self.path, 'shared', fetch=lambda *_, **__: self.value, now=lambda: 1003)
         self.assertEqual(self.tasks(1003)[claude_key][0], 'unread')
         self.assertEqual(self.rows('SELECT * FROM comets'), [])
         self.assertEqual(self.rows('SELECT started FROM activity WHERE session=?'.replace('?', repr(claude_key))), [(993.0,)])

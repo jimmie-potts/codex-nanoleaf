@@ -14,10 +14,16 @@ import subprocess
 import sys
 import venv
 
-import bridge as b
+import codex_hooks
+import configuration
+import controller_server
+import database
 import devices
 # The runtime copy of this reader serves device enrollment after installation.
 from enrollment import read_token
+import jsonfile
+import project_map as wall
+import transport
 
 
 @contextlib.contextmanager
@@ -97,10 +103,10 @@ def register_hooks(hooks_file, directory, python):
     original = json.loads(hooks_file.read_text(encoding='utf-8-sig')) if hooks_file.exists() else {}
     command = shlex.join([str(python), str(directory / 'runtime/bridge/bridge.py'),
                           'hook', '--state-dir', str(directory)])
-    updated = b.merge_hooks(original, command)
+    updated = codex_hooks.merge_hooks(original, command)
     with private_files():
         hooks_file.parent.mkdir(parents=True, exist_ok=True)
-        b.write_json(hooks_file, updated)
+        jsonfile.write_json(hooks_file, updated)
 
 
 def systemd_argument(value):
@@ -145,13 +151,13 @@ def prepare_state(directory, ip, token, *, wall_port=8765, controller_port=41231
     if any(type(port) is not int or not 1024 <= port <= 65535 for port in ports) or len(set(ports)) != 3:
         raise ValueError('Choose three distinct loopback ports from 1024 through 65535.')
     config = {'ip': str(address), 'token': token}
-    layout = (request or b.light_request)(config, 'GET')['panelLayout']
-    groups = b.pair_lines(layout)
+    layout = (request or transport.light_request)(config, 'GET')['panelLayout']
+    groups = configuration.pair_lines(layout)
     zones = {p['panelId']: p for p in layout['layout']['positionData']}
     geometry = {'zone_geometry': {'orientation': layout['globalOrientation']['value'],
                                   'positionData': [p for p in zones.values() if p['shapeType'] == 18]}}
     try:
-        geometry['connector_geometry'], _ = b.wall.validated_connector_geometry({
+        geometry['connector_geometry'], _ = wall.validated_connector_geometry({
             'orientation': layout['globalOrientation']['value'],
             'positionData': layout['layout']['positionData']}, groups)
     except (ValueError, TypeError, KeyError, OverflowError):
@@ -169,24 +175,23 @@ def prepare_state(directory, ip, token, *, wall_port=8765, controller_port=41231
     with private_files():
         directory.mkdir(mode=0o700, parents=True, exist_ok=True)
         directory.chmod(0o700)
-        b.write_json(directory / 'config.json', config)
-        b.write_json(directory / 'layout.json', saved)
-        with contextlib.closing(b.connect_state(directory)) as db, db:
+        jsonfile.write_json(directory / 'config.json', config)
+        jsonfile.write_json(directory / 'layout.json', saved)
+        with contextlib.closing(database.connect_state(directory)) as db, db:
             pass
     return directory
 
 
 def provision_machine_credentials(directory):
-    import controller_server
     with private_files():
-        controller_server.configure(directory, b, 'local-controller', 'wall', 'local-source')
-        upstream = controller_server.issue(directory, b, 'codex', ['read', 'control'])
+        controller_server.configure(directory, 'local-controller', 'wall', 'local-source')
+        upstream = controller_server.issue(directory, 'codex', ['read', 'control'])
         client = secrets.token_urlsafe(32)
-        b.write_json(directory / 'mcp-credentials.json', {'principals': [{
+        jsonfile.write_json(directory / 'mcp-credentials.json', {'principals': [{
             'id': 'codex', 'tokenSha256': hashlib.sha256(client.encode()).hexdigest(),
             'scopes': ['read', 'control'], 'upstreamToken': upstream}]})
         ports = json.loads((directory / 'config.json').read_text())
-        b.write_json(directory / 'mcp-config.json', {
+        jsonfile.write_json(directory / 'mcp-config.json', {
             'enabled': True, 'port': ports['mcp_port'], 'controllerPort': ports['controller_port'],
             'controllerId': 'local-controller', 'deviceId': 'wall',
             'transport': 'loopback-http', 'credentialsFile': str(directory / 'mcp-credentials.json')})
@@ -216,7 +221,7 @@ def install(args, request=None):
     hooks = [Path(path).expanduser().resolve() for path in args.hooks_file]
     for path in hooks:
         original = json.loads(path.read_text(encoding='utf-8-sig')) if path.exists() else {}
-        b.merge_hooks(original, 'validation-only')
+        codex_hooks.merge_hooks(original, 'validation-only')
     prepare_state(directory, args.ip, read_token(args.token_file), wall_port=args.wall_port,
                   controller_port=args.controller_port, mcp_port=args.mcp_port,
                   desktop_state_path=args.desktop_state_path, metadata_path=args.metadata_path,

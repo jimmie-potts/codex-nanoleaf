@@ -12,6 +12,9 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from test_bridge import b
+import database
+import jsonfile
+import modes
 from test_panels import layout as panels_layout
 import devices
 import panels
@@ -33,10 +36,6 @@ class WallDeviceTest(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name)
-        for name in ('light_request', 'launch_worker'):
-            patcher = patch.object(b, name, refuse if name == 'light_request' else lambda *a, **k: None)
-            patcher.start()
-            self.addCleanup(patcher.stop)
         self.write_registry(with_panels=False)
         self.panels_entry = panels.read_layout(panels_layout())
 
@@ -51,14 +50,14 @@ class WallDeviceTest(unittest.TestCase):
             config['devices']['panels'] = {'kind': 'panels', 'ip': '192.0.2.2', 'token_ref': 'panelsToken'}
             if save_panels_layout:
                 saved['panels'] = panels.read_layout(panels_layout())
-        b.write_json(self.directory / 'config.json', config)
+        jsonfile.write_json(self.directory / 'config.json', config)
         devices.save_layout(self.directory / 'layout.json', saved)
 
     def app(self):
-        return wall_server.App(self.directory, b, launch=lambda *_: None)
+        return wall_server.App(self.directory, launch=lambda *_: None, request=refuse)
 
     def db(self):
-        return contextlib.closing(b.connect_state(self.directory))
+        return contextlib.closing(database.connect_state(self.directory))
 
     def serve(self, app):
         server = ThreadingHTTPServer(('127.0.0.1', 0), wall_server.handler(app, 'test-secret'))
@@ -179,8 +178,8 @@ class WallDeviceTest(unittest.TestCase):
         url = self.serve(app)
         code, body = self.http(url, '/api/mode', {'mode': 'quiet', 'device': 'panels'})
         self.assertEqual((code, body), (200, {'ok': True}))
-        self.assertEqual(b.get_status(self.directory, 'panels')['mode'], 'quiet')
-        self.assertEqual(b.get_status(self.directory)['mode'], 'work')
+        self.assertEqual(modes.get_status(self.directory, 'panels')['mode'], 'quiet')
+        self.assertEqual(modes.get_status(self.directory)['mode'], 'work')
         self.assertEqual(app.state('panels')['mode'], 'quiet')
         self.assertEqual(app.state()['mode'], 'work')
         self.assertEqual(json.loads(scene.read_text())['scene']['name'], 'Beach')
@@ -188,12 +187,12 @@ class WallDeviceTest(unittest.TestCase):
         self.assertEqual(code, 400)
         self.assertIn('device', body['error'].lower())
         self.assertEqual([d['id'] for d in body['devices']], ['wall', 'panels'])
-        self.assertEqual(b.get_status(self.directory, 'panels')['mode'], 'quiet')
-        self.assertEqual(b.get_status(self.directory)['mode'], 'work')
+        self.assertEqual(modes.get_status(self.directory, 'panels')['mode'], 'quiet')
+        self.assertEqual(modes.get_status(self.directory)['mode'], 'work')
         code, body = self.http(url, '/api/mode', {'mode': 'free'})
         self.assertEqual(code, 200)
-        self.assertEqual(b.get_status(self.directory)['mode'], 'free')
-        self.assertEqual(b.get_status(self.directory, 'panels')['mode'], 'quiet')
+        self.assertEqual(modes.get_status(self.directory)['mode'], 'free')
+        self.assertEqual(modes.get_status(self.directory, 'panels')['mode'], 'quiet')
 
     # AC4: split-half settings are Lines-only.
     def test_one_zone_elements_reject_coverage_and_half_swaps(self):

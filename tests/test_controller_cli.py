@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 from test_bridge import b
+import database
 
 
 class ControllerCLITest(unittest.TestCase):
@@ -26,11 +27,11 @@ class ControllerCLITest(unittest.TestCase):
     def test_installed_commands_under_a_windows_shaped_path_open_only_local_state(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory=Path(temporary)/'User/AppData/Local/CodexNanoleaf';directory.mkdir(parents=True)
-            shutil.copyfile(b.__file__,directory/'bridge.py')
-            for name in ('project_map.py','shared_input.py','devices.py','effects.py','panels.py'):
-                shutil.copyfile(Path(b.__file__).with_name(name),directory/name)
+            # Copy the runtime modules as the Linux installer does.
+            for path in Path(b.__file__).parent.glob('*.py'):
+                if path.name!='install_linux.py': shutil.copyfile(path,directory/path.name)
             state=Path(temporary)/'state';state.mkdir()
-            with contextlib.closing(b.connect_state(state)): pass
+            with contextlib.closing(database.connect_state(state)): pass
             result=subprocess.run([sys.executable,str(directory/'bridge.py'),'status','--state-dir',str(state)],capture_output=True,text=True)
             self.assertEqual(result.returncode,0,result.stderr)
             self.assertNotIn('Windows',result.stderr)

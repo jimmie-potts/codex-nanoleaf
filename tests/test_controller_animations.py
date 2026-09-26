@@ -7,6 +7,8 @@ import unittest
 from unittest.mock import patch
 import test_scene_restore as scenes
 from test_bridge import b
+import database
+import modes
 import controller_server as server
 import effects
 import integration_api
@@ -20,17 +22,17 @@ class AnimationTest(unittest.TestCase):
 
     def setUp(self):
         scenes.SceneTest.setUp(self)
-        server.configure(self.directory, b, 'controller', 'device', 'source')
-        self.token = server.issue(self.directory, b, 'client', ['read', 'control'])
+        server.configure(self.directory, 'controller', 'device', 'source')
+        self.token = server.issue(self.directory, 'client', ['read', 'control'])
         self.launched = []
-        self.app = server.App(self.directory, b, launch=self.launched.append)
+        self.app = server.App(self.directory, launch=self.launched.append)
         # Admission and the worker share the test clock for expiry and admission order.
         for module in (integration_api, server, server.state):
             clock = patch.object(module, 'time', SimpleNamespace(time=self.clock.now, monotonic=time.monotonic))
             clock.start(); self.addCleanup(clock.stop)
 
     def mode(self, name):
-        b.set_mode(self.directory, name, launch=lambda _: None, now=self.clock.now)
+        modes.set_mode(self.directory, name, launch=lambda _: None, now=self.clock.now)
 
     def options(self):
         return self.app.integration_animations(self.token, 'device')
@@ -101,7 +103,7 @@ class AdmissionTest(AnimationTest):
         self.assertEqual(view['pending'], [req])
 
     def test_options_route_is_pure_and_the_snapshot_shape_is_unchanged(self):
-        reader = server.issue(self.directory, b, 'reader', ['read'])
+        reader = server.issue(self.directory, 'reader', ['read'])
         before = (self.directory / 'status.sqlite').read_bytes()
         view = self.app.integration_animations(reader, 'device')
         self.assertEqual((self.directory / 'status.sqlite').read_bytes(), before)
@@ -184,7 +186,7 @@ class WorkerTest(AnimationTest):
     def test_worker_restart_finishes_an_interrupted_attempt_as_uncertain(self):
         self.free()
         req, _ = self.play()
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             db.execute("UPDATE integration_requests SET phase='attempting' WHERE sequence=?", (req['requestId']['sequence'],))
         self.assertEqual(self.play()[1], (429, {'failure': {'code': 'capacity'}}))  # Still in flight.
         self.assertEqual(self.app.integration_snapshot(self.token, 'device')['pending'], [req])
@@ -214,9 +216,9 @@ class WorkerTest(AnimationTest):
         req, _ = self.play()
         self.assertEqual(self.app.integration_cancel(self.token, 'device', req['requestId'])[1]['outcome'], 'cancelled')
         req, _ = self.play()
-        server.revoke(self.directory, b, 'client')
+        server.revoke(self.directory, 'client')
         self.assertEqual((self.receipt(req)['outcome'], self.receipt(req)['failure']), ('cancelled', {'code': 'forbidden'}))
-        self.token = server.issue(self.directory, b, 'client', ['read', 'control'])
+        self.token = server.issue(self.directory, 'client', ['read', 'control'])
         req, _ = self.play()
         self.clock.sleep(31)
         self.run_worker()
@@ -237,8 +239,8 @@ class WorkerTest(AnimationTest):
         self.assertEqual((self.receipt(req)['outcome'], self.receipt(req)['failure']), ('cancelled', {'code': 'stale-generation'}))
 
     def test_revocation_or_disable_while_the_attempt_is_recorded_prevents_the_send(self):
-        interventions = {'revoke': lambda: server.revoke(self.directory, b, 'client'),
-                         'disable': lambda: server.command(['controller-disable', '--state-dir', str(self.directory)], b)}
+        interventions = {'revoke': lambda: server.revoke(self.directory, 'client'),
+                         'disable': lambda: server.command(['controller-disable', '--state-dir', str(self.directory)])}
         for name, intervene in interventions.items():
             with self.subTest(name=name):
                 self.setUp()
@@ -277,15 +279,15 @@ class WorkerTest(AnimationTest):
         self.free()
         def fail(_):
             raise OSError('launch failed')
-        self.app = server.App(self.directory, b, launch=fail)
+        self.app = server.App(self.directory, launch=fail)
         req, (code, receipt) = self.play()
         self.assertEqual((code, receipt['outcome'], receipt['failure']), (503, 'failed', {'code': 'transport-failure'}))
         self.assertEqual(hold(), revision())  # The admission's authorization does not outlive the failed launch.
-        self.app = server.App(self.directory, b, launch=lambda _: None)
+        self.app = server.App(self.directory, launch=lambda _: None)
         req, (code, _) = self.play()
         self.assertEqual((code, hold()), (202, []))
         self.clock.sleep(31)
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             db.execute('BEGIN IMMEDIATE')
             integration_api.recover(db)  # The listener's maintenance expires unsent work.
         self.assertEqual((self.receipt(req)['outcome'], self.receipt(req)['failure']), ('failed', {'code': 'request-expired'}))

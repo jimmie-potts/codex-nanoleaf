@@ -7,6 +7,7 @@ from urllib.error import HTTPError
 from unittest.mock import patch
 
 from test_bridge import b
+import configuration
 import wall_server
 
 
@@ -57,15 +58,17 @@ class PrismAssetTest(unittest.TestCase):
         import time
         source=Path(wall_server.__file__).parent
         raw=json.loads((source.parent/'tests/fixtures/lines-layout.json').read_text())
-        groups=b.pair_lines(raw)
+        groups=configuration.pair_lines(raw)
         with tempfile.TemporaryDirectory() as temporary:
             package=Path(temporary)/'package';package.mkdir()
             state=Path(temporary)/'state';state.mkdir()
-            for name in ('bridge.py','devices.py','effects.py','panels.py','project_map.py','shared_input.py','wall_server.py','integration_api.py', 'controller_state.py','controller_contract.py','wall.html','prism.js','prism-adapters.js','prism-labels.js'):
+            for path in source.glob('*.py'):
+                if path.name!='install_linux.py': shutil.copy2(path,package/path.name)
+            for name in ('wall.html','prism.js','prism-adapters.js','prism-labels.js'):
                 shutil.copy2(source/name,package/name)
             (state/'config.json').write_text(json.dumps({'ip':'192.0.2.1','token':'PRIVATE_PACKAGE_TOKEN'}))
             (state/'layout.json').write_text(json.dumps({'line_groups':groups,'line_positions':[[i,0] for i in range(15)],'zone_geometry':{'positionData':raw['layout']['positionData'],'orientation':raw['globalOrientation']['value']}}))
-            boot="import bridge as b\ndef forbidden(*a,**k): raise AssertionError('Unexpected device or worker call')\nb.light_request=forbidden\nb.launch_worker=forbidden\nb.subprocess.Popen=forbidden\nb.main()"
+            boot="import subprocess\nimport bridge\ndef forbidden(*a,**k): raise AssertionError('Unexpected device or worker call')\nsubprocess.Popen=forbidden\nbridge.main(launch=forbidden,request=forbidden)"
             child=subprocess.Popen([sys.executable,'-c',boot,'serve','--state-dir',str(state)],cwd=package,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
             try:
                 deadline=time.monotonic()+10

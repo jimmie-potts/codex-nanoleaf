@@ -4,6 +4,7 @@ import socket
 import threading
 import unittest
 import test_controller_state as state_tests
+import database
 
 
 class ControllerHTTPTest(unittest.TestCase):
@@ -43,7 +44,7 @@ class ControllerHTTPTest(unittest.TestCase):
         code,events=self.http('GET',f"/controller/v1/feed?deviceId=device&epoch={cursor['epoch']}&sequence={cursor['sequence']}")
         self.assertEqual(code,200);self.assertTrue(events)
         self.assertTrue(all(self.app.contract.validate('feed',event) for event in events))
-        self.service.revoke(self.directory,b=self.app.b,principal='client')
+        self.service.revoke(self.directory,principal='client')
         self.assertEqual(self.http('GET','/controller/v1/devices')[0],401)
 
     def test_http_strict_parser_and_body_limit(self):
@@ -59,25 +60,22 @@ class ControllerHTTPTest(unittest.TestCase):
     def test_browser_mode_post_invalidates_native_snapshot(self):
         from http.server import ThreadingHTTPServer
         from types import SimpleNamespace
-        from unittest.mock import patch
         import wall_server
         native=self.request()
-        browser=ThreadingHTTPServer(('127.0.0.1',0),wall_server.handler(SimpleNamespace(b=self.app.b,directory=self.directory),'wall-test-token'))
-        browser.app=SimpleNamespace(b=self.app.b)
+        browser=ThreadingHTTPServer(('127.0.0.1',0),wall_server.handler(SimpleNamespace(directory=self.directory,launch=lambda _:None),'wall-test-token'))
         worker=threading.Thread(target=browser.serve_forever,daemon=True);worker.start()
         try:
             connection=http.client.HTTPConnection('127.0.0.1',browser.server_port,timeout=3)
             origin=f'http://127.0.0.1:{browser.server_port}'
-            with patch.object(self.app.b,'launch_worker',return_value=None):
-                connection.request('POST','/api/mode',json.dumps({'mode':'free'}),{'Origin':origin,'X-Wall-Token':'wall-test-token','Content-Type':'application/json'})
-                response=connection.getresponse();self.assertEqual(response.status,200);response.read()
+            connection.request('POST','/api/mode',json.dumps({'mode':'free'}),{'Origin':origin,'X-Wall-Token':'wall-test-token','Content-Type':'application/json'})
+            response=connection.getresponse();self.assertEqual(response.status,200);response.read()
             connection.close()
             code,receipt=self.http('POST','/controller/v1/commands',native)
             self.assertEqual(code,409);self.assertEqual(receipt['failure']['code'],'revision-conflict')
         finally:browser.shutdown();browser.server_close();worker.join()
 
     def test_read_scope_and_actual_simultaneous_command_clients(self):
-        token=self.service.issue(self.directory,self.app.b,'reader',['read'])
+        token=self.service.issue(self.directory,'reader',['read'])
         self.assertEqual(self.http('POST','/controller/v1/commands',self.request(),headers={'Authorization':'Bearer '+token})[0],403)
         request=self.request();other=dict(request,command={'kind':'mode.set','mode':'Free'})
         results=[]
@@ -126,7 +124,7 @@ class ControllerHTTPTest(unittest.TestCase):
             connection.sendall(headers+body[:1])
             for index in (1,2):
                 time.sleep(1.3);connection.sendall(body[index:index+1])
-            with contextlib.closing(self.app.b.connect_state(self.directory)) as db:
+            with contextlib.closing(database.connect_state(self.directory)) as db:
                 db.execute('BEGIN IMMEDIATE')
                 time.sleep(1.3);connection.sendall(body[3:])
                 self.assertTrue(entered.wait(1))

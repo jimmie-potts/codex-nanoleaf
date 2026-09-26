@@ -8,6 +8,10 @@ ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('bridge', ROOT / 'bridge/bridge.py')
 bridge = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(bridge)
+import codex_hooks
+import database
+import shared_input
+import shared_source
 
 
 class HookManagementTests(unittest.TestCase):
@@ -30,7 +34,7 @@ class HookManagementTests(unittest.TestCase):
                         {'type': 'command', 'command': 'trusted', 'statusMessage': 'mine'},
                         {'type': 'command', 'command': 'python3 /old/linux/bridge.py hook',
                          'commandWindows': 'powershell.exe -EncodedCommand abc',
-                         'timeout': 5, 'statusMessage': bridge.MARKER},
+                         'timeout': 5, 'statusMessage': codex_hooks.MARKER},
                     ]},
                     {'matcher': 'Bash', 'hooks': [
                         {'type': 'command', 'command': 'hub', 'statusMessage': 'shared-hook'}
@@ -48,9 +52,9 @@ class HookManagementTests(unittest.TestCase):
 
     def raw_group(self, raw, event, group_index):
         text = raw.decode('utf-8-sig')
-        root = bridge.json_spans(text)
-        hooks = bridge.json_member(root, 'hooks')[3]
-        groups = bridge.json_member(hooks, event)[3][3]
+        root = codex_hooks.json_spans(text)
+        hooks = codex_hooks.json_member(root, 'hooks')[3]
+        groups = codex_hooks.json_member(hooks, event)[3][3]
         node = groups[group_index]
         return text[node[1]:node[2]].encode()
 
@@ -59,7 +63,7 @@ class HookManagementTests(unittest.TestCase):
         preserved = {event: self.raw_group(before, event, 0)
                      for event in ('PreToolUse', 'PostToolUse')}
         shared_group = self.raw_group(before, 'Stop', 1)
-        bridge.manage_hooks(self.home, 'remove', script=Path('/opt/nanoleaf/bridge.py'))
+        codex_hooks.manage_hooks(self.home, 'remove', script=Path('/opt/nanoleaf/bridge.py'))
         after = self.hooks.read_bytes()
         for event, raw_group in preserved.items():
             self.assertEqual(self.raw_group(after, event, 0), raw_group)
@@ -78,80 +82,80 @@ class HookManagementTests(unittest.TestCase):
     def test_hook_command_is_one_linux_command_without_a_windows_variant(self):
         import shlex
         import sys
-        command = bridge.hook_command(Path('/opt/nanoleaf/bridge.py'), state_dir=Path('/state'))
+        command = codex_hooks.hook_command(Path('/opt/nanoleaf/bridge.py'), state_dir=Path('/state'))
         self.assertIsInstance(command, str)
         self.assertEqual(shlex.split(command), [sys.executable, '/opt/nanoleaf/bridge.py', 'hook', '--state-dir', '/state'])
-        registered = bridge.merge_hooks({}, command)
+        registered = codex_hooks.merge_hooks({}, command)
         for group in registered['hooks']['Stop']:
             for handler in group['hooks']:
                 self.assertNotIn('commandWindows', handler)
 
     def test_repeated_remove_and_register_are_idempotent(self):
-        bridge.manage_hooks(self.home, 'remove', script=Path('/opt/nanoleaf/bridge.py'))
+        codex_hooks.manage_hooks(self.home, 'remove', script=Path('/opt/nanoleaf/bridge.py'))
         after_remove = self.hooks.read_bytes()
-        bridge.manage_hooks(self.home, 'remove', script=Path('/opt/nanoleaf/bridge.py'))
+        codex_hooks.manage_hooks(self.home, 'remove', script=Path('/opt/nanoleaf/bridge.py'))
         self.assertEqual(self.hooks.read_bytes(), after_remove)
-        bridge.manage_hooks(self.home, 'register', script=Path('/opt/nanoleaf/bridge.py'))
+        codex_hooks.manage_hooks(self.home, 'register', script=Path('/opt/nanoleaf/bridge.py'))
         after_register = self.read()
-        self.assertEqual(sum(h.get('statusMessage') == bridge.MARKER
+        self.assertEqual(sum(h.get('statusMessage') == codex_hooks.MARKER
                              for group in after_register['hooks']['Stop']
                              for h in group.get('hooks', [])), 1)
         self.assertIn(self.original['hooks']['Stop'][0]['hooks'][1],
                       [h for group in after_register['hooks']['Stop'] for h in group.get('hooks', [])])
         self.assertEqual(after_register['hooks']['PreToolUse'][0], self.original['hooks']['PreToolUse'][0])
         self.assertEqual(after_register['hooks']['PostToolUse'][0], self.original['hooks']['PostToolUse'][0])
-        self.assertTrue(bridge.has_legacy_hooks(self.home))
+        self.assertTrue(codex_hooks.has_legacy_hooks(self.home))
         self.assertEqual(after_register['hooks']['Stop'][1], self.original['hooks']['Stop'][1])
         self.assertEqual(self.raw_group(self.hooks.read_bytes(), 'PreToolUse', 0),
                          self.raw_group(after_remove, 'PreToolUse', 0))
         registered = self.hooks.read_bytes()
-        bridge.manage_hooks(self.home, 'register', script=Path('/opt/nanoleaf/bridge.py'))
+        codex_hooks.manage_hooks(self.home, 'register', script=Path('/opt/nanoleaf/bridge.py'))
         self.assertEqual(self.hooks.read_bytes(), registered)
 
     def test_register_without_backup_adds_hooks_to_the_explicit_home(self):
         other = self.home / 'other-client'
-        self.assertTrue(bridge.manage_hooks(other, 'register', script=Path('/opt/nanoleaf/bridge.py')))
+        self.assertTrue(codex_hooks.manage_hooks(other, 'register', script=Path('/opt/nanoleaf/bridge.py')))
         installed = json.loads((other / 'hooks.json').read_text())
-        self.assertTrue(bridge.has_legacy_hooks(other))
-        self.assertEqual(installed['hooks']['UserPromptSubmit'][0]['hooks'][0]['statusMessage'], bridge.MARKER)
+        self.assertTrue(codex_hooks.has_legacy_hooks(other))
+        self.assertEqual(installed['hooks']['UserPromptSubmit'][0]['hooks'][0]['statusMessage'], codex_hooks.MARKER)
 
     def test_register_preserves_complete_hook_positions_and_bytes(self):
-        value = bridge.merge_hooks({}, 'python3 /trusted/bridge.py hook')
+        value = codex_hooks.merge_hooks({}, 'python3 /trusted/bridge.py hook')
         value['hooks']['Stop'].append(self.original['hooks']['Stop'][1])
         self.hooks.write_text(json.dumps(value, indent=4) + '\n')
         before = self.hooks.read_bytes()
-        self.assertFalse(bridge.manage_hooks(self.home, 'register', script=Path('/new/bridge.py')))
+        self.assertFalse(codex_hooks.manage_hooks(self.home, 'register', script=Path('/new/bridge.py')))
         self.assertEqual(self.hooks.read_bytes(), before)
         self.assertEqual(list(self.home.glob('hooks.nanoleaf-backup-*.json')), [])
 
     def test_round_trip_restores_group_and_mixed_handler_positions(self):
-        value = bridge.merge_hooks({}, 'python3 /trusted/bridge.py hook')
+        value = codex_hooks.merge_hooks({}, 'python3 /trusted/bridge.py hook')
         # A mixed group exercises handler indices; a following shared group
         # exercises group indices. Both belong to Codex's saved trust identity.
         value['hooks']['Stop'][0]['hooks'].insert(0, self.original['hooks']['Stop'][0]['hooks'][0])
         value['hooks']['Stop'].append(self.original['hooks']['Stop'][1])
         self.hooks.write_bytes(b'\xef\xbb\xbf' + (json.dumps(value, indent=4) + '\r\n').encode())
         before = self.hooks.read_bytes()
-        bridge.manage_hooks(self.home, 'remove', script=Path('/new/bridge.py'))
-        bridge.manage_hooks(self.home, 'register', script=Path('/new/bridge.py'))
+        codex_hooks.manage_hooks(self.home, 'remove', script=Path('/new/bridge.py'))
+        codex_hooks.manage_hooks(self.home, 'register', script=Path('/new/bridge.py'))
         self.assertEqual(self.hooks.read_bytes(), before)
 
     def test_registration_preserves_edits_made_after_removal(self):
-        bridge.manage_hooks(self.home, 'remove', script=Path('/new/bridge.py'))
+        codex_hooks.manage_hooks(self.home, 'remove', script=Path('/new/bridge.py'))
         edited = self.read()
         edited['description'] = 'changed after removal'
         edited['hooks']['Stop'].append({'hooks': [{'type': 'command', 'command': 'new peer'}]})
         self.hooks.write_text(json.dumps(edited, indent=3))
         retained = self.hooks.read_bytes()
-        bridge.manage_hooks(self.home, 'register', script=Path('/new/bridge.py'))
+        codex_hooks.manage_hooks(self.home, 'register', script=Path('/new/bridge.py'))
         self.assertEqual(self.read()['description'], edited['description'])
         for index in range(len(edited['hooks']['Stop'])):
             self.assertEqual(self.raw_group(self.hooks.read_bytes(), 'Stop', index),
                              self.raw_group(retained, 'Stop', index))
-        self.assertTrue(bridge.has_legacy_hooks(self.home))
+        self.assertTrue(codex_hooks.has_legacy_hooks(self.home))
 
     def test_invalid_backups_are_skipped_before_restoring_positions(self):
-        bridge.manage_hooks(self.home, 'remove', script=Path('/new/bridge.py'))
+        codex_hooks.manage_hooks(self.home, 'remove', script=Path('/new/bridge.py'))
         removed = self.hooks.read_bytes()
         duplicate = (b'{"hooks":{},"hooks":' + json.dumps(self.original['hooks']).encode() + b'}')
         invalid_group = dict(self.original, hooks={**self.original['hooks'], 'Interrupt': [None]})
@@ -160,16 +164,16 @@ class HookManagementTests(unittest.TestCase):
             with self.subTest(raw=raw):
                 self.hooks.write_bytes(removed)
                 backup.write_bytes(raw)
-                bridge.manage_hooks(self.home, 'register', script=Path('/new/bridge.py'))
+                codex_hooks.manage_hooks(self.home, 'register', script=Path('/new/bridge.py'))
                 self.assertEqual(self.read()['hooks']['Stop'], self.original['hooks']['Stop'])
-                self.assertTrue(bridge.has_legacy_hooks(self.home))
+                self.assertTrue(codex_hooks.has_legacy_hooks(self.home))
 
     def test_malformed_hooks_are_left_byte_for_byte_untouched(self):
         for malformed in (b'{not json\n', b'', b'{', b'{"hooks":'):
             with self.subTest(malformed=malformed):
                 self.hooks.write_bytes(malformed)
                 with self.assertRaises(ValueError):
-                    bridge.manage_hooks(self.home, 'remove', script=Path('/opt/nanoleaf/bridge.py'))
+                    codex_hooks.manage_hooks(self.home, 'remove', script=Path('/opt/nanoleaf/bridge.py'))
                 self.assertEqual(self.hooks.read_bytes(), malformed)
 
     def test_failed_atomic_replacement_leaves_original_hooks_untouched(self):
@@ -177,17 +181,17 @@ class HookManagementTests(unittest.TestCase):
         before = self.hooks.read_bytes()
         with patch.object(Path, 'replace', side_effect=OSError('fixture replacement failure')):
             with self.assertRaises(OSError):
-                bridge.manage_hooks(self.home, 'remove', script=Path('/opt/nanoleaf/bridge.py'))
+                codex_hooks.manage_hooks(self.home, 'remove', script=Path('/opt/nanoleaf/bridge.py'))
         self.assertEqual(self.hooks.read_bytes(), before)
         self.assertEqual(list(self.home.glob('.hooks-*.tmp')), [])
 
     def test_register_completes_partial_hooks_and_preserves_existing_commands(self):
-        self.assertFalse(bridge.has_legacy_hooks(self.home))
+        self.assertFalse(codex_hooks.has_legacy_hooks(self.home))
         before = self.hooks.read_bytes()
-        bridge.manage_hooks(self.home, 'register', script=Path('/opt/nanoleaf/bridge.py'))
-        self.assertTrue(bridge.has_legacy_hooks(self.home))
+        codex_hooks.manage_hooks(self.home, 'register', script=Path('/opt/nanoleaf/bridge.py'))
+        self.assertTrue(codex_hooks.has_legacy_hooks(self.home))
         marked = [h for group in self.read()['hooks']['Stop'] for h in group['hooks']
-                  if h.get('statusMessage') == bridge.MARKER]
+                  if h.get('statusMessage') == codex_hooks.MARKER]
         self.assertEqual(marked, [self.original['hooks']['Stop'][0]['hooks'][1]])
         for index in (0, 1):
             self.assertEqual(self.raw_group(self.hooks.read_bytes(), 'Stop', index),
@@ -203,7 +207,7 @@ class HookManagementTests(unittest.TestCase):
         (state_dir / 'runtime').mkdir(parents=True)
         (state_dir / 'runtime' / 'bridge').symlink_to(ROOT / 'bridge', target_is_directory=True)
         launcher = install_linux.write_launcher(state_dir, Path(bridge.sys.executable))
-        with contextlib.closing(bridge.connect_state(state_dir)) as db, db:
+        with contextlib.closing(database.connect_state(state_dir)) as db, db:
             db.execute("UPDATE shared_input SET source='shared' WHERE id=1")
         codex_home = self.home / 'launcher-codex'
         def run(operation):
@@ -216,20 +220,20 @@ class HookManagementTests(unittest.TestCase):
         before = (state_dir / 'status.sqlite').read_bytes()
         result = run('remove')
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertFalse(bridge.has_legacy_hooks(codex_home))
+        self.assertFalse(codex_hooks.has_legacy_hooks(codex_home))
         self.assertEqual((state_dir / 'status.sqlite').read_bytes(), before)
         result = run('register')
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue(bridge.has_legacy_hooks(codex_home))
+        self.assertTrue(codex_hooks.has_legacy_hooks(codex_home))
         restored = json.loads((codex_home / 'hooks.json').read_text())['hooks']['UserPromptSubmit'][0]['hooks'][0]['command']
         self.assertEqual(restored, command)
 
     def test_duplicate_keys_are_rejected_before_mutation(self):
         duplicate = (b'{"hooks":{},"hooks":{"Stop":[{"hooks":[{"type":"command",'
-                    b'"command":"old","statusMessage":"' + bridge.MARKER.encode() + b'"}]}]}}')
+                    b'"command":"old","statusMessage":"' + codex_hooks.MARKER.encode() + b'"}]}]}}')
         self.hooks.write_bytes(duplicate)
         with self.assertRaisesRegex(ValueError, 'duplicate JSON object key'):
-            bridge.manage_hooks(self.home, 'remove', script=Path('/opt/nanoleaf/bridge.py'))
+            codex_hooks.manage_hooks(self.home, 'remove', script=Path('/opt/nanoleaf/bridge.py'))
         self.assertEqual(self.hooks.read_bytes(), duplicate)
         self.assertEqual(list(self.home.glob('hooks.nanoleaf-backup-*.json')), [])
 
@@ -237,52 +241,43 @@ class HookManagementTests(unittest.TestCase):
         duplicate = b'{"hooks":{},"hooks":{}}'
         self.hooks.write_bytes(duplicate)
         with self.assertRaisesRegex(ValueError, 'duplicate JSON object key'):
-            bridge.manage_hooks(self.home, 'remove', script=Path('/opt/nanoleaf/bridge.py'))
+            codex_hooks.manage_hooks(self.home, 'remove', script=Path('/opt/nanoleaf/bridge.py'))
         self.assertEqual(self.hooks.read_bytes(), duplicate)
 
     def test_shared_selection_refusal_is_content_free_and_names_registration(self):
-        import shared_input
         from unittest.mock import patch
-        class Bridge:
-            os = bridge.os
-            has_legacy_hooks = staticmethod(lambda _: False)
-        with patch.object(shared_input, 'source_config', side_effect=AssertionError('must refuse before reading state')):
+        with patch.object(codex_hooks, 'has_legacy_hooks', return_value=False), \
+                patch.object(shared_source, 'source_config', side_effect=AssertionError('must refuse before reading state')):
             with self.assertRaises(shared_input.FeedError) as raised:
-                shared_input.select_source(self.home, Bridge(), 'legacy')
+                shared_source.select_source(self.home, 'legacy')
         self.assertIn('hooks register', str(raised.exception))
 
     def test_removal_refusal_in_legacy_mode_preserves_home(self):
         before = self.hooks.read_bytes()
         import contextlib
-        from unittest.mock import patch
-        with contextlib.closing(bridge.connect_state(self.home)):
+        with contextlib.closing(database.connect_state(self.home)):
             pass
         state = (self.home / 'status.sqlite').read_bytes()
-        with patch.object(bridge, 'data_dir', return_value=self.home), \
-             self.assertRaises(SystemExit):
-            bridge.hooks_command(['remove', '--codex-home', str(self.home)])
+        with self.assertRaises(SystemExit):
+            codex_hooks.command(['remove', '--codex-home', str(self.home), '--state-dir', str(self.home)])
         self.assertEqual(self.hooks.read_bytes(), before)
         self.assertEqual((self.home / 'status.sqlite').read_bytes(), state)
         self.assertEqual(list(self.home.glob('hooks.nanoleaf-backup-*.json')), [])
 
     def test_removal_in_shared_mode_preserves_runtime_state(self):
         import contextlib
-        from unittest.mock import patch
-        with contextlib.closing(bridge.connect_state(self.home)) as db, db:
+        with contextlib.closing(database.connect_state(self.home)) as db, db:
             db.execute("UPDATE shared_input SET source='shared' WHERE id=1")
         state = (self.home / 'status.sqlite').read_bytes()
-        with patch.object(bridge, 'data_dir', return_value=self.home):
-            bridge.hooks_command(['remove', '--codex-home', str(self.home)])
-        self.assertFalse(bridge.has_legacy_hooks(self.home))
+        codex_hooks.command(['remove', '--codex-home', str(self.home), '--state-dir', str(self.home)])
+        self.assertFalse(codex_hooks.has_legacy_hooks(self.home))
         self.assertEqual((self.home / 'status.sqlite').read_bytes(), state)
         self.assertEqual(len(list(self.home.glob('hooks.nanoleaf-backup-*.json'))), 1)
 
     def test_removal_without_runtime_state_refuses_default_legacy_source(self):
-        from unittest.mock import patch
         before = self.hooks.read_bytes()
-        with patch.object(bridge, 'data_dir', return_value=self.home), \
-             self.assertRaises(SystemExit):
-            bridge.hooks_command(['remove', '--codex-home', str(self.home)])
+        with self.assertRaises(SystemExit):
+            codex_hooks.command(['remove', '--codex-home', str(self.home), '--state-dir', str(self.home)])
         self.assertEqual(self.hooks.read_bytes(), before)
         self.assertFalse((self.home / 'status.sqlite').exists())
 

@@ -11,9 +11,13 @@ import sys
 import tempfile
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from test_bridge import b
+import codex_hooks
+import configuration
+import database
+import jsonfile
 import wall_server
 
 
@@ -33,14 +37,14 @@ class LinuxHookTest(unittest.TestCase):
             default = Path(temporary) / 'default'
             args = b.argparse.Namespace(state_dir=target, check=True, demo=False, reset=False,
                                         notify=False, refresh=False, comet=False)
-            with patch.object(b, 'data_dir', return_value=default), \
-                    patch.object(b, 'load_config', return_value={'ip': '192.0.2.1', 'line_groups': []}) as load, \
-                    patch.object(b, 'light_request', return_value={}), \
+            device = lambda *_: {}
+            with patch.object(configuration, 'data_dir', return_value=default), \
+                    patch.object(configuration, 'load_config', return_value={'ip': '192.0.2.1', 'line_groups': []}) as load, \
                     patch.object(b, 'SceneRestorer') as scene, \
                     contextlib.redirect_stdout(io.StringIO()):
                 scene.return_value.state = {'scene': None}
-                b.setup(args)
-            load.assert_called_once_with(target, 'wall')
+                b.setup(args, request=device)
+            load.assert_called_once_with(target, 'wall', request=device)
             self.assertFalse(default.exists())
 
     def test_hook_honors_explicit_state_directory(self):
@@ -53,14 +57,14 @@ class LinuxHookTest(unittest.TestCase):
                      'turn_id': '1', 'cwd': '/home/example/project'}
             with patch.object(sys, 'argv', ['bridge.py', 'hook', '--state-dir', str(target)]), \
                     patch.object(sys, 'stdin', io.StringIO(json.dumps(event))), \
-                    patch.object(b, 'data_dir', return_value=default), \
-                    patch.object(b, 'launch_worker') as launch, \
+                    patch.object(configuration, 'data_dir', return_value=default), \
                     contextlib.redirect_stdout(io.StringIO()) as output:
-                b.main()
+                launch = Mock()
+                b.main(launch=launch)
             self.assertEqual(json.loads(output.getvalue()), {})
             self.assertTrue((target / 'status.sqlite').exists())
             self.assertFalse((default / 'status.sqlite').exists())
-            with contextlib.closing(b.connect_state(target)) as db:
+            with contextlib.closing(database.connect_state(target)) as db:
                 self.assertEqual(db.execute('SELECT id FROM sessions').fetchall(), [('linux-task',)])
             launch.assert_called_once_with(target)
 
@@ -70,8 +74,8 @@ class MapCommandTest(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name)
-        b.write_json(self.directory / 'config.json', {'ip': '192.0.2.1', 'token': 'fake'})
-        b.write_json(self.directory / 'layout.json', {
+        jsonfile.write_json(self.directory / 'config.json', {'ip': '192.0.2.1', 'token': 'fake'})
+        jsonfile.write_json(self.directory / 'layout.json', {
             'line_groups': [[100, 101]], 'line_positions': [[0, 0]],
             'zone_geometry': {'orientation': 0, 'positionData': [
                 {'panelId': 98, 'x': 0, 'y': -5, 'o': 0, 'shapeType': 16},
@@ -122,7 +126,7 @@ class MapCommandTest(unittest.TestCase):
             occupied.bind(('127.0.0.1', 0))
             occupied.listen()
             port = occupied.getsockname()[1]
-            b.write_json(self.directory / 'config.json', {
+            jsonfile.write_json(self.directory / 'config.json', {
                 'ip': '192.0.2.1', 'token': 'fake', 'wall_port': port})
             result = subprocess.run(self.command('serve'), capture_output=True, text=True, timeout=5)
         self.assertNotEqual(result.returncode, 0)
@@ -138,7 +142,7 @@ class MapCommandTest(unittest.TestCase):
         self.start(port)
         receipt = json.loads((self.directory / 'map-server.json').read_text())
         receipt['instance'] = 'earlier-instance'
-        b.write_json(self.directory / 'map-server.json', receipt)
+        jsonfile.write_json(self.directory / 'map-server.json', receipt)
         self.assertIsNone(wall_server.map_url(self.directory, port))
 
     def test_controller_conflicts_report_the_port_and_existing_owner(self):
@@ -227,7 +231,7 @@ class LinuxInstallTest(unittest.TestCase):
                                         desktop_state_path=metadata, title_index_path=titles,
                                         request=request)
             self.assertEqual(calls, [({'ip': '192.0.2.12', 'token': 'fixtureToken'}, 'GET')])
-            config = b.load_config(directory)
+            config = configuration.load_config(directory)
             self.assertEqual(config['ip'], '192.0.2.12')
             self.assertEqual(config['desktop_state_path'], str(metadata))
             self.assertEqual(config['metadata_path'], str(metadata))
@@ -300,6 +304,41 @@ class LinuxInstallTest(unittest.TestCase):
                     process.terminate()
                 process.communicate(timeout=5)
 
+    def test_copied_runtime_holds_and_starts_every_shared_module(self):
+        """AC4/AC6 of #118: packaging evidence from an isolated copy, not an installed upgrade."""
+        import install_linux
+        source = Path(b.__file__).parent
+        layout = json.loads((source.parent / 'tests/fixtures/lines-layout.json').read_text())
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary) / 'state'
+            install_linux.prepare_state(directory, '192.0.2.12', 'fixtureToken',
+                                        request=lambda *_: {'panelLayout': layout})
+            runtime = install_linux.copy_runtime(directory) / 'bridge'
+            modules = sorted(path.stem for path in source.glob('*.py') if path.name != 'install_linux.py')
+            self.assertEqual(sorted(path.stem for path in runtime.glob('*.py')), modules)
+            clean = {key: value for key, value in os.environ.items() if key != 'PYTHONPATH'}
+            # Every module imports from the copy alone, without the source tree on the path.
+            probe = ('import importlib, json, sys; sys.path.insert(0, sys.argv[1]); '
+                     'print(json.dumps({m: importlib.import_module(m).__file__ for m in sys.argv[2:]}))')
+            result = subprocess.run([sys.executable, '-I', '-c', probe, str(runtime), *modules],
+                                    capture_output=True, text=True, timeout=20, cwd=temporary, env=clean)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            for module, path in json.loads(result.stdout).items():
+                self.assertEqual(Path(path).parent, runtime, module)
+            launcher = install_linux.write_launcher(directory, Path(sys.executable))
+            codex = Path(temporary) / 'codex'
+            for arguments in (['--help'], ['status'], ['map-status'], ['shared-status'], ['shared-select', '--help'],
+                              ['hooks', 'register', '--codex-home', str(codex)], ['controller-status', '--help'],
+                              ['controller-configure', '--controller-id', 'local-controller', '--device-id', 'wall',
+                               '--source-id', 'local-source'], ['controller-status'], ['device-enroll', '--help']):
+                with self.subTest(command=' '.join(arguments)):
+                    result = subprocess.run([str(launcher), *arguments], capture_output=True, text=True,
+                                            timeout=20, cwd=temporary, env=clean)
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            hooks = json.loads((codex / 'hooks.json').read_text())
+            command = hooks['hooks']['Stop'][0]['hooks'][0]['command']
+            self.assertEqual(shlex.split(command)[1], str(runtime / 'bridge.py'))
+
     def test_runtime_launcher_and_hooks_use_same_linux_state(self):
         import install_linux
         with tempfile.TemporaryDirectory() as temporary:
@@ -312,15 +351,15 @@ class LinuxInstallTest(unittest.TestCase):
             hooks_file = Path(temporary) / 'codex/hooks.json'
             hooks_file.parent.mkdir()
             other = {'type': 'command', 'command': 'keep-other', 'statusMessage': 'other'}
-            b.write_json(hooks_file, {'custom': {'keep': True}, 'hooks': {
-                'UserPromptSubmit': [{'hooks': [other, {'statusMessage': b.MARKER, 'command': 'old'}]}]}})
+            jsonfile.write_json(hooks_file, {'custom': {'keep': True}, 'hooks': {
+                'UserPromptSubmit': [{'hooks': [other, {'statusMessage': codex_hooks.MARKER, 'command': 'old'}]}]}})
             install_linux.register_hooks(hooks_file, directory, Path(sys.executable))
             hooks = json.loads(hooks_file.read_text())
             self.assertEqual(hooks['custom'], {'keep': True})
             self.assertEqual(hooks['hooks']['UserPromptSubmit'][0]['hooks'], [other])
-            for event in b.EVENTS:
+            for event in codex_hooks.EVENTS:
                 owned = [h for group in hooks['hooks'][event] for h in group['hooks']
-                         if h.get('statusMessage') == b.MARKER]
+                         if h.get('statusMessage') == codex_hooks.MARKER]
                 self.assertEqual(len(owned), 1)
                 self.assertEqual(shlex.split(owned[0]['command']), [sys.executable,
                     str(directory / 'runtime/bridge/bridge.py'), 'hook', '--state-dir', str(directory)])
@@ -340,7 +379,7 @@ class LinuxInstallTest(unittest.TestCase):
             directory = Path(temporary) / 'state with spaces'
             directory.mkdir()
             units = Path(temporary) / 'units'
-            b.write_json(directory / 'config.json', {'wall_port': 8765, 'controller_port': 41231, 'mcp_port': 41230})
+            jsonfile.write_json(directory / 'config.json', {'wall_port': 8765, 'controller_port': 41231, 'mcp_port': 41230})
             install_linux.write_service_units(directory, units, Path(sys.executable), Path('/native/node'))
             self.assertEqual(len(list(units.glob('*.service'))), 3)
             for name in ('wall', 'controller', 'mcp'):
@@ -377,7 +416,7 @@ class LinuxInstallTest(unittest.TestCase):
             self.assertEqual((config['port'], config['controllerPort']), (41230, 41231))
             self.assertEqual(principal['tokenSha256'], hashlib.sha256(client.encode()).hexdigest())
             self.assertNotEqual(client, principal['upstreamToken'])
-            with contextlib.closing(b.connect_state(directory)) as db:
+            with contextlib.closing(database.connect_state(directory)) as db:
                 self.assertEqual(controller_state.credential(db, principal['upstreamToken'])[0], 'codex')
                 self.assertIsNone(controller_state.credential(db, client))
             for name in ('mcp-config.json', 'mcp-credentials.json', 'mcp-client-token'):

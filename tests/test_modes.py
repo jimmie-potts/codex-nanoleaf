@@ -3,6 +3,8 @@ import json
 import unittest
 from unittest.mock import patch
 from test_bridge import b, decode
+import database
+import modes
 import test_scene_restore as scene_tests
 
 
@@ -15,18 +17,18 @@ class ModeTest(unittest.TestCase):
     run_worker = scene_tests.SceneTest.run_worker
 
     def mode(self, name):
-        b.set_mode(self.directory, name, launch=lambda _: None, now=self.clock.now)
+        modes.set_mode(self.directory, name, launch=lambda _: None, now=self.clock.now)
 
     def test_default_duplicate_and_persistence(self):
         self.event('UserPromptSubmit')
-        self.assertEqual(b.get_status(self.directory)['mode'], 'work')
+        self.assertEqual(modes.get_status(self.directory)['mode'], 'work')
         self.mode('free')
         first = self.query("SELECT value FROM meta WHERE key='mode_revision'")
         self.mode('free')
         self.assertEqual(self.query("SELECT value FROM meta WHERE key='mode_revision'"), first)
-        self.assertTrue(b.get_status(self.directory)['pending'])
+        self.assertTrue(modes.get_status(self.directory)['pending'])
         self.run_worker()
-        self.assertEqual(b.get_status(self.directory), {'mode': 'free', 'pending': False, 'error': None})
+        self.assertEqual(modes.get_status(self.directory), {'mode': 'free', 'pending': False, 'error': None})
 
     def test_free_releases_once_and_never_requests_lights_on_events(self):
         manager = self.manager()
@@ -123,7 +125,7 @@ class ModeTest(unittest.TestCase):
         self.mode('work')
         self.mode('free')
         self.run_worker()
-        self.assertEqual(b.get_status(self.directory)['mode'], 'free')
+        self.assertEqual(modes.get_status(self.directory)['mode'], 'free')
         self.assertFalse(any(c[1] == 'PUT' for c in self.device.calls))
 
     def test_failed_handoff_remains_pending_and_retry_obeys_new_mode(self):
@@ -135,15 +137,15 @@ class ModeTest(unittest.TestCase):
         self.device.fail = lambda method, ep, payload: method == 'PUT'
         with self.assertRaises(OSError):
             self.run_worker()
-        self.assertTrue(b.get_status(self.directory)['pending'])
+        self.assertTrue(modes.get_status(self.directory)['pending'])
         self.mode('quiet')
         self.run_worker([(1002, lambda: self.mode('free'))])
         self.assertEqual(self.device.brightness, 43)
-        self.assertFalse(b.get_status(self.directory)['pending'])
+        self.assertFalse(modes.get_status(self.directory)['pending'])
 
     def test_mode_change_interrupts_preview(self):
         self.event('UserPromptSubmit')
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             db.execute("INSERT OR REPLACE INTO meta VALUES ('preview','all')")
         self.run_worker([(1000.5, lambda: self.mode('free'))])
         self.assertLess(self.clock.now(), 1002)

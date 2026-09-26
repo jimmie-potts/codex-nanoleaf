@@ -11,6 +11,12 @@ import unittest
 from unittest.mock import patch
 
 from test_bridge import b
+import configuration
+import database
+import jsonfile
+import modes
+import store
+import transport
 import project_map as wall
 import devices
 
@@ -28,16 +34,17 @@ class DeviceTest(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name)
-        patcher = patch.object(b, 'light_request', refuse)
+        # Nothing here may reach a device: refuse at the transport boundary.
+        patcher = patch.object(transport, 'light_request', refuse)
         patcher.start()
         self.addCleanup(patcher.stop)
 
     def write_two_devices(self):
-        b.write_json(self.directory / 'config.json', {
+        jsonfile.write_json(self.directory / 'config.json', {
             'ip': '192.0.2.1', 'token': 'fakeLines', 'panelsToken': 'fakePanels',
             'devices': {'wall': {'kind': 'lines', 'ip': '192.0.2.1', 'token_ref': 'token'},
                         'panels': {'kind': 'panels', 'ip': '192.0.2.2', 'token_ref': 'panelsToken'}}})
-        b.write_json(self.directory / 'layout.json', {'version': 2, 'devices': {
+        jsonfile.write_json(self.directory / 'layout.json', {'version': 2, 'devices': {
             'wall': {'kind': 'lines', 'elements': [
                 {'id': '5:6', 'number': 1, 'zones': [5, 6], 'position': [0, 0]},
                 {'id': '7:8', 'number': 2, 'zones': [7, 8], 'position': [10, 0]}]},
@@ -47,30 +54,30 @@ class DeviceTest(unittest.TestCase):
                 {'id': '7', 'number': 3, 'zones': [7], 'position': [20, 0]}]}}})
 
     def query(self, sql, *params):
-        with contextlib.closing(b.connect_state(self.directory)) as db:
+        with contextlib.closing(database.connect_state(self.directory)) as db:
             return db.execute(sql, params).fetchall()
 
     # AC4 and AC6: layout shapes
     def test_legacy_layout_loads_as_default_device_without_request(self):
-        b.write_json(self.directory / 'config.json', {'ip': '192.0.2.1', 'token': 'fake'})
+        jsonfile.write_json(self.directory / 'config.json', {'ip': '192.0.2.1', 'token': 'fake'})
         groups = [[100 + i * 2, 101 + i * 2] for i in range(15)]
         positions = [[i * 10, 0] for i in range(15)]
-        b.write_json(self.directory / 'layout.json', {'line_groups': groups, 'line_positions': positions})
+        jsonfile.write_json(self.directory / 'layout.json', {'line_groups': groups, 'line_positions': positions})
         disk = (self.directory / 'layout.json').read_bytes()
-        config = b.load_config(self.directory)
+        config = configuration.load_config(self.directory)
         self.assertEqual((config['device'], config['kind']), ('wall', 'lines'))
         self.assertEqual(config['line_groups'], groups)
         self.assertEqual(config['line_positions'], positions)
         self.assertEqual([e['number'] for e in config['elements']], list(range(1, 16)))
         self.assertEqual(config['elements'][0], {'id': '100:101', 'number': 1, 'zones': [100, 101], 'position': [0, 0]})
         self.assertEqual((self.directory / 'layout.json').read_bytes(), disk)
-        self.assertEqual(b.load_config(self.directory, 'wall')['elements'], config['elements'])
+        self.assertEqual(configuration.load_config(self.directory, 'wall')['elements'], config['elements'])
         self.assertNotIn('devices', json.dumps(config.get('elements')))
 
     def test_version_two_layout_with_lines_and_triangles(self):
         self.write_two_devices()
-        lines = b.load_config(self.directory)
-        panels = b.load_config(self.directory, 'panels')
+        lines = configuration.load_config(self.directory)
+        panels = configuration.load_config(self.directory, 'panels')
         self.assertEqual((lines['device'], lines['ip'], lines['token']), ('wall', '192.0.2.1', 'fakeLines'))
         self.assertEqual((panels['device'], panels['kind'], panels['ip'], panels['token']), ('panels', 'panels', '192.0.2.2', 'fakePanels'))
         self.assertEqual(lines['line_groups'], [[5, 6], [7, 8]])
@@ -78,7 +85,7 @@ class DeviceTest(unittest.TestCase):
         self.assertEqual([e['id'] for e in panels['elements']], ['5', '6', '7'])
         self.assertEqual(sorted(devices.registry(json.loads((self.directory / 'config.json').read_text()))), ['panels', 'wall'])
         with self.assertRaises(ValueError):
-            b.load_config(self.directory, 'unknown')
+            configuration.load_config(self.directory, 'unknown')
 
     def test_malformed_layout_is_rejected_and_last_valid_file_kept(self):
         self.write_two_devices()
@@ -100,7 +107,7 @@ class DeviceTest(unittest.TestCase):
                 self.assertEqual(json.loads((self.directory / 'layout.json').read_text()), valid)
         (self.directory / 'layout.json').write_text(json.dumps({'version': 2, 'devices': {'wall': {'kind': 'lines', 'elements': [{'id': '5:6', 'number': 1, 'zones': [5, 5], 'position': [0, 0]}]}}}))
         with self.assertRaises(ValueError):
-            b.load_config(self.directory)
+            configuration.load_config(self.directory)
 
     @unittest.skipUnless(sys.platform == 'linux', 'Native Linux installation')
     def test_installer_writes_per_device_layout_and_registry(self):
@@ -118,29 +125,29 @@ class DeviceTest(unittest.TestCase):
         config = json.loads((self.directory / 'state/config.json').read_text())
         self.assertEqual(config['devices'], {'wall': {'kind': 'lines', 'ip': '192.0.2.12', 'token_ref': 'token'}})
         self.assertEqual(json.dumps(config).count('fixtureToken'), 1)
-        loaded = b.load_config(self.directory / 'state')
+        loaded = configuration.load_config(self.directory / 'state')
         self.assertEqual(len(loaded['line_groups']), 15)
         self.assertIsNotNone(wall.connector_layout(loaded))
 
     # AC2: identity
     def test_registry_address_change_keeps_identity_and_preferences(self):
         self.write_two_devices()
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             wall.apply_patch(db, {'lines': {'5:6': {'project': 'kept'}}})
         config = json.loads((self.directory / 'config.json').read_text())
         config['ip'] = '192.0.2.99'
         config['devices']['wall']['ip'] = '192.0.2.99'
-        b.write_json(self.directory / 'config.json', config)
-        moved = b.load_config(self.directory)
+        jsonfile.write_json(self.directory / 'config.json', config)
+        moved = configuration.load_config(self.directory)
         self.assertEqual((moved['device'], moved['ip']), ('wall', '192.0.2.99'))
-        with contextlib.closing(b.connect_state(self.directory)) as db:
+        with contextlib.closing(database.connect_state(self.directory)) as db:
             self.assertEqual(wall.owners(db, moved)[0], ('kept', 0))
 
     def test_equal_element_ids_on_two_devices_do_not_collide(self):
         self.write_two_devices()
-        lines = b.load_config(self.directory)
-        panels = b.load_config(self.directory, 'panels')
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        lines = configuration.load_config(self.directory)
+        panels = configuration.load_config(self.directory, 'panels')
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             db.executemany('INSERT INTO projects VALUES (?,?,?,?)', [('a', 'A', '#111111', '[]'), ('b', 'B', '#222222', '[]')])
             wall.request_patch(db, {'lines': {'5:6': {'project': 'a', 'signature': 1}}}, lines)
             wall.request_patch(db, {'lines': {'5': {'project': 'b'}}, 'settings': {'style': 'project'}}, panels)
@@ -157,17 +164,17 @@ class DeviceTest(unittest.TestCase):
             self.assertEqual(wall.owners(db, panels)[0], ('b', 0))
 
     def test_literally_equal_element_ids_on_two_devices_keep_separate_state(self):
-        b.write_json(self.directory / 'config.json', {
+        jsonfile.write_json(self.directory / 'config.json', {
             'ip': '192.0.2.1', 'token': 'fakeLines', 'secondToken': 'fakeSecond',
             'devices': {'wall': {'kind': 'lines', 'ip': '192.0.2.1', 'token_ref': 'token'},
                         'second': {'kind': 'lines', 'ip': '192.0.2.3', 'token_ref': 'secondToken'}}})
         element = {'id': '5:6', 'number': 1, 'zones': [5, 6], 'position': [0, 0]}
-        b.write_json(self.directory / 'layout.json', {'version': 2, 'devices': {
+        jsonfile.write_json(self.directory / 'layout.json', {'version': 2, 'devices': {
             'wall': {'kind': 'lines', 'elements': [element]}, 'second': {'kind': 'lines', 'elements': [element]}}})
-        first = b.load_config(self.directory)
-        second = b.load_config(self.directory, 'second')
+        first = configuration.load_config(self.directory)
+        second = configuration.load_config(self.directory, 'second')
         self.assertEqual([e['id'] for e in first['elements']], [e['id'] for e in second['elements']])
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             db.executemany('INSERT INTO projects VALUES (?,?,?,?)', [('a', 'A', '#111111', '[]'), ('b', 'B', '#222222', '[]')])
             wall.apply_patch(db, {'lines': {'5:6': {'project': 'a', 'signature': 1}}}, 'wall')
             wall.apply_patch(db, {'lines': {'5:6': {'project': 'b'}}}, 'second')
@@ -184,11 +191,11 @@ class DeviceTest(unittest.TestCase):
     # AC3: device-scoped placements, modes and scenes
     def test_one_task_one_placement_per_device_and_unique_slot_per_device(self):
         self.write_two_devices()
-        lines = b.load_config(self.directory)
-        panels = b.load_config(self.directory, 'panels')
+        lines = configuration.load_config(self.directory)
+        panels = configuration.load_config(self.directory, 'panels')
         b.handle_event(self.directory, {'hook_event_name': 'UserPromptSubmit', 'session_id': 'a', 'turn_id': '1'}, launch=lambda _: None, now=lambda: 1000.0)
         b.handle_event(self.directory, {'hook_event_name': 'UserPromptSubmit', 'session_id': 'b', 'turn_id': '1'}, launch=lambda _: None, now=lambda: 1001.0)
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             first = b.dashboard(db, lines, 1002.0)
             second = b.dashboard(db, panels, 1002.0)
             self.assertEqual([s and s[0] for s in first], ['working', 'working'])
@@ -204,16 +211,16 @@ class DeviceTest(unittest.TestCase):
 
     def test_modes_and_scene_files_are_independent_per_device(self):
         self.write_two_devices()
-        lines = b.load_config(self.directory)
-        panels = b.load_config(self.directory, 'panels')
-        b.set_mode(self.directory, 'quiet', launch=lambda _: None, now=lambda: 1000.0, device='panels')
-        self.assertEqual(b.get_status(self.directory)['mode'], 'work')
-        self.assertEqual(b.get_status(self.directory, device='panels')['mode'], 'quiet')
-        with contextlib.closing(b.connect_state(self.directory)) as db:
-            self.assertEqual(b.control_state(db), b.control_state(db, 'wall'))
-            self.assertEqual(b.control_state(db, 'panels')['mode'], 'quiet')
-            self.assertEqual(b.control_state(db)['revision'], 0)
-        b.write_json(self.directory / 'scene-state.json', {'version': 1, 'scene': {'name': 'Lines Scene', 'brightness': 40}, 'owned': False, 'quiet_scene': None})
+        lines = configuration.load_config(self.directory)
+        panels = configuration.load_config(self.directory, 'panels')
+        modes.set_mode(self.directory, 'quiet', launch=lambda _: None, now=lambda: 1000.0, device='panels')
+        self.assertEqual(modes.get_status(self.directory)['mode'], 'work')
+        self.assertEqual(modes.get_status(self.directory, device='panels')['mode'], 'quiet')
+        with contextlib.closing(database.connect_state(self.directory)) as db:
+            self.assertEqual(store.control_state(db), store.control_state(db, 'wall'))
+            self.assertEqual(store.control_state(db, 'panels')['mode'], 'quiet')
+            self.assertEqual(store.control_state(db)['revision'], 0)
+        jsonfile.write_json(self.directory / 'scene-state.json', {'version': 1, 'scene': {'name': 'Lines Scene', 'brightness': 40}, 'owned': False, 'quiet_scene': None})
         self.assertEqual(b.SceneRestorer(self.directory, lines).state['scene']['name'], 'Lines Scene')
         other = b.SceneRestorer(self.directory, panels)
         self.assertEqual(other.path.name, 'scene-state.panels.json')
@@ -248,13 +255,13 @@ class DeviceTest(unittest.TestCase):
             self.assertNotIn('device', [row[1] for row in db.execute('PRAGMA table_info(slots)')])
         expectations = json.loads((FIXTURE / 'fixture.json').read_text())
         scene_before = (self.directory / 'scene-state.json').read_bytes()
-        with contextlib.closing(b.connect_state(self.directory)) as db:
+        with contextlib.closing(database.connect_state(self.directory)) as db:
             first = self.rows(db)
             for table in ('slots', 'comets', 'line_prefs', 'map_settings', 'map_pending', 'locate', 'display_v3'):
                 with self.subTest(table=table):
                     self.assertEqual(db.execute(f'SELECT DISTINCT device FROM {table}').fetchall(), [('wall',)])
             dump_one = list(db.iterdump())
-        with contextlib.closing(b.connect_state(self.directory)) as db:
+        with contextlib.closing(database.connect_state(self.directory)) as db:
             dump_two = list(db.iterdump())
             second = self.rows(db)
         self.assertEqual(first, before)
@@ -267,14 +274,14 @@ class DeviceTest(unittest.TestCase):
         self.assertEqual(before['line_prefs'], [('100:101', 'project-a', 1), ('102:103', 'project-a', 0), ('104:105', 'project-b', 1)])
         self.assertEqual(before['map_settings'], [('project', 'status', 90, 1, 0)])
         self.assertEqual(before['task_info'][4][3:5], ('project-a', 'project-a'))
-        config = b.load_config(self.directory)
+        config = configuration.load_config(self.directory)
         self.assertEqual((config['device'], len(config['line_groups'])), ('wall', 15))
         restorer = b.SceneRestorer(self.directory, config)
         self.assertEqual(restorer.state['scene'], {'name': 'Fixture Scene', 'brightness': 43})
         import controller_state
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             self.assertEqual(controller_state.credential(db, expectations['controllerToken']), ('codex', ['read', 'control']))
-            self.assertEqual(b.control_state(db), {'mode': 'work', 'revision': 2, 'applied': 2, 'wave_cutoff': 995.0, 'error': None})
+            self.assertEqual(store.control_state(db), {'mode': 'work', 'revision': 2, 'applied': 2, 'wave_cutoff': 995.0, 'error': None})
             self.assertEqual(b.current_comet(db, 1011.0), expectations['comet'])
             self.assertEqual(wall.pending(db)['lines'], {expectations['cometSourceLine']: {'project': 'project-b'}})
             self.assertEqual(wall.owners(db, config)[:3], [('project-a', 1), ('project-a', 0), ('project-b', 1)])
@@ -295,28 +302,28 @@ class DeviceTest(unittest.TestCase):
             db.executescript((FIXTURE / 'status.sql').read_text())
             db.execute("UPDATE shared_input SET source='shared', backup=? WHERE id=1", (json.dumps(backup),))
             db.commit()
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             db.execute('BEGIN IMMEDIATE')
-            shared_input._restore_tables(db, backup)
+            shared_input.restore_tables(db, backup)
             self.assertEqual(db.execute('SELECT session, slot, device FROM slots').fetchall(), [('legacy', 7, 'wall')])
             self.assertEqual(db.execute('SELECT session, source, started, device FROM comets').fetchall(), [('legacy', 7, 902.0, 'wall')])
-            restored = shared_input._dump_tables(db)
-            shared_input._restore_tables(db, restored)
-            self.assertEqual(shared_input._dump_tables(db), restored)
+            restored = shared_input.dump_tables(db)
+            shared_input.restore_tables(db, restored)
+            self.assertEqual(shared_input.dump_tables(db), restored)
 
     # AC6: untargeted callers
     def test_untargeted_callers_address_default_device(self):
         self.write_two_devices()
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             self.assertEqual(wall.settings(db), wall.settings(db, devices.DEFAULT))
             self.assertEqual(devices.DEFAULT, 'wall')
             wall.apply_patch(db, {'settings': {'style': 'project'}})
             self.assertEqual(wall.settings(db, 'wall')['style'], 'project')
             self.assertEqual(wall.settings(db, 'panels')['style'], 'classic')
             db.execute("INSERT OR REPLACE INTO locate (line_id, started, device) VALUES ('5:6', NULL, 'wall')")
-            self.assertEqual(wall.locate_state(db, b.load_config(self.directory), 1000.0, 'work'), {'source': 0, 'started': 1000.0})
-            self.assertIsNone(wall.locate_state(db, b.load_config(self.directory, 'panels'), 1000.0, 'work'))
-        self.assertEqual(b.get_status(self.directory), b.get_status(self.directory, device='wall'))
+            self.assertEqual(wall.locate_state(db, configuration.load_config(self.directory), 1000.0, 'work'), {'source': 0, 'started': 1000.0})
+            self.assertIsNone(wall.locate_state(db, configuration.load_config(self.directory, 'panels'), 1000.0, 'work'))
+        self.assertEqual(modes.get_status(self.directory), modes.get_status(self.directory, device='wall'))
 
 
 if __name__ == '__main__':

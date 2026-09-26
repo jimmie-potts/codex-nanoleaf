@@ -18,6 +18,10 @@ MAX_SCENES = 256
 MAX_LABEL = 80
 CONTROLS = ('power.set','brightness.set','scene.activate')
 HOLD = 'controller_hold_revision'
+# The HTTP status of each machine-contract failure code, shared by the native and extension routes.
+HTTP={'invalid-request':400,'unauthenticated':401,'forbidden':403,'unknown-device':404,
+      'revision-conflict':409,'stale-generation':409,'request-conflict':409,'request-order':409,
+      'request-expired':410,'unsupported-capability':422,'capacity':429,'transport-failure':503}
 # The original tables hold the Lines ledger unchanged, so older source can still read and write it.
 # Another device's ledger uses the same tables suffixed `@<device>`, as ADR 0009 names device meta keys.
 TABLES = {
@@ -206,9 +210,6 @@ def changed(db, mode=False, native=False, device=devices.DEFAULT):
         release(db,device)
         for sequence, in list(db.execute("SELECT sequence FROM "+table('controller_requests',device)+" WHERE phase IN ('queued','attempting')")):
             finish(db,sequence,'cancelled','stale-generation',device)
-        if device==devices.DEFAULT:
-            import integration_api
-            integration_api.retire(db)  # Requested animations play only on the Lines.
     event(db,device)
 
 
@@ -325,3 +326,24 @@ def readonly(directory):
     db=sqlite3.connect((directory/'status.sqlite').resolve().as_uri()+'?mode=ro',uri=True,timeout=1)
     db.execute('BEGIN')
     return db
+
+
+def check_deadline(deadline):
+    if deadline is not None and time.monotonic()>=deadline:
+        raise TimeoutError('Admission deadline expired.')
+
+
+@contextlib.contextmanager
+def admission_transaction(directory,deadline):
+    check_deadline(deadline)
+    remaining=2.5 if deadline is None else max(0,deadline-time.monotonic())
+    # The configured database already exists. Admission must not run migrations.
+    with contextlib.closing(sqlite3.connect((directory/'status.sqlite').resolve().as_uri()+'?mode=rw',uri=True,timeout=remaining)) as db,db:
+        db.execute('BEGIN IMMEDIATE')
+        check_deadline(deadline)
+        yield db
+        check_deadline(deadline)
+        if deadline is not None:
+            db.execute('PRAGMA busy_timeout='+str(max(0,int((deadline-time.monotonic())*1000))))
+        # Commit may wait for readers; its busy timeout is the remaining budget.
+        db.commit()
