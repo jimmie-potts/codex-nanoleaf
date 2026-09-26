@@ -4,6 +4,8 @@
 
 The animation options route SHALL expose rememberedSceneId as the existing opaque ID of the saved scene only while that name remains advertised; otherwise it SHALL be null. This read SHALL leave saved scene, brightness, task state and both snapshot shapes unchanged.
 
+Maps to [issue #150](https://github.com/jimmie-potts/codex-nanoleaf/issues/150) source acceptance.
+
 #### Scenario: Remembered advertised scene
 
 - **WHEN** animation options are read and the saved scene is advertised
