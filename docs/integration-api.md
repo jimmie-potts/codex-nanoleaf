@@ -167,12 +167,16 @@ The existing controller thread, socket, transaction-deadline and body limits app
 light operation, `animation.play`, and [ADR 0014](decisions/0014-requested-animations.md)
 records why it lives in this extension. The command carries `pattern` (`wave`,
 `gradient`, `pulse`, `breathe` or `sparkle`) and `colors` (1 to 8 `#rrggbb`
-values). It can also carry `speed` (`slow`, `medium` or `fast`; default
+values). It can also carry `speed` (`slow`, `medium`, `fast` or `faster`; default
 `medium`), `loop` (default true) and, for the spatial `wave` and `gradient`
-patterns only, `direction` (`left`, `right`, `up`, `down`, `outward` or
-`inward`; default `right`). Directions use the controller's layout coordinates,
+patterns only, `direction` (`left`, `right`, `up`, `down`, `outward`,
+`inward`, `clockwise` or `counterclockwise`; default `right`). Directions use the controller's layout coordinates,
 before the map's Rotate and Flip view options. Unknown fields and values fail
-as `invalid-request`.
+as `invalid-request`. Clockwise and counterclockwise rotate around the saved
+Line-centroid, starting at positive X with positive Y pointing up. A Line at the
+centroid starts at phase zero. `faster` uses a one-decisecond base keyframe step,
+half of `fast`; pattern-specific holds and fixed flashes retain their timing rules.
+The existing directions, speeds and defaults retain their encoded output.
 
 ```json
 {"kind": "animation.play", "pattern": "wave", "colors": ["#0044aa", "#00aa66"], "speed": "slow"}

@@ -37,7 +37,8 @@
  "speeds": [
   "slow",
   "medium",
-  "fast"
+  "fast",
+  "faster"
  ],
  "directions": [
   "left",
@@ -45,7 +46,9 @@
   "up",
   "down",
   "outward",
-  "inward"
+  "inward",
+  "clockwise",
+  "counterclockwise"
  ],
  "defaults": {
   "speed": "medium",

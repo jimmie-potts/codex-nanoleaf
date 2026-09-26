@@ -91,3 +91,23 @@ test('a lost response after possible admission keeps the ticket and never retrie
  const data=(await invokeDeviceTool(b.registry,tool(b,'nanoleaf_animation_play'),playArgs,principal)).structuredContent.data;
  assert.deepEqual([data.code,data.priorEffects,data.requestId,count],['uncertain-result','possible',playArgs.requestId,1]);
 });
+
+for (const direction of ['clockwise', 'counterclockwise']) test(`advertises and forwards ${direction} at faster speed`, async () => {
+ const calls = [];
+ const b = bindings(config, credentials, async (c, operation, token, request) => {
+  calls.push(request); return {status: 202, body: receipt('queued')};
+ });
+ const play = tool(b, 'nanoleaf_animation_play');
+ assert.ok(play.inputSchema.properties.direction.enum.includes(direction));
+ assert.ok(play.inputSchema.properties.speed.enum.includes('faster'));
+ for (const pattern of ['wave', 'gradient']) {
+  const result = await invokeDeviceTool(b.registry, play, {...playArgs, pattern, direction, speed: 'faster'}, principal);
+  assert.equal(result.isError, false);
+  assert.deepEqual(calls.at(-1).command, {kind: 'animation.play', pattern, colors: playArgs.colors, direction, speed: 'faster'});
+ }
+ for (const pattern of ['pulse', 'breathe', 'sparkle']) {
+  const result = await invokeDeviceTool(b.registry, play, {...playArgs, pattern, direction, speed: 'faster'}, principal);
+  assert.equal(result.isError, true);
+ }
+ assert.equal(calls.length, 2);
+});

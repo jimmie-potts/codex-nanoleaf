@@ -106,7 +106,7 @@ The host SHALL expose a read tool that lists the controller's advertised saved s
 - **THEN** the call is rejected before the controller is reached and no upstream request is sent
 
 ### Requirement: Animation discovery and Free-only playback
-The host SHALL expose a read tool, `nanoleaf_animations_list`, that returns the controller's animation patterns, speeds, directions, defaults and limits with the current mode, extension revision and next request ticket, and a control tool, `nanoleaf_animation_play`, that sends one `animation.play` extension request built from the caller's request ticket, expected revision and animation fields. The play tool SHALL NOT switch mode itself. It SHALL validate every field against the fixed bounds before dispatch and SHALL return only a receipt whose ticket matches the request. A Work or Quiet rejection SHALL tell the caller to switch to Free with `nanoleaf_mode_set` and read the list again. Maps to [issue #92](https://github.com/jimmie-potts/codex-nanoleaf/issues/92) scope 4 and its MCP criterion.
+The host SHALL expose a read tool, `nanoleaf_animations_list`, that returns the controller's animation patterns, speeds, directions, defaults and limits with the current mode, extension revision and next request ticket, and a control tool, `nanoleaf_animation_play`, that sends one `animation.play` extension request built from the caller's request ticket, expected revision and animation fields. The tools SHALL expose the additive `clockwise`, `counterclockwise` and `faster` values. The play tool SHALL NOT switch mode itself. It SHALL validate every field against the fixed bounds before dispatch and SHALL return only a receipt whose ticket matches the request. A Work or Quiet rejection SHALL tell the caller to switch to Free with `nanoleaf_mode_set` and read the list again. Maps to [issue #92](https://github.com/jimmie-potts/codex-nanoleaf/issues/92) scope 4 and its MCP criterion.
 
 #### Scenario: Listing animation options
 - **WHEN** a read-scoped credential calls `nanoleaf_animations_list`
@@ -127,6 +127,12 @@ The host SHALL expose a read tool, `nanoleaf_animations_list`, that returns the 
 #### Scenario: Scope-mismatched credential
 - **WHEN** a credential lacks the animation tool's required scope
 - **THEN** discovery omits that tool and a dispatch never reaches the controller
+
+#### Scenario: Rotating and faster tool options
+- **WHEN** a client discovers and calls the animation tools
+- **THEN** the play schema and listing include `clockwise`, `counterclockwise` and `faster`, and a valid call forwards those values unchanged
+
+Maps to [issue #151](https://github.com/jimmie-potts/codex-nanoleaf/issues/151) validation and MCP acceptance.
 
 ### Requirement: Optional fixed Panels target
 When the private configuration names `panelsDeviceId`, the host SHALL bind that device as a second fixed target with `nanoleaf_panels_status`, `nanoleaf_panels_mode_set`, `nanoleaf_panels_scenes_list` and `nanoleaf_panels_scene_activate`. They follow the same scopes, validation, receipts and failure handling as the Lines tools. The Panels tools SHALL always address only the configured Panels device, and the Lines tools only the configured Lines device. No tool SHALL accept a device argument. Without `panelsDeviceId`, the tool surface SHALL be unchanged. Animation tools SHALL remain Lines-only. This requirement maps to [issue #113](https://github.com/jimmie-potts/codex-nanoleaf/issues/113) scope 4.

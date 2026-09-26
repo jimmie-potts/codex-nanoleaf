@@ -797,6 +797,246 @@
         }
       },
       "valid": false
+    },
+    {
+      "name": "wave-clockwise-faster",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "pattern": "wave",
+          "colors": [
+            "#112233",
+            "#abcdef"
+          ],
+          "speed": "faster",
+          "direction": "clockwise"
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "gradient-clockwise-faster",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "pattern": "gradient",
+          "colors": [
+            "#112233",
+            "#abcdef"
+          ],
+          "speed": "faster",
+          "direction": "clockwise"
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "pulse-clockwise-faster",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "pattern": "pulse",
+          "colors": [
+            "#112233",
+            "#abcdef"
+          ],
+          "speed": "faster",
+          "direction": "clockwise"
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "breathe-clockwise-faster",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "pattern": "breathe",
+          "colors": [
+            "#112233",
+            "#abcdef"
+          ],
+          "speed": "faster",
+          "direction": "clockwise"
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "sparkle-clockwise-faster",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "pattern": "sparkle",
+          "colors": [
+            "#112233",
+            "#abcdef"
+          ],
+          "speed": "faster",
+          "direction": "clockwise"
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "wave-counterclockwise-faster",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "pattern": "wave",
+          "colors": [
+            "#112233",
+            "#abcdef"
+          ],
+          "speed": "faster",
+          "direction": "counterclockwise"
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "gradient-counterclockwise-faster",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "pattern": "gradient",
+          "colors": [
+            "#112233",
+            "#abcdef"
+          ],
+          "speed": "faster",
+          "direction": "counterclockwise"
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "pulse-counterclockwise-faster",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "pattern": "pulse",
+          "colors": [
+            "#112233",
+            "#abcdef"
+          ],
+          "speed": "faster",
+          "direction": "counterclockwise"
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "breathe-counterclockwise-faster",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "pattern": "breathe",
+          "colors": [
+            "#112233",
+            "#abcdef"
+          ],
+          "speed": "faster",
+          "direction": "counterclockwise"
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "sparkle-counterclockwise-faster",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "pattern": "sparkle",
+          "colors": [
+            "#112233",
+            "#abcdef"
+          ],
+          "speed": "faster",
+          "direction": "counterclockwise"
+        }
+      },
+      "valid": false
     }
   ],
   "receipts": [

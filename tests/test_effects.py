@@ -1,4 +1,7 @@
 """Requested animation validation, pattern frames and the shared display encoder."""
+import hashlib
+import itertools
+import math
 import json
 from pathlib import Path
 import unittest
@@ -81,9 +84,12 @@ class PatternTest(unittest.TestCase):
             for pattern in effects.PATTERNS:
                 for colors in (['#336699'], WHITE, ['#ff0000', '#00ff00', '#0000ff', '#ffff00', '#00ffff', '#ff00ff', '#808080', '#ffffff']):
                     for speed in effects.SPEEDS:
-                        for loop in (True, False):
-                            with self.subTest(layout=name, pattern=pattern, colors=len(colors), speed=speed, loop=loop):
-                                payload = effects.render(command(pattern=pattern, colors=colors, speed=speed, loop=loop), groups, positions)
+                        for direction, loop in itertools.product(effects.DIRECTIONS if effects.PATTERNS[pattern] else (None,), (True, False)):
+                            with self.subTest(layout=name, pattern=pattern, colors=len(colors), speed=speed, direction=direction, loop=loop):
+                                fields = dict(pattern=pattern, colors=colors, speed=speed, loop=loop)
+                                if direction is not None:
+                                    fields['direction'] = direction
+                                payload = effects.render(command(**fields), groups, positions)
                                 self.assertLessEqual(effects.size(payload), effects.MAX_BYTES)
                                 self.assertEqual(payload['write']['loop'], loop)
                                 self.assertTrue(payload['write']['logicalPanelsEnabled'])
@@ -91,6 +97,61 @@ class PatternTest(unittest.TestCase):
                                     self.assertTrue(1 <= len(frames) <= effects.MAX_FRAMES)
                                     for r, g, bl, w, t in frames:
                                         self.assertTrue(all(0 <= c <= 255 for c in (r, g, bl)) and w == 0 and t >= 1)
+
+
+    def test_legacy_payload_bytes_are_unchanged(self):
+        # Captured from f3c1384 before adding rotation and faster timing.
+        hashes = {'fifteen': '0369586c426223e2ae1b489ce70f0e4d8a0dd5b696c3212e0919037d886b3f8f', 'two': '04c76ed471fb743de0ee33438680b04192c9675c2676f93f9058279dd5f8750b'}
+        for name, (groups, positions) in LAYOUTS.items():
+            digest = hashlib.sha256()
+            for pattern in effects.PATTERNS:
+                directions = ('left', 'right', 'up', 'down', 'outward', 'inward') if effects.PATTERNS[pattern] else (None,)
+                for colors, speed, direction, loop in itertools.product(
+                        (['#336699'], WHITE, ['#ff0000', '#00ff00', '#0000ff']),
+                        ('slow', 'medium', 'fast'), directions, (True, False)):
+                    fields = dict(pattern=pattern, colors=colors, speed=speed, loop=loop)
+                    if direction is not None:
+                        fields['direction'] = direction
+                    digest.update(json.dumps(effects.render(command(**fields), groups, positions)).encode())
+            self.assertEqual(digest.hexdigest(), hashes[name], name)
+
+    def test_rotating_crests_follow_centroid_angles(self):
+        for name, (groups, positions) in LAYOUTS.items():
+            cx = sum(x for x, _ in positions) / len(positions)
+            cy = sum(y for _, y in positions) / len(positions)
+            for direction, sign in (('clockwise', -1), ('counterclockwise', 1)):
+                expected = [(sign * math.atan2(y - cy, x - cx) / math.tau) % 1 for x, y in positions]
+                for pattern, colors in (('wave', ['#ffffff']), ('gradient', ['#ffffff', '#000000'])):
+                    with self.subTest(layout=name, direction=direction, pattern=pattern):
+                        fields = dict(pattern=pattern, colors=colors, direction=direction)
+                        self.assertTrue(effects.valid(command(**fields)))
+                        frames = lines(effects.render(command(**fields), groups, positions), groups)
+                        crests = [brightest(line) for line in frames]
+                        for crest, phase in zip(crests, expected):
+                            error = abs((crest / effects.KEYFRAMES - phase + 0.5) % 1 - 0.5)
+                            self.assertLessEqual(error, 0.5 / effects.KEYFRAMES + 1e-9)
+                        # Quantized crests ordered around the circle permit adjacent ties.
+                        order = sorted(range(len(groups)), key=lambda i: expected[i])
+                        unwrapped = [crest if crest else (effects.KEYFRAMES if expected[i] > 0.5 else 0)
+                                     for i in order for crest in [crests[i]]]
+                        self.assertEqual(unwrapped, sorted(unwrapped))
+                        self.assertGreater(len(set(crests)), 1)
+
+    def test_rotation_at_the_center_is_deterministic(self):
+        for direction in ('clockwise', 'counterclockwise'):
+            self.assertEqual(effects.phases([(0, 0), (0, 0)], direction), [0.0, 0.0])
+
+    def test_faster_shortens_every_pattern_cycle(self):
+        for pattern in effects.PATTERNS:
+            with self.subTest(pattern=pattern):
+                cycles = []
+                for speed in ('fast', 'faster'):
+                    fields = command(pattern=pattern, speed=speed)
+                    self.assertTrue(effects.valid(fields))
+                    frames = lines(effects.render(fields, *LAYOUTS['two']), LAYOUTS['two'][0])[0]
+                    self.assertTrue(all(frame[4] >= 1 for frame in frames))
+                    cycles.append(sum(frame[4] for frame in frames))
+                self.assertLess(cycles[1], cycles[0])
 
     def test_defaults_loop_at_medium_speed(self):
         payload = effects.render(command(), *LAYOUTS['two'])

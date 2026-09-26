@@ -3,8 +3,8 @@ export const apiVersion = 'nanoleaf.integration/1.0';
 export type Ticket = {epoch: string; sequence: number};
 export const patterns = {wave: true, gradient: true, pulse: false, breathe: false, sparkle: false} as const;
 export type Pattern = keyof typeof patterns;
-export type Animation = {kind: 'animation.play'; pattern: Pattern; colors: string[]; speed?: 'slow' | 'medium' | 'fast';
-  direction?: 'left' | 'right' | 'up' | 'down' | 'outward' | 'inward'; loop?: boolean};
+export type Animation = {kind: 'animation.play'; pattern: Pattern; colors: string[]; speed?: 'slow' | 'medium' | 'fast' | 'faster';
+  direction?: 'left' | 'right' | 'up' | 'down' | 'outward' | 'inward' | 'clockwise' | 'counterclockwise'; loop?: boolean};
 export type Command =
   | {kind: 'settings.set'; style?: 'classic' | 'project'; coverage?: 'whole' | 'status'}
   | {kind: 'elements.assign'; elements: {id: string; projectId?: string | null; signature?: 0 | 1}[]}
@@ -52,8 +52,8 @@ export function validateRequest(v: unknown): v is Request {
       if (!['kind','pattern','colors'].every(k => keys.includes(k)) || !keys.every(k => ['kind','pattern','colors','speed','direction','loop'].includes(k))
           || typeof c.pattern !== 'string' || !Object.hasOwn(patterns, c.pattern)
           || !Array.isArray(c.colors) || c.colors.length < 1 || c.colors.length > 8 || !c.colors.every((v: unknown) => match(v, /^#[a-fA-F0-9]{6}$/))) return false;
-      return (!('speed' in c) || ['slow','medium','fast'].includes(c.speed))
-        && (!('direction' in c) || patterns[c.pattern as Pattern] && ['left','right','up','down','outward','inward'].includes(c.direction))
+      return (!('speed' in c) || ['slow','medium','fast','faster'].includes(c.speed))
+        && (!('direction' in c) || patterns[c.pattern as Pattern] && ['left','right','up','down','outward','inward','clockwise','counterclockwise'].includes(c.direction))
         && (!('loop' in c) || typeof c.loop === 'boolean');
     }
     default: return false;

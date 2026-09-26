@@ -51,7 +51,7 @@ The extension SHALL support current Lines on the native Linux installation. Docu
 - **THEN** existing v1 operations remain compatible, and documented cancellation and listener shutdown prevent stale extension work from replaying on later upgrade
 
 ### Requirement: Validated Free-only animation command
-The extension SHALL accept `animation.play` with a pattern from `wave`, `pulse`, `breathe`, `sparkle` and `gradient`, 1 to 8 `#rrggbb` colors, an optional speed (`slow`, `medium`, `fast`), an optional direction (`left`, `right`, `up`, `down`, `outward`, `inward`) that is allowed only for the spatial `wave` and `gradient` patterns, and an optional loop flag. The controller SHALL validate the command, current extension revision, desired Free mode and the encoded effect for the configured Lines before queueing. The encoded effect SHALL have at most 20 frames per zone and an 8,192-byte request body, below the 9,009-byte comet effect verified on the device. A rejection SHALL consume no request ticket and SHALL NOT write to the device. Maps to issue #92 scope 1, 3 and 5 and its validation and Free/Work/Quiet criteria.
+The extension SHALL accept `animation.play` with a pattern from `wave`, `pulse`, `breathe`, `sparkle` and `gradient`, 1 to 8 `#rrggbb` colors, an optional speed (`slow`, `medium`, `fast`, `faster`), an optional direction (`left`, `right`, `up`, `down`, `outward`, `inward`, `clockwise`, `counterclockwise`) that is allowed only for the spatial `wave` and `gradient` patterns, and an optional loop flag. The controller SHALL validate the command, current extension revision, desired Free mode and the encoded effect for the configured Lines before queueing. The encoded effect SHALL have at most 20 frames per zone and an 8,192-byte request body, below the 9,009-byte comet effect verified on the device. A rejection SHALL consume no request ticket and SHALL NOT write to the device. Maps to issue #92 scope 1, 3 and 5 and its validation and Free/Work/Quiet criteria.
 
 #### Scenario: Malformed or out-of-bounds animation
 - **WHEN** a request has an unknown pattern, zero or nine colors, a malformed color, an unknown speed, a direction on `pulse`, `breathe` or `sparkle`, or an unknown field
@@ -68,6 +68,13 @@ The extension SHALL accept `animation.play` with a pattern from `wave`, `pulse`,
 #### Scenario: Accepted in Free
 - **WHEN** a valid, current animation arrives while the desired mode is Free and no extension request is queued
 - **THEN** it is queued under its ticket with a `queued` receipt and the worker is woken
+
+#### Scenario: Rotating and faster options
+- **WHEN** a client requests either spatial pattern with `clockwise` or `counterclockwise` and `faster`
+- **THEN** validation accepts those values under the same Free-only admission and encoded bounds, and animation discovery lists them
+- **AND** a rotation direction on a non-spatial pattern remains invalid
+
+Maps to [issue #151](https://github.com/jimmie-potts/codex-nanoleaf/issues/151) validation and MCP acceptance.
 
 ### Requirement: Animation transport evidence
 An animation receipt SHALL end as `sent` (prior effects `confirmed-transmission`), `failed` or `cancelled` (prior effects `none`), or `uncertain` (prior effects `possible`), always with `physicalOutcome` `unknown`. Identical duplicates SHALL join or replay the original receipt. Any explicit mode command, owner cancellation, credential revocation, controller disable and 30-second expiry SHALL retire a queued animation before it is sent. Admitting an animation SHALL clear a controller transport hold and authorize another attempt, like a fresh v1 control; an animation whose worker launch fails or that expires unsent SHALL restore the hold, like unsent v1 work. The worker SHALL record the attempt before its single device write and SHALL NEVER send an attempted animation again. Maps to issue #92 scope 3.
