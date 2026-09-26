@@ -12,6 +12,19 @@ PATTERNS = {'wave': True, 'gradient': True, 'pulse': False, 'breathe': False, 's
 SPEEDS = {'slow': 8, 'medium': 4, 'fast': 2, 'faster': 1}  # Deciseconds per keyframe.
 DIRECTIONS = ('left', 'right', 'up', 'down', 'outward', 'inward', 'clockwise', 'counterclockwise')
 DEFAULTS = {'speed': 'medium', 'direction': 'right', 'loop': True}
+# Curated moods use the same explicit parameters and encoder as caller-authored effects.
+PRESETS = {
+    'cozy': dict(pattern='breathe', speed='slow', colors=['#ff8c1a', '#ff5a00', '#d93a1a']),
+    'ocean': dict(pattern='wave', speed='slow', direction='right', colors=['#003f8a', '#0077b6', '#00b4d8', '#48cae4', '#2ec4b6']),
+    'sunset': dict(pattern='gradient', speed='slow', direction='up', colors=['#ff4800', '#ff7b00', '#ff006e', '#8338ec', '#3a0ca3']),
+    'aurora': dict(pattern='wave', speed='slow', direction='right', colors=['#00ff87', '#00c9a7', '#7b2ff7', '#2d00f7']),
+    'campfire': dict(pattern='sparkle', speed='fast', colors=['#ff3c00', '#ff7a00', '#ffb000']),
+    'forest': dict(pattern='gradient', speed='slow', direction='up', colors=['#0b3d0b', '#1f7a1f', '#6ab04c', '#b8e994']),
+    'rain': dict(pattern='sparkle', speed='medium', colors=['#1e3a8a', '#3b82f6', '#93c5fd']),
+    'focus': dict(pattern='breathe', speed='slow', colors=['#1d4ed8', '#0ea5e9']),
+    'party': dict(pattern='pulse', speed='fast', colors=['#ff006e', '#fb5607', '#ffbe0b', '#3a86ff', '#8338ec']),
+    'celebration': dict(pattern='sparkle', speed='fast', colors=['#ffd700', '#ffffff', '#ff4fd8']),
+}
 MIN_COLORS, MAX_COLORS = 1, 8
 # The envelope already verified on the Lines: the middle-Line comet preview sends
 # 20 frames per zone in a 9,009-byte request. Stay at or below both.
@@ -55,6 +68,8 @@ def size(payload):
 def valid(command):
     if type(command) is not dict or command.get('kind') != 'animation.play':
         return False
+    if 'preset' in command:
+        return set(command) == {'kind', 'preset'} and type(command['preset']) is str and command['preset'] in PRESETS
     if not {'kind', 'pattern', 'colors'} <= set(command) or set(command) - FIELDS:
         return False
     pattern, colors = command['pattern'], command['colors']
@@ -144,6 +159,8 @@ RENDERERS = {'wave': wave, 'gradient': gradient, 'pulse': pulse, 'breathe': brea
 
 def render(command, groups, positions):
     """The looped or one-shot display payload for a valid command on these Lines."""
+    if 'preset' in command:
+        command = dict(kind='animation.play', **PRESETS[command['preset']])
     options = dict(DEFAULTS, **{key: command[key] for key in DEFAULTS if key in command})
     pattern = command['pattern']
     phase = None

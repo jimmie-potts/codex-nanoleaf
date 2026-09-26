@@ -79,6 +79,10 @@ for(const version of ['2025-11-25','2025-06-18'])test(`real MCP ${version} initi
   const playArgs={requestId:animations.nextRequestId,expectedRevision:animations.revision,pattern:'wave',colors:['#0044aa','#00aa66'],speed:'slow'};
   const played=await rpc('tools/call',{name:'nanoleaf_animation_play',arguments:playArgs});assert.equal(played.body.result.structuredContent.data.receipt.outcome,'queued');
   assert.deepEqual(commands.at(-1),{apiVersion:'nanoleaf.integration/1.0',controllerId:snapshot.identity.controllerId,deviceId:snapshot.identity.deviceId,requestId:playArgs.requestId,expectedRevision:playArgs.expectedRevision,command:{kind:'animation.play',pattern:'wave',colors:['#0044aa','#00aa66'],speed:'slow'}});
+  const moodArgs={requestId:animations.nextRequestId,expectedRevision:animations.revision,preset:'ocean'};
+  const mood=await rpc('tools/call',{name:'nanoleaf_animation_play',arguments:moodArgs});
+  assert.equal(mood.body.result.structuredContent.data.receipt.outcome,'queued');
+  assert.deepEqual(commands.at(-1).command,{kind:'animation.play',preset:'ocean'});
   const refused=await rpc('tools/call',{name:'nanoleaf_animation_play',arguments:{...playArgs,pattern:'breathe',speed:'fast'}});assert.equal(refused.body.result.isError,true);assert.match(refused.body.result.structuredContent.data.message,/nanoleaf_mode_set/);
   const beforeInvalid=commands.length;const invalidAnimation=await rpc('tools/call',{name:'nanoleaf_animation_play',arguments:{...playArgs,pattern:'pulse',direction:'left'}});assert.equal(invalidAnimation.body.result.isError,true);assert.equal(commands.length,beforeInvalid);
   const unknownScene=await rpc('tools/call',{name:'nanoleaf_scene_activate',arguments:{...sceneArgs,requestId:{...sceneArgs.requestId,sequence:sceneArgs.requestId.sequence+1},sceneId:'scene-'+'d'.repeat(64)}});assert.equal(unknownScene.body.result.isError,true);assert.equal(unknownScene.body.result.structuredContent.data.code,'unsupported-capability');assert.equal(unknownScene.body.result.structuredContent.data.priorEffects,'none');

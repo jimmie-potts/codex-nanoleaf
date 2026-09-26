@@ -3,8 +3,12 @@ export const apiVersion = 'nanoleaf.integration/1.0';
 export type Ticket = {epoch: string; sequence: number};
 export const patterns = {wave: true, gradient: true, pulse: false, breathe: false, sparkle: false} as const;
 export type Pattern = keyof typeof patterns;
-export type Animation = {kind: 'animation.play'; pattern: Pattern; colors: string[]; speed?: 'slow' | 'medium' | 'fast' | 'faster';
+export const presets = ['cozy', 'ocean', 'sunset', 'aurora', 'campfire', 'forest', 'rain', 'focus', 'party', 'celebration'] as const;
+export type Preset = typeof presets[number];
+export type ExplicitAnimation = {kind: 'animation.play'; preset?: never; pattern: Pattern; colors: string[]; speed?: 'slow' | 'medium' | 'fast' | 'faster';
   direction?: 'left' | 'right' | 'up' | 'down' | 'outward' | 'inward' | 'clockwise' | 'counterclockwise'; loop?: boolean};
+export type PresetAnimation = {kind: 'animation.play'; preset: Preset; pattern?: never; colors?: never; speed?: never; direction?: never; loop?: never};
+export type Animation = ExplicitAnimation | PresetAnimation;
 export type Command =
   | {kind: 'settings.set'; style?: 'classic' | 'project'; coverage?: 'whole' | 'status'}
   | {kind: 'elements.assign'; elements: {id: string; projectId?: string | null; signature?: 0 | 1}[]}
@@ -48,6 +52,7 @@ export function validateRequest(v: unknown): v is Request {
     case 'task.assign': return exact(c, ['kind','taskId','projectId']) && ref(c.taskId, 'task') && ref(c.projectId, 'project', true);
     case 'project.color': return exact(c, ['kind','projectId','color']) && ref(c.projectId, 'project') && match(c.color, /^#[a-fA-F0-9]{6}$/);
     case 'animation.play': {
+      if ('preset' in c) return exact(c, ['kind', 'preset']) && presets.includes(c.preset);
       const keys = Object.keys(c);
       if (!['kind','pattern','colors'].every(k => keys.includes(k)) || !keys.every(k => ['kind','pattern','colors','speed','direction','loop'].includes(k))
           || typeof c.pattern !== 'string' || !Object.hasOwn(patterns, c.pattern)

@@ -60,6 +60,40 @@ class AnimationTest(unittest.TestCase):
 
 
 class AdmissionTest(AnimationTest):
+    def test_presets_keep_original_request_replay_and_use_the_single_worker(self):
+        self.free()
+        for name, fields in effects.PRESETS.items():
+            with self.subTest(preset=name):
+                command = {'kind': 'animation.play', 'preset': name}
+                req, (code, receipt) = self.play(command)
+                self.assertEqual((code, receipt['outcome']), (202, 'queued'))
+                self.assertEqual(self.puts(), [])
+                self.assertEqual(self.app.integration_snapshot(self.token, 'device')['pending'], [req])
+                self.assertEqual(self.app.integration_admit(self.token, req), (202, receipt))
+                explicit = dict(req, command=dict(kind='animation.play', **fields))
+                self.assertEqual(self.app.integration_admit(self.token, explicit)[0], 409)
+                self.run_worker()
+                self.assertEqual(self.puts(), [('/effects', self.expected(explicit['command']))])
+                sent = self.receipt(req)
+                self.assertEqual((sent['outcome'], sent['physicalOutcome']), ('sent', 'unknown'))
+                self.assertEqual(self.app.integration_admit(self.token, req), (200, sent))
+                self.device.calls.clear()
+
+    def test_presets_keep_free_gate_and_reject_invalid_input_without_admission(self):
+        command = {'kind': 'animation.play', 'preset': 'ocean'}
+        for mode in ('work', 'quiet'):
+            self.mode(mode)
+            ticket = self.options()['nextRequestId']
+            self.assertEqual(self.play(command)[1], (422, {'failure': {'code': 'unsupported-capability'}}))
+            self.assertEqual(self.options()['nextRequestId'], ticket)
+        self.free()
+        ticket = self.options()['nextRequestId']
+        for invalid in (dict(command, preset='missing'), dict(command, loop=False)):
+            self.assertEqual(self.play(invalid)[1], (400, {'failure': {'code': 'invalid-request'}}))
+        self.assertEqual(self.options()['nextRequestId'], ticket)
+        self.assertEqual(self.puts(), [])
+
+
     def test_rejected_in_work_and_quiet_without_a_ticket_write_or_mode_change(self):
         for mode in ('work', 'quiet'):
             self.mode(mode)
@@ -152,6 +186,9 @@ class AdmissionTest(AnimationTest):
         self.assertEqual(view['patterns'], [{'id': 'wave', 'spatial': True}, {'id': 'gradient', 'spatial': True},
                                             {'id': 'pulse', 'spatial': False}, {'id': 'breathe', 'spatial': False},
                                             {'id': 'sparkle', 'spatial': False}])
+        self.assertEqual(view['presets'], [dict(id=name, **fields) for name, fields in effects.PRESETS.items()])
+        view['presets'][0]['colors'].clear()
+        self.assertTrue(effects.PRESETS['cozy']['colors'])
         self.assertEqual(view['speeds'], ['slow', 'medium', 'fast', 'faster'])
         self.assertEqual(view['directions'], ['left', 'right', 'up', 'down', 'outward', 'inward', 'clockwise', 'counterclockwise'])
         self.assertEqual(view['defaults'], {'speed': 'medium', 'direction': 'right', 'loop': True})
