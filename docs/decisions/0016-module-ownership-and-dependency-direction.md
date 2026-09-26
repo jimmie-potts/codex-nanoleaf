@@ -44,6 +44,8 @@ A module imports only from earlier levels or earlier in its own level. Only two 
 - `bridge.main` loads the controller, enrollment and wall-map command families only when one runs, so hooks and status never import HTTP listeners or optional packages.
 - `controller_server` loads `controller_contract`, the optional listener dependency in `requirements-controller.txt`.
 
+Outside the local modules, `shared_input` loads the vendored `agent_state` schema validator only when it checks a shared snapshot, so legacy startup never needs it.
+
 `tests/test_module_dependencies.py` enforces the graph and these exceptions.
 
 **Seams.** Each operation takes the dependency it actually uses:
