@@ -18,6 +18,8 @@ MAX_ITEMS = 1000
 MAX_RECEIPTS = 256
 MAX_BODY = 65536
 MAX_SEQUENCE = 9007199254740991
+# Two devices of 300 elements with their saved geometry caches stay well inside this.
+MAX_LAYOUT_BYTES = 1048576
 OPERATIONS = ('settings.set', 'elements.assign', 'task.assign', 'project.color')
 # Advertised by its own read route so the 1.0 snapshot keeps its exact shape.
 ANIMATION = 'animation.play'
@@ -188,6 +190,51 @@ def animations(app, token, device, **checks):
                     speeds=list(effects.SPEEDS), directions=list(effects.DIRECTIONS), defaults=dict(effects.DEFAULTS),
                     limits=dict(minColors=effects.MIN_COLORS, maxColors=effects.MAX_COLORS,
                                 maxFramesPerZone=effects.MAX_FRAMES, maxEffectBytes=effects.MAX_BYTES))
+
+
+def saved_layout(directory, device):
+    """One device's saved layout entry, or None when the file or the entry is absent; never discovers geometry."""
+    try:
+        raw = (directory / 'layout.json').read_bytes()
+    except FileNotFoundError:
+        return None
+    if len(raw) > MAX_LAYOUT_BYTES:
+        raise Failure('capacity')
+    try:
+        return devices.layout_devices(json.loads(raw)).get(device)
+    except (ValueError, TypeError):
+        raise Failure('unsupported-capability') from None
+
+
+def drawn(config):
+    """The map's display points per element, or None when the saved layout cannot draw every element."""
+    try:
+        shapes = wall.geometry(config) if config['kind'] == 'lines' else wall.triangle_geometry(config)
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return None
+    return [shape['points'] for shape in shapes] if len(shapes) == len(config['elements']) else None
+
+
+def geometry_view(app, token, device, **checks):
+    """Saved element geometry of one configured device in the map's display coordinates, without its drawing cache."""
+    with contextlib.closing(state.readonly(app.directory)) as db:
+        authorize(app, db, token, device, 'read', checks)
+        ledger = state.device_for(db, device)
+        identity = state.read(db, ledger)['identity']
+    view = dict(apiVersion=VERSION, identity=identity, kind=None, elements=[], connectors=None)
+    entry = saved_layout(app.directory, ledger)
+    if entry is None:
+        return view
+    config = devices.projection(entry)
+    points = drawn(config) or [None] * len(config['elements'])
+    view['kind'] = entry['kind']
+    view['elements'] = [dict(id=e['id'], number=e['number'], zones=list(e['zones']), points=p)
+                        for e, p in zip(config['elements'], points)]
+    graph = wall.connector_layout(config) if entry['kind'] == 'lines' else None
+    if graph:
+        view['connectors'] = dict(nodes=[dict(id=n['id'], x=n['x'], y=n['y']) for n in graph['nodes']],
+                                  lines=[dict(id=l['id'], a=l['a'], b=l['b']) for l in graph['lines']])
+    return view
 
 
 def valid_ticket(value):
