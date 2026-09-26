@@ -1,4 +1,4 @@
-"""Opens the integration's SQLite state and initializes every owner's tables in one transaction."""
+"""Opens the integration's SQLite state, initializes every owner's tables in one transaction and seeds synthetic tasks."""
 import sqlite3
 import time
 
@@ -47,3 +47,22 @@ def connect_state(directory, timeout=2.5):
         db.close()
         raise
     return db
+
+
+def seed_synthetic(db, projects, tasks):
+    """Add synthetic projects and tasks for the demo and browser fixtures inside the caller's transaction.
+
+    Each project is a dict with id, name and color. Each task is a dict with id, title, project,
+    status (one a Line indicates) and since, the time of its status. A task is on turn '1' and its
+    wave epoch is `since`, so the map shows it as though a worker had already recorded it.
+    """
+    for project in projects:
+        db.execute('INSERT INTO projects (id,name,color,roots) VALUES (?,?,?,?)',
+                   (project['id'], project['name'], project['color'], '[]'))
+    for task in tasks:
+        if task['status'] not in wall.STATUSES:
+            raise ValueError('A synthetic task needs a status a Line indicates.')
+        db.execute('INSERT INTO sessions (id,turn,status,updated) VALUES (?,?,?,?)', (task['id'], '1', task['status'], task['since']))
+        db.execute('INSERT INTO activity (session,turn,status,started) VALUES (?,?,?,?)', (task['id'], '1', task['status'], task['since']))
+        db.execute('INSERT INTO task_info (session,title,cwd,project,manual_project,turn,started) VALUES (?,?,?,?,?,?,?)',
+                   (task['id'], task['title'], '', task['project'], None, '1', task['since']))

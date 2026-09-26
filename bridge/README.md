@@ -469,8 +469,11 @@ wrote. It survives worker restarts. No saved Nanoleaf scenes are added, edited, 
 deleted; a native scene choice selects an existing one.
 
 Shared operations have owning modules beside `bridge.py`: `database` opens the
-state, `edits` applies wall map and extension configuration edits, `modes` changes
-modes, `codex_hooks` changes `hooks.json`, and `launcher` starts the workers.
+state and seeds the demo's synthetic tasks, `edits` applies wall map and extension
+configuration edits, `modes` changes modes, `codex_hooks` changes `hooks.json`, and
+`launcher` starts the workers. `shared_input` owns the legacy task backup: it names
+each backed-up column, restores rows saved before the device key through `devices`,
+and moves bound tasks across a source switch inside the caller's transaction.
 `bridge.py` is the CLI, the worker and rendering. [ADR 0016](../docs/decisions/0016-module-ownership-and-dependency-direction.md)
 names every owner and the permitted import direction.
 

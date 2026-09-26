@@ -311,6 +311,28 @@ class DeviceTest(unittest.TestCase):
             shared_input.restore_tables(db, restored)
             self.assertEqual(shared_input.dump_tables(db), restored)
 
+    def test_backup_names_every_column_in_table_order(self):
+        # Older sources restore a backup positionally, so its named columns keep each table's order.
+        import shared_input
+        for name in ('config.json', 'layout.json', 'scene-state.json'):
+            shutil.copyfile(FIXTURE / name.replace('.json', '-fixture.json'), self.directory / name)
+        migrated = self.directory / 'migrated'
+        migrated.mkdir()
+        with contextlib.closing(sqlite3.connect(migrated / 'status.sqlite')) as db:
+            db.executescript((FIXTURE / 'status.sql').read_text())
+        for directory in (self.directory, migrated):
+            with contextlib.closing(database.connect_state(directory)) as db:
+                for table, names in shared_input.BACKUP.items():
+                    with self.subTest(directory=directory.name, table=table):
+                        self.assertEqual(names, tuple(devices.columns(db, table)))
+
+    def test_rows_saved_before_the_device_key_belong_to_the_original_device(self):
+        self.assertEqual(devices.legacy_row('slots', ['a', 7]), {'session': 'a', 'slot': 7, 'device': 'wall'})
+        self.assertEqual(devices.legacy_row('comets', ['a', 't', 1.0, 2, None]),
+                         {'session': 'a', 'turn': 't', 'queued': 1.0, 'source': 2, 'started': None, 'device': 'wall'})
+        self.assertIsNone(devices.legacy_row('slots', ['a', 7, 'panels']))
+        self.assertIsNone(devices.legacy_row('sessions', ['a', 't', 'working', 1.0]))
+
     def test_device_aware_backup_restores_each_devices_rows(self):
         import shared_input
         self.write_two_devices()

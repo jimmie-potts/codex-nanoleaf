@@ -1325,6 +1325,41 @@ class TaskBackupTest(unittest.TestCase):
         with contextlib.closing(database.connect_state(self.path)) as db:
             self.assertEqual(db.execute('SELECT source,generation,backup FROM shared_input').fetchall(),[('legacy',1,None)])
 
+    def test_switch_operations_stay_inside_the_callers_transaction(self):
+        import sqlite3
+        bindings=self.config['bindings']
+        def operate(action):
+            before=self.snapshot()
+            with contextlib.closing(database.connect_state(self.path)) as db:
+                db.execute('BEGIN IMMEDIATE')
+                with patch.object(sqlite3,'connect',side_effect=AssertionError('owner operations open no connection')):
+                    action(db)
+                self.assertTrue(db.in_transaction,'no hidden commit')
+                changed=db.execute('SELECT * FROM slots').fetchall()
+                db.rollback()
+            self.assertEqual(self.snapshot(),before)
+            return changed
+        key=self.s.identity_key(fixture()['sessions'][0]['identity'])
+        self.assertEqual(sorted(operate(lambda db:self.s.save_legacy_tasks(db,bindings))),[(key,0,'wall'),(key,4,'panels')])
+        self.select()
+        with contextlib.closing(database.connect_state(self.path)) as db,db:
+            db.execute("UPDATE slots SET slot=3 WHERE session=? AND device='wall'",(key,))
+        restored=operate(lambda db:self.s.restore_legacy_tasks(db,bindings))
+        self.assertIn(('legacy',3,'wall'),restored)
+        self.assertNotIn(key,{row[0] for row in restored})
+
+    def test_malformed_backup_rows_are_rejected(self):
+        with contextlib.closing(database.connect_state(self.path)) as db:
+            db.execute('BEGIN IMMEDIATE')
+            saved=self.s.dump_tables(db)
+            for table,row in (('sessions',['a','t']),('slots',['a']),('comets',['a','t',1.0]),('task_info','not-a-row')):
+                with self.subTest(table=table), self.assertRaisesRegex(self.s.FeedError,'invalid-backup'):
+                    self.s.restore_tables(db,dict(saved,**{table:[row]}))
+            for damaged in (None,[],{k:v for k,v in saved.items() if k!='waits'}):
+                with self.subTest(damaged=damaged), self.assertRaisesRegex(self.s.FeedError,'invalid-backup'):
+                    self.s.restore_tables(db,damaged)
+            db.rollback()
+
     def test_damaged_backup_refuses_rollback_without_partial_restore(self):
         self.select()
         with contextlib.closing(database.connect_state(self.path)) as db,db:

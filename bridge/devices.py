@@ -10,8 +10,8 @@ ID = re.compile(r'[A-Za-z0-9_.-]{1,128}\Z')
 LAYOUT_VERSION = 2
 GEOMETRY_KEYS = ('zone_geometry', 'connector_geometry', 'panel_geometry')
 _QUOTED = "'" + DEFAULT + "'"
-# Column order keeps the legacy columns first so positional readers of the
-# shared-input backup keep working; the device key is last.
+# Column order keeps the legacy columns first and the device key last: older sources
+# restore the shared-input backup positionally.
 SCHEMAS = {
     'slots': f'(session TEXT NOT NULL, slot INTEGER NOT NULL, device TEXT NOT NULL DEFAULT {_QUOTED}, '
              'PRIMARY KEY (device, session), UNIQUE (device, slot))',
@@ -27,8 +27,8 @@ SCHEMAS = {
                   f'device TEXT NOT NULL DEFAULT {_QUOTED})',
 }
 # Tables whose key must include the device are rebuilt; singleton tables gain a column.
-REBUILT = {'slots': 'session, slot', 'comets': 'session, turn, queued, source, started',
-           'line_prefs': 'line_id, project, signature'}
+REBUILT = {'slots': ('session', 'slot'), 'comets': ('session', 'turn', 'queued', 'source', 'started'),
+           'line_prefs': ('line_id', 'project', 'signature')}
 EXTENDED = ('map_settings', 'map_pending', 'locate', 'display_v3')
 
 
@@ -239,11 +239,23 @@ def columns(db, table):
     return [row[1] for row in db.execute('PRAGMA table_info("' + table + '")')]
 
 
+def legacy_row(table, row):
+    """Named values of a row saved before its table had the device key, or None for any other shape.
+
+    Such a row belongs to the original device, as the migration below decides for stored rows.
+    """
+    names = REBUILT.get(table)
+    if names is None or len(row) != len(names):
+        return None
+    return dict(zip(names, row), device=DEFAULT)
+
+
 def migrate(db):
     """Guarded, idempotent device-scoped upgrade inside the caller's initialization transaction."""
-    for table, legacy_columns in REBUILT.items():
+    for table, names in REBUILT.items():
         if 'device' in columns(db, table):
             continue
+        legacy_columns = ', '.join(names)
         db.execute('ALTER TABLE ' + table + ' RENAME TO ' + table + '_legacy')
         create(db, table)
         db.execute('INSERT INTO ' + table + ' (' + legacy_columns + ') SELECT ' + legacy_columns + ' FROM ' + table + '_legacy')

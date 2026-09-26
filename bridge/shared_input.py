@@ -229,8 +229,14 @@ import devices
 import project_map as wall
 from store import control_state, mark_dirty
 
-# All tables are local presentation/configuration, never another agent reducer.
-TABLES = ('sessions','slots','waits','activity','receipts','comets','task_info')
+# The legacy task backup: each local task table and its columns in table order, because older
+# sources restore the backup positionally. These are local presentation tables, never another
+# agent reducer.
+BACKUP = {'sessions': ('id','turn','status','updated'), 'slots': ('session','slot','device'),
+          'waits': ('session','turn','key','kind','tool'), 'activity': ('session','turn','status','started'),
+          'receipts': ('session','turn','completed','observed'),
+          'comets': ('session','turn','queued','source','started','device'),
+          'task_info': ('session','title','cwd','project','manual_project','turn','started')}
 DEFAULT_DEVICE = devices.DEFAULT  # The original Lines device.
 
 
@@ -287,30 +293,70 @@ def evict(db, device, payload):
 
 
 def dump_tables(db):
-    return {table: [list(row) for row in db.execute('SELECT * FROM ' + table)] for table in TABLES}
+    """Every task table's rows as backup rows."""
+    return {table: [list(row) for row in db.execute('SELECT ' + ','.join(names) + ' FROM ' + table + ' ORDER BY rowid')]
+            for table, names in BACKUP.items()}
+
+
+def _backup_values(table, row):
+    names = BACKUP[table]
+    values = None
+    if type(row) is list:
+        values = dict(zip(names, row)) if len(row) == len(names) else devices.legacy_row(table, row)
+    if values is None:
+        raise FeedError('invalid-backup')
+    return values
 
 
 def restore_tables(db, saved):
-    for table in TABLES:
+    """Replace every task table with a backup's rows, whether saved before or after the device key."""
+    if type(saved) is not dict or any(type(saved.get(table)) is not list for table in BACKUP):
+        raise FeedError('invalid-backup')
+    for table in BACKUP:
         db.execute('DELETE FROM ' + table)
-        legacy = devices.REBUILT.get(table)
         for row in saved[table]:
-            columns = ''
-            if legacy and len(row) == legacy.count(',') + 1:
-                # A backup taken before the device key existed restores to the original device.
-                columns = ' (' + legacy + ')'
-            db.execute('INSERT INTO ' + table + columns + ' VALUES (' + ','.join('?' for _ in row) + ')', row)
+            values = _backup_values(table, row)
+            db.execute('INSERT INTO ' + table + ' (' + ','.join(values) + ') VALUES (' + ','.join('?' * len(values)) + ')',
+                       tuple(values.values()))
 
 
-def bound_preferences(db, config):
-    result = {}
-    for binding in config['bindings']:
+def save_legacy_tasks(db, bindings):
+    """Back up the legacy task tables and keep only the explicitly bound tasks, under their shared keys.
+
+    A bound task keeps its placements, status epoch and metadata. Every other legacy row waits in
+    the backup for a return to legacy input. Runs inside the caller's transaction.
+    """
+    saved = dump_tables(db)
+    keys = {binding['legacySessionId']: identity_key(binding['identity']) for binding in bindings}
+    carried = {table: [] for table in BACKUP}
+    for table in ('slots','activity','task_info'):
+        at = BACKUP[table].index('session')
+        carried[table] = [row[:at] + [keys[row[at]]] + row[at+1:] for row in saved[table] if row[at] in keys]
+    restore_tables(db, carried)
+    db.execute('UPDATE shared_input SET backup=? WHERE id=1', (dumps(saved),))
+
+
+def restore_legacy_tasks(db, bindings):
+    """Restore the legacy task backup inside the caller's transaction.
+
+    Each bound task keeps its current project choice and its placement on every device, under its
+    legacy session.
+    """
+    kept = {}
+    for binding in bindings:
         key = identity_key(binding['identity'])
         info = db.execute('SELECT project,manual_project FROM task_info WHERE session=?', (key,)).fetchone()
-        # One placement per device; switching keeps each device's bound placement.
         placed = db.execute('SELECT device,slot FROM slots WHERE session=? ORDER BY device', (key,)).fetchall()
-        result[binding['legacySessionId']] = (info, placed)
-    return result
+        kept[binding['legacySessionId']] = (info, placed)
+    saved = db.execute('SELECT backup FROM shared_input WHERE id=1').fetchone()[0]
+    restore_tables(db, None if saved is None else decode(saved))
+    # Release old slots before applying the complete remap to avoid swaps colliding.
+    for session in kept: db.execute('DELETE FROM slots WHERE session=?', (session,))
+    for session, (info, placed) in kept.items():
+        if info: db.execute('UPDATE task_info SET project=?,manual_project=? WHERE session=?', (*info, session))
+        for device, slot in placed:
+            db.execute('DELETE FROM slots WHERE slot=? AND device=?', (slot, device))
+            db.execute('INSERT INTO slots (session, slot, device) VALUES (?,?,?)', (session, slot, device))
 
 
 ALERTS = {'blocked': {'approval','input'}, 'question': {'question'}}
