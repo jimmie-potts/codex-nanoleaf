@@ -311,6 +311,48 @@ class DeviceTest(unittest.TestCase):
             shared_input.restore_tables(db, restored)
             self.assertEqual(shared_input.dump_tables(db), restored)
 
+    def test_backup_names_every_column_in_table_order(self):
+        # Older sources restore a backup positionally, so its named columns keep each table's order.
+        import shared_input
+        for name in ('config.json', 'layout.json', 'scene-state.json'):
+            shutil.copyfile(FIXTURE / name.replace('.json', '-fixture.json'), self.directory / name)
+        migrated = self.directory / 'migrated'
+        migrated.mkdir()
+        with contextlib.closing(sqlite3.connect(migrated / 'status.sqlite')) as db:
+            db.executescript((FIXTURE / 'status.sql').read_text())
+        for directory in (self.directory, migrated):
+            with contextlib.closing(database.connect_state(directory)) as db:
+                for table, names in shared_input.BACKUP.items():
+                    with self.subTest(directory=directory.name, table=table):
+                        self.assertEqual(names, tuple(devices.columns(db, table)))
+
+    def test_rows_saved_before_the_device_key_belong_to_the_original_device(self):
+        self.assertEqual(devices.legacy_row('slots', ['a', 7]), {'session': 'a', 'slot': 7, 'device': 'wall'})
+        self.assertEqual(devices.legacy_row('comets', ['a', 't', 1.0, 2, None]),
+                         {'session': 'a', 'turn': 't', 'queued': 1.0, 'source': 2, 'started': None, 'device': 'wall'})
+        self.assertIsNone(devices.legacy_row('slots', ['a', 7, 'panels']))
+        self.assertIsNone(devices.legacy_row('sessions', ['a', 't', 'working', 1.0]))
+
+    def test_device_aware_backup_restores_each_devices_rows(self):
+        import shared_input
+        self.write_two_devices()
+        backup = {'sessions': [['a', 't', 'working', 900.0], ['b', 't', 'unread', 901.0]],
+                  'slots': [['a', 0, 'wall'], ['a', 2, 'panels'], ['b', 1, 'panels']],
+                  'waits': [['a', 't', 'permission:shell', 'permission', 'shell']],
+                  'activity': [['a', 't', 'working', 900.0], ['b', 't', 'unread', 901.0]],
+                  'receipts': [['b', 't', 901.0, 0]],
+                  'comets': [['b', 't', 902.0, 1, 903.0, 'panels'], ['b', 't', 902.0, None, None, 'wall']],
+                  'task_info': [['a', 'Title', '/synthetic', 'p', 'q', 't', 900.0]]}
+        for _ in range(2):  # Repeated initialization keeps the restored rows.
+            with contextlib.closing(database.connect_state(self.directory)) as db, db:
+                db.execute('BEGIN IMMEDIATE')
+                shared_input.restore_tables(db, backup)
+                self.assertEqual(shared_input.dump_tables(db), backup)
+        self.assertEqual(self.query('SELECT device, session, source, started FROM comets ORDER BY device'),
+                         [('panels', 'b', 1, 903.0), ('wall', 'b', None, None)])
+        self.assertEqual(self.query('SELECT device, session, slot FROM slots ORDER BY device, slot'),
+                         [('panels', 'b', 1), ('panels', 'a', 2), ('wall', 'a', 0)])
+
     # AC6: untargeted callers
     def test_untargeted_callers_address_default_device(self):
         self.write_two_devices()

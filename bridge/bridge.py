@@ -24,7 +24,7 @@ import modes
 import project_map as wall
 import shared_input
 import shared_source
-from store import control_state, mark_dirty
+from store import control_state, mark_applied, mark_dirty
 import transport
 
 # The operator's palette replaces these defaults on every pass; priority stays keyed by status.
@@ -808,7 +808,7 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
                     continue
                 if current_overrides(db) != overrides or queued_content():
                     continue  # A control admitted mid-apply keeps its wake-up and runs next pass.
-                db.execute('INSERT OR REPLACE INTO meta VALUES (?, ?)', (key('mode_applied'), str(control['revision'])))
+                mark_applied(db, control['revision'], device)
                 db.execute('DELETE FROM meta WHERE key IN (?, ?)', ('dirty', key('control_error')))
                 watching = (shared_input.selected(db) or bool(db.execute('SELECT 1 FROM receipts LIMIT 1').fetchone()) or
                             bool(scenes and mode != 'free' and (any(snapshot) or config['_comet'] or config['_locate'] or mode == 'quiet')))

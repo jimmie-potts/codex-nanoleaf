@@ -77,28 +77,13 @@ def select_source(directory, source, fetch=None, now=time.time):
             raise shared_input.FeedError('active-comet')
         config = current['config']
         if source == 'shared':
-            saved = shared_input.dump_tables(db)
-            # Copy only explicitly bound local presentation continuity.
-            bindings = {item['legacySessionId']: shared_input.identity_key(item['identity']) for item in config['bindings']}
-            transferred = {table: [] for table in shared_input.TABLES}
-            for table in ('slots','activity','task_info'):
-                for row in saved[table]:
-                    if row[0] in bindings:
-                        transferred[table].append([bindings[row[0]], *row[1:]])
-            shared_input.restore_tables(db, transferred)
-            db.execute('UPDATE shared_input SET backup=?,source=\'shared\',generation=generation+1,envelope=NULL,connection=\'unavailable\' WHERE id=1', (shared_input.dumps(saved),))
+            # Only explicitly bound local presentation continuity crosses over.
+            shared_input.save_legacy_tasks(db, config['bindings'])
+            db.execute('UPDATE shared_input SET source=\'shared\',generation=generation+1,envelope=NULL,connection=\'unavailable\' WHERE id=1')
             db.execute('DELETE FROM shared_stale')
             shared_input.project_envelope(db, envelope, config, instant, resync=True, targets=configuration.registered_devices(directory), metadata=metadata)
         else:
-            prefs = shared_input.bound_preferences(db, config)
-            shared_input.restore_tables(db, current['backup'])
-            # Release old slots before applying the complete remap to avoid swaps colliding.
-            for session in prefs: db.execute('DELETE FROM slots WHERE session=?', (session,))
-            for session, (info, placed) in prefs.items():
-                if info: db.execute('UPDATE task_info SET project=?,manual_project=? WHERE session=?', (*info, session))
-                for device, slot in placed:
-                    db.execute('DELETE FROM slots WHERE slot=? AND device=?', (slot, device))
-                    db.execute('INSERT INTO slots (session, slot, device) VALUES (?,?,?)', (session, slot, device))
+            shared_input.restore_legacy_tasks(db, config['bindings'])
             db.execute('DELETE FROM comets')
             db.execute('DELETE FROM receipts')
             db.execute('DELETE FROM shared_stale')
