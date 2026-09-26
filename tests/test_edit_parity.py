@@ -5,6 +5,8 @@ import unittest
 
 import test_controller_state as baseline
 from test_bridge import b
+import database
+import jsonfile
 import project_map as wall
 
 
@@ -14,9 +16,9 @@ class EditParityTest(unittest.TestCase):
     def setUp(self):
         baseline.ControllerStateTest.setUp(self)
         self.config = {'line_groups': [[101, 102], [103, 104]]}
-        b.write_json(self.directory / 'config.json', self.config)
-        b.write_json(self.directory / 'layout.json', {'line_groups': self.config['line_groups']})
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        jsonfile.write_json(self.directory / 'config.json', self.config)
+        jsonfile.write_json(self.directory / 'layout.json', {'line_groups': self.config['line_groups']})
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             db.execute("INSERT INTO projects VALUES ('/work/alpha', 'Alpha', '#112233', '[]')")
             db.execute("INSERT INTO projects VALUES ('/work/beta', 'Beta', '#445566', '[]')")
             db.execute("INSERT INTO task_info VALUES ('task-a','Task A','/work/alpha','/work/alpha',NULL,'turn',42)")
@@ -29,13 +31,13 @@ class EditParityTest(unittest.TestCase):
 
     def wall_app(self):
         import wall_server
-        return wall_server.App(self.directory, b, config=self.config, launch=lambda _: None)
+        return wall_server.App(self.directory, config=self.config, launch=lambda _: None)
 
     def process(self):
         import integration_api
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             db.execute('BEGIN IMMEDIATE')
-            integration_api.process(db, b, self.config)
+            integration_api.process(db, self.config)
 
     def request(self, command):
         view = self.app.integration_snapshot(self.token, 'device')
@@ -119,7 +121,7 @@ class EditParityTest(unittest.TestCase):
                 (self.directory / 'status.sqlite').write_bytes(snapshot)
 
     def test_active_comet_defers_browser_edit_and_holds_machine_edit(self):
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             db.execute("INSERT INTO comets (session, turn, queued, source, started, device) VALUES ('task-a','turn',1,0,2,'wall')")
         # Browser: an edit that moves the comet's source Line is saved as a pending wall edit.
         self.browser.update('/api/settings', {'style': 'project'})
@@ -131,20 +133,20 @@ class EditParityTest(unittest.TestCase):
         # Machine: admission refuses while a pending wall edit exists.
         request = self.request(dict(kind='settings.set', coverage='status'))
         self.assertEqual(self.app.integration_admit(self.token, request)[1]['failure']['code'], 'revision-conflict')
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             db.execute('DELETE FROM map_pending')
         # A queued edit waits while the Lines comet plays, then applies once it ends.
         request = self.request(dict(kind='settings.set', coverage='status'))
         self.assertEqual(self.app.integration_admit(self.token, request)[0], 202)
         self.process()
         self.assertEqual(self.app.integration_admit(self.token, request)[1]['outcome'], 'queued')
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             db.execute("DELETE FROM comets WHERE device='wall'")
         self.process()
         self.assertEqual(self.app.integration_admit(self.token, request)[1]['outcome'], 'applied')
         self.assertEqual(self.saved()['settings']['coverage'], 'status')
         # A wall edit deferred after admission changes the revision the request expected.
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             db.execute("INSERT INTO comets (session, turn, queued, source, started, device) VALUES ('task-a','turn',1,0,2,'wall')")
         request = self.request(dict(kind='settings.set', coverage='whole'))
         self.assertEqual(self.app.integration_admit(self.token, request)[0], 202)

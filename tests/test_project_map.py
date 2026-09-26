@@ -10,6 +10,10 @@ from urllib.error import HTTPError
 from http.server import ThreadingHTTPServer
 import test_scene_restore as fixtures
 from test_bridge import b,decode
+import transport
+import database
+import modes
+import store
 import project_map as w
 import wall_server
 
@@ -21,19 +25,19 @@ class ProjectTest(unittest.TestCase):
     run_worker=fixtures.SceneTest.run_worker
 
     def projects(self):
-        with contextlib.closing(b.connect_state(self.directory)) as db,db:
+        with contextlib.closing(database.connect_state(self.directory)) as db,db:
             db.executemany('INSERT INTO projects VALUES (?,?,?,?)',[
                 ('a','Project A','#aa55ff','["/home/tester/projects/a"]'),('b','Project B','#33ccee','["C:/repo/b"]')])
-        return wall_server.App(self.directory,b,self.config,launch=lambda _:None)
+        return wall_server.App(self.directory,self.config,launch=lambda _:None)
 
     def task(self,sid,project):
         self.event('UserPromptSubmit',sid)
-        with contextlib.closing(b.connect_state(self.directory)) as db,db:
+        with contextlib.closing(database.connect_state(self.directory)) as db,db:
             db.execute('UPDATE task_info SET project=? WHERE session=?',(project,sid))
 
     def prepare(self):
-        with contextlib.closing(b.connect_state(self.directory)) as db,db:
-            b.prune_comets(db,self.clock.now(),b.control_state(db)['mode'])
+        with contextlib.closing(database.connect_state(self.directory)) as db,db:
+            b.prune_comets(db,self.clock.now(),store.control_state(db)['mode'])
             w.apply_pending(db)
             snap=b.dashboard(db,self.config,self.clock.now())
             cfg=copy.deepcopy(self.config);w.render_config(db,cfg,snap)
@@ -70,7 +74,7 @@ class ProjectTest(unittest.TestCase):
 
     def test_active_comet_defers_mapping_and_style(self):
         app=self.projects();self.task('a','a');self.event('Stop','a');self.prepare()
-        with contextlib.closing(b.connect_state(self.directory)) as db,db: b.current_comet(db,self.clock.now())
+        with contextlib.closing(database.connect_state(self.directory)) as db,db: b.current_comet(db,self.clock.now())
         self.assign(app,[0],'b');app.update('/api/settings',{'style':'project'})
         self.assertIsNotNone(app.state()['pending']);self.assertEqual(app.state()['settings']['style'],'classic')
         self.clock.sleep(2);self.prepare()
@@ -120,7 +124,7 @@ class ProjectTest(unittest.TestCase):
     def test_metadata_paths_titles_and_manual_override(self):
         app=self.projects();self.event('UserPromptSubmit','a',cwd='/mnt/c/repo/b/subdir')
         metadata=w.Metadata(self.directory,self.config);metadata.titles={'a':'Actual task title'}
-        with contextlib.closing(b.connect_state(self.directory)) as db,db:metadata.sync(db)
+        with contextlib.closing(database.connect_state(self.directory)) as db,db:metadata.sync(db)
         task=app.state()['tasks'][0];self.assertEqual(task['project'],'b');self.assertEqual(task['title'],'Actual task title')
         app.update('/api/task',{'id':'a','project':'a'});self.assertEqual(app.state()['tasks'][0]['project'],'a')
         app.update('/api/task',{'id':'a','project':None});self.assertEqual(app.state()['tasks'][0]['project'],'b')
@@ -133,10 +137,10 @@ class ProjectTest(unittest.TestCase):
         path.write_text(json.dumps(value));index.write_text(json.dumps({'id':'s','thread_name':'Task <name>'})+'\n')
         metadata=w.Metadata(self.directory,dict(self.config,metadata_path=str(path),title_index_path=str(index)))
         metadata.refresh()
-        with contextlib.closing(b.connect_state(self.directory)) as db,db: metadata.sync(db)
+        with contextlib.closing(database.connect_state(self.directory)) as db,db: metadata.sync(db)
         path.write_text('{');index.write_text('{')
         metadata.refresh()
-        with contextlib.closing(b.connect_state(self.directory)) as db,db: metadata.sync(db)
+        with contextlib.closing(database.connect_state(self.directory)) as db,db: metadata.sync(db)
         self.assertEqual(self.query('SELECT title,project FROM task_info'),[('Task <name>','a')])
 
     def test_turn_elapsed_not_status_elapsed(self):
@@ -148,19 +152,19 @@ class ProjectTest(unittest.TestCase):
 
     def test_locate_waits_for_comet_and_free_rejects(self):
         app=self.projects();self.task('a','a');self.event('Stop','a');self.prepare()
-        with contextlib.closing(b.connect_state(self.directory)) as db,db: b.current_comet(db,1000)
+        with contextlib.closing(database.connect_state(self.directory)) as db,db: b.current_comet(db,1000)
         app.update('/api/locate',{'line':w.line_id(self.config['line_groups'][3])})
-        with contextlib.closing(b.connect_state(self.directory)) as db,db:
+        with contextlib.closing(database.connect_state(self.directory)) as db,db:
             self.assertIsNone(w.locate_state(db,self.config,1001,'work'));b.prune_comets(db,1002,'work')
             self.assertEqual(w.locate_state(db,self.config,1002,'work')['source'],3)
             self.assertIsNone(w.locate_state(db,self.config,1003,'work'))
-        b.set_mode(self.directory,'free',launch=lambda _:None)
+        modes.set_mode(self.directory,'free',launch=lambda _:None)
         with self.assertRaises(ValueError):app.update('/api/locate',{'line':w.line_id(self.config['line_groups'][3])})
 
     def test_stable_ids_across_layout_reorder(self):
         app=self.projects();self.assign(app,[0],'a')
         cfg=copy.deepcopy(self.config);cfg['line_groups'].reverse()
-        with contextlib.closing(b.connect_state(self.directory)) as db:self.assertEqual(w.owners(db,cfg)[-1][0],'a')
+        with contextlib.closing(database.connect_state(self.directory)) as db:self.assertEqual(w.owners(db,cfg)[-1][0],'a')
 
     def test_api_validation_and_no_credentials(self):
         app=self.projects();self.task('a','a')
@@ -174,7 +178,7 @@ class ProjectTest(unittest.TestCase):
         receipt={'apiVersion':'1.0','deviceId':'wall','lineGroups':[[100,101]],'mode':'work',
                  'brightness':30,'loop':True,'effect':{'write':{'animData':'1 100 1 0'}},
                  'animationEpochMs':1_000_000,'acceptedAtMs':1_000_650}
-        with contextlib.closing(b.connect_state(self.directory)) as db,db:
+        with contextlib.closing(database.connect_state(self.directory)) as db,db:
             db.execute('INSERT OR REPLACE INTO meta VALUES (?,?)',('rendering_receipt',json.dumps(receipt)))
             db.execute("INSERT INTO line_prefs (line_id,project,signature,device) VALUES ('100:101','a',1,'wall')")
         before=(self.query('SELECT * FROM line_prefs'),self.query('SELECT * FROM sessions'),
@@ -185,7 +189,7 @@ class ProjectTest(unittest.TestCase):
         url=f'http://127.0.0.1:{server.server_port}'
         with patch.object(app.metadata,'refresh',side_effect=AssertionError('metadata refresh')), \
              patch.object(wall_server,'ensure_geometry',side_effect=AssertionError('geometry acquisition')), \
-             patch.object(b,'light_request',side_effect=AssertionError('controller request')), \
+             patch.object(transport,'light_request',side_effect=AssertionError('controller request')), \
              patch.object(app,'launch',side_effect=AssertionError('worker launch')):
             with urlopen(url+'/api/rendering') as response:
                 self.assertEqual(response.status,200)
@@ -203,37 +207,37 @@ class ProjectTest(unittest.TestCase):
         self.assertNotIn('PRIVATE_TEST_TOKEN',json.dumps(snapshot))
         self.assertEqual((self.query('SELECT * FROM line_prefs'),self.query('SELECT * FROM sessions'),
                           self.query('SELECT * FROM comets'),self.query('SELECT * FROM receipts')),before)
-        restarted=wall_server.App(self.directory,b,config=self.config,launch=lambda _:None)
+        restarted=wall_server.App(self.directory,config=self.config,launch=lambda _:None)
         self.assertEqual(restarted.rendering()['lastSuccessful'],receipt)
 
     def test_rendering_endpoint_reports_pending_failed_free_and_unknown(self):
         app=self.projects()
         receipt={'apiVersion':'1.0','deviceId':'wall','effect':{'write':{'animData':'frames'}}}
-        with contextlib.closing(b.connect_state(self.directory)) as db,db:
+        with contextlib.closing(database.connect_state(self.directory)) as db,db:
             db.execute('INSERT OR REPLACE INTO meta VALUES (?,?)',('rendering_receipt',json.dumps(receipt)))
         self.assertEqual(app.rendering()['outcome'],'last-sent')
-        with contextlib.closing(b.connect_state(self.directory)) as db,db:
+        with contextlib.closing(database.connect_state(self.directory)) as db,db:
             db.execute("INSERT OR REPLACE INTO meta VALUES ('dirty','1')")
         self.assertEqual(app.rendering()['outcome'],'pending')
-        with contextlib.closing(b.connect_state(self.directory)) as db,db:
+        with contextlib.closing(database.connect_state(self.directory)) as db,db:
             db.execute("DELETE FROM meta WHERE key='dirty'")
             db.execute("INSERT OR REPLACE INTO meta VALUES ('control_error','Light update failed; retrying.')")
         self.assertEqual(app.rendering()['outcome'],'failed')
-        with contextlib.closing(b.connect_state(self.directory)) as db,db:
+        with contextlib.closing(database.connect_state(self.directory)) as db,db:
             db.execute("DELETE FROM meta WHERE key='control_error'")
             db.execute("INSERT OR REPLACE INTO meta VALUES ('mode','free')")
         self.assertEqual(app.rendering()['outcome'],'externally-controlled')
-        with contextlib.closing(b.connect_state(self.directory)) as db,db:
+        with contextlib.closing(database.connect_state(self.directory)) as db,db:
             db.execute("DELETE FROM meta WHERE key='rendering_receipt'")
         self.assertEqual(app.rendering()['outcome'],'externally-controlled')
-        with contextlib.closing(b.connect_state(self.directory)) as db,db:
+        with contextlib.closing(database.connect_state(self.directory)) as db,db:
             db.execute("DELETE FROM meta WHERE key='mode'")
         self.assertEqual(app.rendering()['outcome'],'unknown')
 
     def test_partial_effect_acceptance_keeps_prior_receipt_and_reports_failure(self):
         app=self.projects()
         receipt={'apiVersion':'1.0','deviceId':'wall','effect':{'write':{'animData':'previous'}}}
-        with contextlib.closing(b.connect_state(self.directory)) as db,db:
+        with contextlib.closing(database.connect_state(self.directory)) as db,db:
             db.execute('INSERT OR REPLACE INTO meta VALUES (?,?)',('rendering_receipt',json.dumps(receipt)))
         calls=[]
         config={**self.config,'_mode':'work','_now':lambda:2000.0}
@@ -243,12 +247,12 @@ class ProjectTest(unittest.TestCase):
         config['_controller_request']=request
 
         with self.assertRaises(OSError):
-            with contextlib.closing(b.connect_state(self.directory)) as db,db:
+            with contextlib.closing(database.connect_state(self.directory)) as db,db:
                 b.update_display(db,config,[('working',1999.0)]+[None]*14,2000.0,False)
 
         self.assertEqual(calls,['/effects','/state'])
         self.assertEqual(json.loads(self.query("SELECT value FROM meta WHERE key='rendering_receipt'")[0][0]),receipt)
-        with contextlib.closing(b.connect_state(self.directory)) as db,db:
+        with contextlib.closing(database.connect_state(self.directory)) as db,db:
             db.execute("INSERT OR REPLACE INTO meta VALUES ('control_error','Brightness update failed after effect acceptance')")
         snapshot=app.rendering()
         self.assertEqual(snapshot['outcome'],'failed')
@@ -275,7 +279,7 @@ class ProjectTest(unittest.TestCase):
 
     def test_pending_half_edit_preserves_pending_owner(self):
         app=self.projects();self.task('a','a');self.event('Stop','a');self.prepare()
-        with contextlib.closing(b.connect_state(self.directory)) as db,db:b.current_comet(db,1000)
+        with contextlib.closing(database.connect_state(self.directory)) as db,db:b.current_comet(db,1000)
         key=w.line_id(self.config['line_groups'][0])
         self.assign(app,[0],'b');app.update('/api/assign',{'lines':{key:{'signature':1}}})
         self.assertEqual(app.state()['pending']['lines'][key],{'project':'b','signature':1})
@@ -288,14 +292,14 @@ class ProjectTest(unittest.TestCase):
         path.write_text('[]');index.write_text('[]\nnull\n{"id":"s","thread_name":"Valid"}\n')
         metadata=w.Metadata(self.directory,dict(self.config,metadata_path=str(path),title_index_path=str(index)))
         metadata.refresh()
-        with contextlib.closing(b.connect_state(self.directory)) as db,db:metadata.sync(db)
+        with contextlib.closing(database.connect_state(self.directory)) as db,db:metadata.sync(db)
         self.assertEqual(self.query('SELECT title FROM task_info'),[('Valid',)])
         self.assertEqual(w.normalize('\\\\wsl$\\Ubuntu\\mnt\\c\\REPO\\b\\..\\b'), 'c:/repo/b')
 
     def test_preferences_persist_after_reopen(self):
         app=self.projects();self.assign(app,[4],'a');app.update('/api/project',{'id':'a','color':'#113355'})
         app.update('/api/settings',{'style':'project','coverage':'status','rotation':270,'flip_y':1})
-        reopened=wall_server.App(self.directory,b,self.config,launch=lambda _:None).state()
+        reopened=wall_server.App(self.directory,self.config,launch=lambda _:None).state()
         self.assertEqual(reopened['settings'],{'style':'project','coverage':'status','rotation':270,'flip_x':0,'flip_y':1})
         self.assertEqual(next(p for p in reopened['projects'] if p['id']=='a')['color'],'#113355')
         self.assertEqual(self.query('SELECT project FROM line_prefs'),[('a',)])
@@ -338,4 +342,4 @@ class ProjectTest(unittest.TestCase):
         from unittest.mock import patch
         with patch.object(wall_server,'ensure_geometry') as refresh_geometry:
             app.state();app.state()
-            refresh_geometry.assert_called_once_with(self.directory,b,app.config,refresh=True)
+            refresh_geometry.assert_called_once_with(self.directory,app.config,refresh=True,request=None)

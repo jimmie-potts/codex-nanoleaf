@@ -99,7 +99,7 @@ class ModuleDependencyTest(unittest.TestCase):
         rebound = [ast.unparse(target) for node in ast.walk(demo) if isinstance(node, ast.Assign) for target in node.targets
                    if isinstance(target, ast.Attribute) and isinstance(target.value, ast.Name) and target.value.id in modules]
         self.assertEqual(rebound, [], 'the demo must not rebind module attributes')
-        pattern = re.compile(r"patch\.object\(b, '(light_request|launch_worker)'|\bb\.(light_request|launch_worker|subprocess\.Popen)\s*=")
+        pattern = re.compile(r"patch\.object\(b,\s*'(light_request|launch_worker|connect_state|load_config)'|\bb\.(light_request|launch_worker|subprocess\.Popen)\s*=")
         for path in sorted((ROOT / 'tests').glob('*.py')):
             with self.subTest(test=path.name):
                 self.assertIsNone(pattern.search(path.read_text(encoding='utf-8')))

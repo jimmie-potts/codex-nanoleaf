@@ -13,6 +13,9 @@ ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('bridge', ROOT / 'bridge/bridge.py')
 b = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(b)
+import codex_hooks
+import configuration
+import database
 
 
 def decode(payload):
@@ -63,14 +66,14 @@ class BridgeTest(unittest.TestCase):
                        launch=lambda directory: None if defer else self.drain())
 
     def query(self, sql):
-        with contextlib.closing(b.connect_state(self.path)) as db,db:
+        with contextlib.closing(database.connect_state(self.path)) as db,db:
             return db.execute(sql).fetchall()
 
     def statuses(self):
         return dict(self.query('SELECT id,status FROM sessions'))
 
     def snapshot(self):
-        with contextlib.closing(b.connect_state(self.path)) as db,db:
+        with contextlib.closing(database.connect_state(self.path)) as db,db:
             return b.dashboard(db,self.config,self.clock.now())
 
     def test_render_returns_the_successfully_accepted_output_and_timing(self):
@@ -117,7 +120,7 @@ class BridgeTest(unittest.TestCase):
         receipt={'apiVersion':'1.0','deviceId':'wall','effect':{'write':{'animData':'1 100 1 0'}},
                  'lineGroups':[[100,101]],'mode':'work','brightness':30,'loop':True,
                  'animationEpochMs':1_000_000,'acceptedAtMs':1_000_650}
-        with contextlib.closing(b.connect_state(self.path)) as db,db:
+        with contextlib.closing(database.connect_state(self.path)) as db,db:
             b.update_display(db,self.config,[('working',1000.0)]+[None]*14,1000.0,True,
                               send=lambda *_:receipt)
         saved=json.loads(self.query("SELECT value FROM meta WHERE key='rendering_receipt'")[0][0])
@@ -126,7 +129,7 @@ class BridgeTest(unittest.TestCase):
         def fail(*_):
             raise OSError('Device unavailable')
         with self.assertRaises(OSError):
-            with contextlib.closing(b.connect_state(self.path)) as db,db:
+            with contextlib.closing(database.connect_state(self.path)) as db,db:
                 b.update_display(db,self.config,[('blocked',1001.0)]+[None]*14,1001.0,False,send=fail)
         self.assertEqual(json.loads(self.query("SELECT value FROM meta WHERE key='rendering_receipt'")[0][0]),receipt)
 
@@ -135,7 +138,7 @@ class BridgeTest(unittest.TestCase):
         config={**self.config,'_mode':'work','_comet':{'source':7,'started':1998.0},
                 '_now':lambda:2000.5}
         config['_controller_request']=lambda cfg,method,endpoint,payload=None: calls.append((endpoint,payload))
-        with contextlib.closing(b.connect_state(self.path)) as db,db:
+        with contextlib.closing(database.connect_state(self.path)) as db,db:
             b.update_display(db,config,[None]*15,2000.0,False)
 
         receipt=json.loads(self.query("SELECT value FROM meta WHERE key='rendering_receipt'")[0][0])
@@ -204,12 +207,7 @@ class BridgeTest(unittest.TestCase):
         self.event('Interrupt',turn='2')
         self.assertEqual(self.sent[-1][0],[None]*15)
         calls=[]
-        original=b.light_request
-        b.light_request=lambda *args:calls.append(args)
-        try:
-            b.render(self.config,[None]*15,0,True)
-        finally:
-            b.light_request=original
+        b.render(dict(self.config,_controller_request=lambda *args:calls.append(args)),[None]*15,0,True)
         self.assertEqual(calls[-1][3]['on'],{'value':True})
         for frames in decode(calls[0][3]).values():
             self.assertEqual(tuple(frames[0][:3]),b.BASELINE)
@@ -322,7 +320,7 @@ class BridgeTest(unittest.TestCase):
 
         with patch.object(b.sqlite3, 'connect', tracked_connect):
             with self.assertRaisesRegex(sqlite3.OperationalError, 'map_settings'):
-                b.connect_state(self.path)
+                database.connect_state(self.path)
         self.assertEqual(len(connections), 1)
         with self.assertRaisesRegex(sqlite3.ProgrammingError, 'closed'):
             connections[0].execute('SELECT 1')
@@ -331,7 +329,7 @@ class BridgeTest(unittest.TestCase):
         with contextlib.closing(sqlite3.connect(self.path/'status.sqlite')) as db, db:
             db.execute('CREATE TABLE map_settings (id INTEGER PRIMARY KEY)')
         with self.assertRaisesRegex(sqlite3.OperationalError, 'map_settings'):
-            b.connect_state(self.path)
+            database.connect_state(self.path)
         with contextlib.closing(sqlite3.connect(self.path/'status.sqlite')) as db:
             tables = db.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
         self.assertEqual(tables, [('map_settings',)])
@@ -423,7 +421,7 @@ class BridgeTest(unittest.TestCase):
 
     def test_fifteen_physical_lines_are_paired_from_real_layout(self):
         layout=json.loads((ROOT/'tests/fixtures/lines-layout.json').read_text())
-        groups=b.pair_lines(layout)
+        groups=configuration.pair_lines(layout)
         self.assertEqual(len(groups),15)
         expected={p['panelId'] for p in layout['layout']['positionData'] if p['shapeType']==18}
         self.assertEqual({p for pair in groups for p in pair},expected)
@@ -436,9 +434,9 @@ class BridgeTest(unittest.TestCase):
 
     def test_merge_preserves_other_hooks_and_uninstall(self):
         original={'description':'keep','hooks':{'Stop':[{'hooks':[{'type':'command','command':'echo existing'}]}]}}
-        merged=b.merge_hooks(original,'python3 bridge.py hook')
-        self.assertEqual(b.merge_hooks(merged,'python3 bridge.py hook'),merged)
-        self.assertEqual(b.merge_hooks(merged,'',remove=True),original)
+        merged=codex_hooks.merge_hooks(original,'python3 bridge.py hook')
+        self.assertEqual(codex_hooks.merge_hooks(merged,'python3 bridge.py hook'),merged)
+        self.assertEqual(codex_hooks.merge_hooks(merged,'',remove=True),original)
 
     def test_unread_completion_pulses_until_desktop_flag_clears(self):
         self.event('UserPromptSubmit')
@@ -480,7 +478,7 @@ class BridgeTest(unittest.TestCase):
         self.event('UserPromptSubmit')
         self.event('Stop',defer=True)
         self.clock.sleep(60)
-        with contextlib.closing(b.connect_state(self.path)) as db,db:
+        with contextlib.closing(database.connect_state(self.path)) as db,db:
             b.reconcile_read_state(db,None,self.clock.now())
         self.assertEqual(self.statuses()['a'],'unread')
 
@@ -488,7 +486,7 @@ class BridgeTest(unittest.TestCase):
         self.event('UserPromptSubmit')
         self.event('Stop',defer=True)
         completed=self.clock.now()
-        with contextlib.closing(b.connect_state(self.path)) as db,db:
+        with contextlib.closing(database.connect_state(self.path)) as db,db:
             # Legacy rollback restores task status but discards old receipts/comets.
             db.execute('DELETE FROM receipts')
             db.execute('DELETE FROM comets')
@@ -597,10 +595,10 @@ class BridgeTest(unittest.TestCase):
                     line_positions=self.config['line_positions'][:1])
         self.event('UserPromptSubmit',session='old',defer=True)
         self.event('Stop',session='old',defer=True)
-        with contextlib.closing(b.connect_state(self.path)) as db,db:
+        with contextlib.closing(database.connect_state(self.path)) as db,db:
             b.dashboard(db,config,self.clock.now())
         self.event('UserPromptSubmit',session='new',defer=True)
-        with contextlib.closing(b.connect_state(self.path)) as db,db:
+        with contextlib.closing(database.connect_state(self.path)) as db,db:
             b.reconcile_read_state(db,read(),self.clock.now())
             b.dashboard(db,config,self.clock.now())
             self.assertEqual(db.execute("SELECT session FROM slots WHERE device='wall'").fetchall(),[('old',)])

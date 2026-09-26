@@ -7,14 +7,22 @@ from pathlib import Path
 import re
 import secrets
 import sqlite3
-import subprocess
-import sys
 import threading
 import time
 from urllib.parse import parse_qs, urlsplit
 import urllib.request
+
+import configuration
+import database
 import devices
+import edits
+import jsonfile
+import launcher
+import modes
 import project_map as wall
+import shared_input
+import store
+import transport
 
 
 class UnknownDevice(ValueError):
@@ -39,16 +47,29 @@ def codex_thread_url(session):
     return None
 
 
+# Browser routes and how each decodes its payload into a shared configuration edit.
+EDITS={
+    '/api/evict':lambda db,config,payload:edits.evict(db,config,payload),
+    '/api/settings':lambda db,config,payload:edits.settings(db,config,payload),
+    '/api/assign':lambda db,config,payload:edits.assign(db,config,payload.get('lines')),
+    '/api/project':lambda db,config,payload:edits.project_color(db,payload.get('id'),payload.get('color')),
+    '/api/task':lambda db,config,payload:edits.task_project(db,config,payload.get('id'),payload.get('project')),
+    '/api/locate':lambda db,config,payload:edits.locate(db,config,payload.get('line')),
+}
+
+
 class App:
-    def __init__(self,directory,b,config=None,launch=None):
-        self.directory=directory; self.b=b; self.config=config or b.load_config(directory)
+    def __init__(self,directory,config=None,launch=None,request=None):
+        """request reads the default device's layout when the map has none; launch wakes the workers."""
+        self.directory=directory; self.request=request
+        self.config=config or configuration.load_config(directory,request=request)
         self.metadata=wall.Metadata(directory,self.config)
-        self.launch=launch or b.launch_worker; self.lock=threading.RLock()
+        self.launch=launch or launcher.launch_worker; self.lock=threading.RLock()
         self.geometry_retry=time.monotonic()+10
         self.geometry_attempts=0
         self.layout_generation=self.config.get('_connector_source')
-        with contextlib.closing(self.b.connect_state(directory)) as db:
-            resume_shared = self.b.shared_input.selected(db)
+        with contextlib.closing(database.connect_state(directory)) as db:
+            resume_shared = shared_input.selected(db)
         if resume_shared: self.launch(directory)
 
     def registry(self):
@@ -93,18 +114,18 @@ class App:
                 if (connectors is None or stale) and self.geometry_attempts<3 and time.monotonic()>=self.geometry_retry:
                     self.geometry_retry=time.monotonic()+10
                     self.geometry_attempts+=1
-                    if ensure_geometry(self.directory,self.b,self.config,refresh=stale):
+                    if ensure_geometry(self.directory,self.config,refresh=stale,request=self.request):
                         self.layout_generation=self.config.get('_connector_source')
                     connectors=wall.connector_layout(self.config)
             elif kind=='lines':
                 connectors=wall.connector_layout(config)
-            with contextlib.closing(self.b.connect_state(self.directory)) as check:
-                shared = self.b.shared_input.selected(check)
+            with contextlib.closing(database.connect_state(self.directory)) as check:
+                shared = shared_input.selected(check)
             if not shared: self.metadata.refresh()
             device=devices.device_of(config)
-            with contextlib.closing(self.b.connect_state(self.directory)) as db,db:
-                changed=False if self.b.shared_input.selected(db) else self.metadata.sync(db)
-                if changed: self.b.mark_dirty(db)
+            with contextlib.closing(database.connect_state(self.directory)) as db,db:
+                changed=False if shared_input.selected(db) else self.metadata.sync(db)
+                if changed: store.mark_dirty(db)
                 prefs=wall.owners(db,config); projects=[]; elements=devices.elements(config)
                 memberships=wall.task_projects(db); slots=dict(db.execute('SELECT session,slot FROM slots WHERE device=?',(device,)))
                 details={s:(title,cwd,manual,started) for s,title,cwd,manual,started in db.execute('SELECT session,title,cwd,manual_project,started FROM task_info')}
@@ -112,11 +133,11 @@ class App:
                 epochs={s:epoch for s,epoch in db.execute('SELECT session,started FROM activity')}
                 uncertain=set(); codex_urls={}; eviction_tokens={}
                 if shared:
-                    shared_state=self.b.shared_input.state(db)
+                    shared_state=shared_input.state(db)
                     envelope=shared_state['envelope']
                     if envelope:
-                        for key,(root,_,_) in self.b.shared_input.presented(envelope['snapshot']).items():
-                            eviction_tokens[key]=self.b.shared_input.eviction_token(shared_state,root)
+                        for key,(root,_,_) in shared_input.presented(envelope['snapshot']).items():
+                            eviction_tokens[key]=shared_input.eviction_token(shared_state,root)
                             identity=root['identity']
                             if identity['provider']=='codex' and identity['client']=='desktop':
                                 codex_urls[key]=codex_thread_url(identity['sessionId'])
@@ -125,7 +146,7 @@ class App:
                         uncertain={sid for (sid,) in db.execute('SELECT id FROM sessions')}
                     else:
                         uncertain={sid for (sid,) in db.execute('SELECT session FROM shared_stale')}
-                for sid,turn,status in self.b.shared_input.visible_tasks(db, device):
+                for sid,turn,status in shared_input.visible_tasks(db, device):
                     title,cwd,manual,started=details.get(sid,('', '',None,None)); slot=slots.get(sid)
                     codex_url=codex_urls.get(sid) if shared else codex_thread_url(sid) if sid in self.metadata.index_ids else None
                     tasks.append({'id':sid,'title':title or wall.fallback_title('codex',sid),'project':memberships.get(sid),'status':status,'started':started,
@@ -141,7 +162,7 @@ class App:
                 lines=wall.geometry(config) if kind=='lines' else wall.triangle_geometry(config)
                 for line,(project,signature) in zip(lines,prefs):
                     line.update(project=project,signature=signature,task=next((t['id'] for t in tasks if t['line']==line['id']),None))
-                control=self.b.control_state(db,device)
+                control=store.control_state(db,device)
                 if lines: geometry_error=None
                 elif config is self.config: geometry_error='Layout unavailable. Check the light connection; the map will retry.'
                 else: geometry_error='Layout unavailable for this device. Enroll it again to save its geometry.'
@@ -161,7 +182,7 @@ class App:
         with contextlib.closing(sqlite3.connect(path,uri=True,timeout=.2)) as db:
             db.execute('BEGIN')
             device=devices.device_of(self.config)
-            control=self.b.control_state(db,device)
+            control=store.control_state(db,device)
             return wall.rendering_snapshot(db,self.config,control['mode'],
                                            control['revision']!=control['applied'],
                                            control['error'],time.time())
@@ -172,62 +193,13 @@ class App:
         payload=dict(payload); target=payload.pop('device',None)
         with self.lock:
             config=self.device_config(target)
-            with contextlib.closing(self.b.connect_state(self.directory)) as db,db:
+            edit=EDITS.get(route)
+            if edit is None: raise ValueError('Unknown action.')
+            with contextlib.closing(database.connect_state(self.directory)) as db,db:
                 db.execute('BEGIN IMMEDIATE')
-                apply_operation(db,self.b,config,route,payload)
-                import controller_state
-                # Shared project colours, task projects and the palette belong to the Lines ledger;
-                # everything else advances the ledger of the device the edit names.
-                shared=route in ('/api/project','/api/task') or (route=='/api/settings' and 'palette' in payload)
-                scoped=route not in ('/api/project','/api/task') and not (route=='/api/settings' and set(payload)<={'palette'})
-                for ledger in dict.fromkeys(([devices.DEFAULT] if shared else [])+([devices.device_of(config)] if scoped else [])):
-                    controller_state.changed(db,device=ledger)
-                self.b.mark_dirty(db)
+                edit(db,config,payload)
         self.launch(self.directory)
         return {'ok':True}
-
-
-def apply_operation(db,b,config,route,payload):
-    """Shared wall/machine operation inside the caller's write transaction."""
-    if not isinstance(payload,dict): raise ValueError('Expected an object.')
-    projects={row[0] for row in db.execute('SELECT id FROM projects')}
-    device=devices.device_of(config); kind=config.get('kind','lines')
-    ids={element['id'] for element in devices.elements(config)}
-    patch={}
-    if route=='/api/evict':
-        b.shared_input.evict(db,device,payload)
-    elif route=='/api/settings':
-        checks={'style':('classic','project'),'coverage':('whole','status'),'rotation':(0,90,180,270),'flip_x':(0,1),'flip_y':(0,1)}
-        settings={k:v for k,v in payload.items() if k!='palette'}
-        if not payload or any(k not in checks or v not in checks[k] for k,v in settings.items()): raise ValueError('Invalid setting.')
-        # Animation coverage chooses between a Line's two halves; a one-zone triangle has none.
-        if 'coverage' in settings and kind!='lines': raise ValueError('Animation coverage applies to Lines only.')
-        # The palette covers every device and moves no comet source, so it applies at once.
-        if 'palette' in payload: wall.save_palette(db,wall.validate_palette(payload['palette']))
-        if settings: patch={'settings':settings}
-    elif route=='/api/assign':
-        values=payload.get('lines')
-        if not isinstance(values,dict) or not values: raise ValueError('Select at least one Line.')
-        for key,value in values.items():
-            if key not in ids or not isinstance(value,dict) or not value or set(value)-{'project','signature'}: raise ValueError('Invalid Line assignment.')
-            if 'project' in value and value['project'] is not None and value['project'] not in projects: raise ValueError('Unknown project.')
-            if 'signature' in value and (type(value['signature']) is not int or value['signature'] not in (0,1)): raise ValueError('Invalid half.')
-            if 'signature' in value and kind!='lines': raise ValueError('Half swaps apply to Lines only.')
-        patch={'lines':values}
-    elif route=='/api/project':
-        if payload.get('id') not in projects or not isinstance(payload.get('color'),str) or not re.fullmatch(r'#[0-9a-fA-F]{6}',payload['color']): raise ValueError('Invalid project color.')
-        db.execute('UPDATE projects SET color=? WHERE id=?',(payload['color'].lower(),payload['id']))
-    elif route=='/api/task':
-        sid=payload.get('id'); project=payload.get('project')
-        if not db.execute('SELECT 1 FROM task_info WHERE session=?',(sid,)).fetchone(): raise ValueError('Unknown task.')
-        if project is not None and project not in projects: raise ValueError('Unknown project.')
-        patch={'tasks':{sid:project}}
-    elif route=='/api/locate':
-        if payload.get('line') not in ids: raise ValueError('Unknown Line.')
-        if b.control_state(db,device)['mode']=='free': raise ValueError('Choose Work or Quiet to locate a Line.')
-        db.execute('INSERT OR REPLACE INTO locate (line_id,started,device) VALUES (?,NULL,?)',(payload['line'],device))
-    else: raise ValueError('Unknown action.')
-    if patch: wall.request_patch(db,patch,config)
 
 def handler(app,token,instance=None):
     class Handler(BaseHTTPRequestHandler):
@@ -269,12 +241,12 @@ def handler(app,token,instance=None):
                 if self.path=='/api/mode':
                     if not isinstance(payload,dict): raise ValueError('Invalid mode.')
                     payload=dict(payload); target=payload.pop('device',None)
-                    if payload.get('mode') not in self.server.app.b.MODES: raise ValueError('Invalid mode.')
+                    if payload.get('mode') not in modes.MODES: raise ValueError('Invalid mode.')
                     resolve=getattr(app,'device_config',None)
                     if resolve: device=devices.device_of(resolve(target))
                     elif target is None: device=devices.device_of(getattr(app,'config',None) or {})
                     else: raise UnknownDevice(UNKNOWN_DEVICE)
-                    app.b.set_mode(app.directory,payload['mode'],device=device); result={'ok':True}
+                    modes.set_mode(app.directory,payload['mode'],launch=app.launch,device=device); result={'ok':True}
                 else: result=app.update(self.path,payload)
                 self.respond(200,result)
             except UnknownDevice:
@@ -293,7 +265,7 @@ def layout_generation(directory):
         return None
 
 
-def ensure_geometry(directory,b,config,refresh=False):
+def ensure_geometry(directory,config,refresh=False,request=None):
     try:
         # Only the map owns this drawing cache. Never replace shared layout.json.
         path=directory/'connector-geometry.json'
@@ -313,7 +285,7 @@ def ensure_geometry(directory,b,config,refresh=False):
             try:
                 cache,_=wall.validated_connector_geometry(entry.get('connector_geometry') or entry.get('zone_geometry'),config['line_groups'])
             except (ValueError,TypeError,KeyError,OverflowError):
-                layout=b.light_request(config,'GET')['panelLayout']
+                layout=(request or transport.light_request)(config,'GET')['panelLayout']
                 cache,_=wall.validated_connector_geometry({
                     'positionData':layout['layout']['positionData'],
                     'orientation':layout['globalOrientation']['value']},config['line_groups'])
@@ -321,7 +293,7 @@ def ensure_geometry(directory,b,config,refresh=False):
         if refresh or not config.get('zone_geometry'):
             additions['zone_geometry']={'positionData':[p for p in cache['positionData'] if p['shapeType']==18],
                                         'orientation':cache['orientation']}
-        if not cached: b.write_json(path,{'layoutGeneration':generation,'geometry':cache})
+        if not cached: jsonfile.write_json(path,{'layoutGeneration':generation,'geometry':cache})
         config.update(additions)
         return True
     except (OSError,ValueError,TypeError,KeyError,OverflowError):
@@ -337,7 +309,7 @@ def map_port(directory, override=None):
     return value
 
 
-def serve(directory,b,port=None):
+def serve(directory,port=None,launch=None,request=None):
     port = map_port(directory, port)
     with contextlib.closing(sqlite3.connect(directory/'map-lock.sqlite',timeout=0)) as lock:
         try: lock.execute('BEGIN EXCLUSIVE')
@@ -345,8 +317,8 @@ def serve(directory,b,port=None):
             if getattr(error, 'sqlite_errorcode', None) == sqlite3.SQLITE_BUSY:
                 raise RuntimeError('A wall map is already running for this installation.') from None
             raise
-        config=b.load_config(directory); ensure_geometry(directory,b,config)
-        app=App(directory,b,config)
+        config=configuration.load_config(directory,request=request); ensure_geometry(directory,config,request=request)
+        app=App(directory,config,launch=launch,request=request)
         app.geometry_attempts=1  # Startup acquisition used the first bounded attempt.
         instance = secrets.token_hex(16)
         try:
@@ -356,7 +328,7 @@ def serve(directory,b,port=None):
                 raise RuntimeError(f'Port {port} is already in use. Stop its owner or choose another wall-map port.') from None
             raise RuntimeError(f'Cannot bind the wall map to 127.0.0.1:{port}.') from None
         server.app=app
-        b.write_json(directory/'map-server.json',{'port':server.server_port, 'instance':instance})
+        jsonfile.write_json(directory/'map-server.json',{'port':server.server_port, 'instance':instance})
         try: server.serve_forever()
         finally: server.server_close()
 
@@ -377,20 +349,19 @@ def map_url(directory, expected_port=0):
     return None
 
 
-def command(args,directory,b):
+def command(args,directory,launch=None,request=None):
+    """`bridge.py map|serve|style`; launch wakes the workers and request reads the device layout."""
     if args.mode=='style':
         if args.selection not in ('classic','project'): raise ValueError('Choose classic or project.')
-        config=b.load_config(directory)
-        with contextlib.closing(b.connect_state(directory)) as db,db:
-            db.execute('BEGIN IMMEDIATE'); wall.request_patch(db,{'settings':{'style':args.selection}},config); b.mark_dirty(db)
-        b.launch_worker(directory); return
+        config=configuration.load_config(directory,request=request)
+        with contextlib.closing(database.connect_state(directory)) as db,db:
+            db.execute('BEGIN IMMEDIATE'); wall.request_patch(db,{'settings':{'style':args.selection}},config); store.mark_dirty(db)
+        (launch or launcher.launch_worker)(directory); return
     port = map_port(directory, getattr(args, 'port', None))
-    if args.mode=='serve': return serve(directory,b,port)
+    if args.mode=='serve': return serve(directory,port,launch,request)
     url=map_url(directory,port)
     if not url:
-        kwargs={'stdin':subprocess.DEVNULL,'stdout':subprocess.DEVNULL,'stderr':subprocess.DEVNULL,'close_fds':True,'start_new_session':True}
-        process=subprocess.Popen([sys.executable,str(Path(b.__file__).resolve()),'serve','--state-dir',str(directory),
-                                  '--port',str(port)],**kwargs)
+        process=launcher.start('serve','--state-dir',str(directory),'--port',str(port))
         deadline=time.time()+10
         while not url and time.time()<deadline:
             time.sleep(.2); url=map_url(directory,port)

@@ -4,6 +4,8 @@ import json
 from unittest.mock import patch
 
 from test_bridge import b
+import database
+import shared_source
 import unittest
 import test_shared_input as fixtures
 from test_shared_input import envelope
@@ -42,17 +44,17 @@ class SharedMetadataTest(unittest.TestCase):
         self.assertEqual(self.detail(),('Real task title','local','project'))
         self.assertEqual(self.rows("SELECT name FROM projects WHERE id='local'"),[('Local project',)])
         # Manual preference wins in the allocation layer.
-        with contextlib.closing(b.connect_state(self.path)) as db:
+        with contextlib.closing(database.connect_state(self.path)) as db:
             self.assertEqual(wall.task_projects(db)[self.key],'project')
         self.assertNotIn('Real task title',json.dumps(self.s.inspect(self.path)))
 
     def test_enriched_project_controls_line_allocation(self):
         self.session['activity']='active'
-        with contextlib.closing(b.connect_state(self.path)) as db,db:
+        with contextlib.closing(database.connect_state(self.path)) as db,db:
             db.execute("UPDATE task_info SET manual_project=NULL WHERE session='legacy'")
         self.select(self.value)
         config={'line_groups':[[100,101],[102,103]]}
-        with contextlib.closing(b.connect_state(self.path)) as db,db:
+        with contextlib.closing(database.connect_state(self.path)) as db,db:
             db.execute("DELETE FROM slots")
             db.execute("UPDATE map_settings SET style='project'")
             db.executemany("INSERT INTO line_prefs (line_id,project,signature) VALUES (?,?,0)",
@@ -63,7 +65,7 @@ class SharedMetadataTest(unittest.TestCase):
     def test_hub_precedence_and_other_provider_isolation(self):
         other=copy.deepcopy(self.session); other['identity']['provider']='claude';other['identity']['client']='code';other['read']='unknown'
         self.config['qualifiedSources'].append({k:other['identity'][k] for k in self.s.SOURCE})
-        self.s.configure(self.path,b,self.config)
+        shared_source.configure(self.path,self.config)
         self.value['snapshot']['sessions'].append(other)
         self.session.update(label='Hub label',projectId='hub')
         self.select(self.value)
@@ -75,10 +77,10 @@ class SharedMetadataTest(unittest.TestCase):
     def test_poll_refreshes_same_revision_without_lifecycle_or_effect_changes(self):
         self.select(self.value)
         before=self.rows('SELECT * FROM sessions'),self.rows('SELECT * FROM activity')
-        poller=self.s.Poller(self.path,b)
+        poller=shared_source.Poller(self.path)
         with patch.object(self.s,'fetch_snapshot',return_value=self.value):
             poller.tick(1001)
-            with contextlib.closing(b.connect_state(self.path)) as db,db:
+            with contextlib.closing(database.connect_state(self.path)) as db,db:
                 db.execute("UPDATE meta SET value='0' WHERE key='dirty'")
             self.write_metadata('Updated title',assignment=False)
             poller.tick(1002)
@@ -86,14 +88,14 @@ class SharedMetadataTest(unittest.TestCase):
         self.assertEqual(before,(self.rows('SELECT * FROM sessions'),self.rows('SELECT * FROM activity')))
         self.assertEqual(self.rows("SELECT value FROM meta WHERE key='dirty'"),[('1',)])
         # A fresh reader after restart preserves the same projection.
-        self.s.accept(self.path,b,self.value)
+        shared_source.accept(self.path,self.value)
         self.assertEqual(self.detail()[0],'Updated title')
 
     def test_retired_session_is_not_recreated_by_metadata(self):
         self.select(self.value)
         self.value['snapshot']['sessions']=[];self.value['snapshot']['revision']+=1
-        self.s.accept(self.path,b,self.value)
-        self.s.accept(self.path,b,self.value)
+        shared_source.accept(self.path,self.value)
+        shared_source.accept(self.path,self.value)
         self.assertEqual(self.rows('SELECT * FROM sessions'),[])
         self.assertEqual(self.rows('SELECT * FROM task_info'),[])
         self.assertEqual(self.rows('SELECT * FROM slots'),[])
@@ -102,7 +104,7 @@ class SharedMetadataTest(unittest.TestCase):
         self.index.unlink();self.metadata_path.unlink()
         ids=['019a1234-0000-7000-8000-00005b1e07c2','019a1234-0000-7000-8000-00004227761b']
         self.config['bindings']=[]
-        self.s.configure(self.path,b,self.config)
+        shared_source.configure(self.path,self.config)
         self.session['identity']['sessionId']=ids[0]
         other=copy.deepcopy(self.session);other['identity']['sessionId']=ids[1]
         self.value['snapshot']['sessions'].append(other)
@@ -113,7 +115,7 @@ class SharedMetadataTest(unittest.TestCase):
 
     def test_source_switch_preserves_manual_preference(self):
         self.select(self.value)
-        self.s.select_source(self.path,b,'legacy')
+        shared_source.select_source(self.path,'legacy')
         self.assertEqual(self.rows("SELECT manual_project FROM task_info WHERE session='legacy'"),[('project',)])
         self.select(self.value)
         self.assertEqual(self.detail(),('Real task title','local','project'))

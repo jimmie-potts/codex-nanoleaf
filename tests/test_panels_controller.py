@@ -10,12 +10,14 @@ import unittest
 from pathlib import Path
 
 from test_bridge import b
+import database
+import jsonfile
 from test_device_worker import DeviceWorkerTest, ROOT
 import controller_server as server
 import controller_state
 import enrollment
 import integration_api
-import shared_input
+import shared_source
 import wall_server
 
 FIXTURE = ROOT / 'tests/fixtures/linux-state-v4'
@@ -28,10 +30,10 @@ def puts(fake):
 class PanelsControllerTest(DeviceWorkerTest):
     def setUp(self):
         super().setUp()
-        server.configure(self.directory, b, 'controller', 'wall', 'source')
-        server.configure(self.directory, b, 'controller', 'panels', 'source')
-        self.token = server.issue(self.directory, b, 'client', ['read', 'control'])
-        self.app = server.App(self.directory, b, launch=lambda _: None)
+        server.configure(self.directory, 'controller', 'wall', 'source')
+        server.configure(self.directory, 'controller', 'panels', 'source')
+        self.token = server.issue(self.directory, 'client', ['read', 'control'])
+        self.app = server.App(self.directory, launch=lambda _: None)
 
     def request(self, device, command):
         snap = self.app.snapshot(device)
@@ -69,11 +71,11 @@ class LedgerTest(PanelsControllerTest):
         for device in ('panels', None):
             out = io.StringIO()
             with redirect_stdout(out):
-                server.command(['controller-status', '--state-dir', str(self.directory)] + (['--device-id', device] if device else []), b)
+                server.command(['controller-status', '--state-dir', str(self.directory)] + (['--device-id', device] if device else []))
             self.assertEqual(json.loads(out.getvalue())['identity']['deviceId'], device or 'wall')
 
     def test_registered_but_unconfigured_device_is_forbidden(self):
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             db.execute('BEGIN IMMEDIATE')
             controller_state.drop(db, 'panels')
         stale = self.request('wall', {'kind': 'power.set', 'on': True})
@@ -90,12 +92,12 @@ class LedgerTest(PanelsControllerTest):
 
     def test_configure_adds_only_a_registered_device_and_never_redirects(self):
         wall, panels = self.app.snapshot('wall')['identity'], self.app.snapshot('panels')['identity']
-        server.configure(self.directory, b, 'controller', 'panels', 'source')
-        server.configure(self.directory, b, 'controller', 'wall', 'source')
+        server.configure(self.directory, 'controller', 'panels', 'source')
+        server.configure(self.directory, 'controller', 'wall', 'source')
         self.assertEqual((self.app.snapshot('wall')['identity'], self.app.snapshot('panels')['identity']), (wall, panels))
         for identity in (('controller', 'missing', 'source'), ('other', 'panels', 'source'), ('controller', 'panels', 'other')):
             with self.subTest(identity=identity), self.assertRaises(ValueError):
-                server.configure(self.directory, b, *identity)
+                server.configure(self.directory, *identity)
         self.assertEqual([s['identity']['deviceId'] for s in self.app.devices()], ['wall', 'panels'])
 
     def test_a_registered_device_cannot_become_the_original_ledger(self):
@@ -103,8 +105,8 @@ class LedgerTest(PanelsControllerTest):
         directory = Path(fresh.name)
         shutil.copyfile(self.directory / 'config.json', directory / 'config.json')
         with self.assertRaises(ValueError):
-            server.configure(directory, b, 'controller', 'panels', 'source')
-        with contextlib.closing(b.connect_state(directory)) as db:
+            server.configure(directory, 'controller', 'panels', 'source')
+        with contextlib.closing(database.connect_state(directory)) as db:
             self.assertFalse(controller_state.present(db))
 
     def test_lines_public_id_cannot_shadow_a_later_registered_device(self):
@@ -112,31 +114,31 @@ class LedgerTest(PanelsControllerTest):
         directory = Path(fresh.name)
         config = json.loads((self.directory / 'config.json').read_text())
         panels = config['devices'].pop('panels')
-        b.write_json(directory / 'config.json', config)
-        server.configure(directory, b, 'controller', 'panels', 'source')  # Before the Panels were enrolled.
+        jsonfile.write_json(directory / 'config.json', config)
+        server.configure(directory, 'controller', 'panels', 'source')  # Before the Panels were enrolled.
         config['devices']['panels'] = panels
-        b.write_json(directory / 'config.json', config)
+        jsonfile.write_json(directory / 'config.json', config)
         with self.assertRaises(ValueError):
-            server.configure(directory, b, 'controller', 'panels', 'source')
-        with contextlib.closing(b.connect_state(directory)) as db:
+            server.configure(directory, 'controller', 'panels', 'source')
+        with contextlib.closing(database.connect_state(directory)) as db:
             self.assertEqual(controller_state.ledgers(db), ['wall'])
 
     def test_removing_the_panels_removes_their_ledger(self):
         self.free()
         request, _ = self.command('panels', {'kind': 'power.set', 'on': False})
-        self.assertEqual(enrollment.remove(self.directory, b, 'panels', force=True, wait=0)['cleaned'], True)
+        self.assertEqual(enrollment.remove(self.directory, 'panels', force=True, wait=0)['cleaned'], True)
         self.assertEqual([snap['identity']['deviceId'] for snap in self.app.devices()], ['wall'])
         stale = dict(request, requestId=dict(request['requestId'], sequence=1), command={'kind': 'mode.set', 'mode': 'Quiet'})
         self.assertEqual(self.app.admit(self.token, stale), (403, {'failure': {'code': 'forbidden'}}))
         self.assertEqual(self.query("SELECT name FROM sqlite_master WHERE name LIKE 'controller%@panels'"), [])
         self.assertEqual(self.query("SELECT key FROM meta WHERE key LIKE '%@panels'"), [])
-        self.assertFalse(enrollment.leftovers(self.directory, b, 'panels'))
+        self.assertFalse(enrollment.leftovers(self.directory, 'panels'))
         self.assertEqual(self.app.snapshot('wall')['identity']['deviceId'], 'wall')
 
     def test_a_panels_map_edit_advances_only_the_panels_ledger(self):
         before = {device: self.app.snapshot(device) for device in ('wall', 'panels')}
         lines_request = self.request('wall', {'kind': 'brightness.set', 'percent': 55})
-        wall_server.App(self.directory, b, launch=lambda *_: None).update('/api/settings', {'device': 'panels', 'style': 'project'})
+        wall_server.App(self.directory, launch=lambda *_: None).update('/api/settings', {'device': 'panels', 'style': 'project'})
         after = {device: self.app.snapshot(device) for device in ('wall', 'panels')}
         self.assertEqual(after['panels']['configurationRevision'], before['panels']['configurationRevision'] + 1)
         self.assertNotEqual(after['panels']['cursor'], before['panels']['cursor'])
@@ -145,10 +147,10 @@ class LedgerTest(PanelsControllerTest):
         self.assertEqual(self.app.admit(self.token, lines_request)[0], 202)
 
     def test_shared_edits_from_the_panels_page_advance_the_lines_ledger(self):
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             db.execute("INSERT INTO projects (id, name, color, roots) VALUES ('project-a', 'A', '#123456', '[]')")
         before = {device: self.app.snapshot(device)['configurationRevision'] for device in ('wall', 'panels')}
-        wall_server.App(self.directory, b, launch=lambda *_: None).update('/api/project', {'device': 'panels', 'id': 'project-a', 'color': '#abcdef'})
+        wall_server.App(self.directory, launch=lambda *_: None).update('/api/project', {'device': 'panels', 'id': 'project-a', 'color': '#abcdef'})
         after = {device: self.app.snapshot(device)['configurationRevision'] for device in ('wall', 'panels')}
         self.assertEqual(after, {'wall': before['wall'] + 1, 'panels': before['panels']})
 
@@ -187,7 +189,7 @@ class LedgerTest(PanelsControllerTest):
         self.free()
         panels_request, _ = self.command('panels', {'kind': 'power.set', 'on': False})
         lines_request, _ = self.command('wall', {'kind': 'power.set', 'on': False})
-        server.revoke(self.directory, b, 'client')
+        server.revoke(self.directory, 'client')
         for request in (panels_request, lines_request):
             self.assertEqual(self.receipt(request)['failure'], {'code': 'forbidden'})
         holds = dict(self.query("SELECT key, value FROM meta WHERE key LIKE 'controller_hold_revision%'"))
@@ -264,16 +266,16 @@ class WorkerOwnershipTest(PanelsControllerTest):
         # Older source revokes and disables through the original tables only.
         self.free()
         request, _ = self.command('panels', {'kind': 'power.set', 'on': False})
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             db.execute("UPDATE controller_credentials SET active=0 WHERE principal='client'")
         self.run_worker('panels')
         self.assertEqual(puts(self.fake.panels), [])
         self.assertEqual((self.receipt(request)['outcome'], self.receipt(request)['failure']), ('cancelled', {'code': 'forbidden'}))
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             db.execute("UPDATE controller_credentials SET active=1 WHERE principal='client'")
             controller_state.release(db, 'panels')
         request, _ = self.command('panels', {'kind': 'power.set', 'on': False})
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             data = controller_state.read(db); data['stopped'] = True; controller_state.save(db, data)
         self.run_worker('panels')
         self.assertEqual(puts(self.fake.panels), [])
@@ -352,9 +354,9 @@ class WorkerOwnershipTest(PanelsControllerTest):
         original = integration_api.process
         integration_api.process = lambda *a, **k: calls.append('integration')
         self.addCleanup(setattr, integration_api, 'process', original)
-        tick = shared_input.Poller.tick
-        shared_input.Poller.tick = lambda poller, instant: calls.append('feed') or False
-        self.addCleanup(setattr, shared_input.Poller, 'tick', tick)
+        tick = shared_source.Poller.tick
+        shared_source.Poller.tick = lambda poller, instant: calls.append('feed') or False
+        self.addCleanup(setattr, shared_source.Poller, 'tick', tick)
         self.event('UserPromptSubmit')
         self.run_worker('panels', self.free_after(3, 'panels'))
         self.assertEqual(calls, [])
@@ -387,7 +389,7 @@ class IntegrationTest(PanelsControllerTest):
 
     def test_panels_extension_commands_fail_before_reservation(self):
         self.free()
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             db.execute("INSERT INTO projects (id, name, color, roots) VALUES ('project-a', 'A', '#123456', '[]')")
         project = self.app.integration_snapshot(self.token, 'wall')['projects']
         self.assertTrue(project)
@@ -469,7 +471,7 @@ class CompatibilityTest(unittest.TestCase):
             shutil.copyfile(FIXTURE / name.replace('.json', '-fixture.json'), self.directory / name)
         config = json.loads((self.directory / 'config.json').read_text())
         config.update(panelsToken='fakePanels', devices={'panels': {'kind': 'panels', 'ip': '192.0.2.2', 'token_ref': 'panelsToken'}})
-        b.write_json(self.directory / 'config.json', config)
+        jsonfile.write_json(self.directory / 'config.json', config)
         with contextlib.closing(sqlite3.connect(self.directory / 'status.sqlite')) as db:
             db.executescript((FIXTURE / 'status.sql').read_text())
             db.execute("INSERT OR REPLACE INTO meta VALUES ('controller_hold_revision', '2')")
@@ -483,11 +485,11 @@ class CompatibilityTest(unittest.TestCase):
                        sorted(db.execute('SELECT * FROM ' + name).fetchall(), key=repr)) for name in self.ORIGINAL}
 
     def test_original_tables_are_unchanged_and_accept_pre_change_writes(self):
-        with contextlib.closing(b.connect_state(self.directory)) as db:
+        with contextlib.closing(database.connect_state(self.directory)) as db:
             self.assertEqual(self.original(db), self.before)
         identity = json.loads(self.before['controller_meta'][1][0][1])['identity']
-        server.configure(self.directory, b, identity['controllerId'], 'panels', identity['sourceId'])
-        with contextlib.closing(b.connect_state(self.directory)) as db:
+        server.configure(self.directory, identity['controllerId'], 'panels', identity['sourceId'])
+        with contextlib.closing(database.connect_state(self.directory)) as db:
             self.assertEqual(self.original(db), self.before)
             self.assertEqual(controller_state.ledgers(db), ['wall', 'panels'])
             self.assertEqual(db.execute("SELECT value FROM meta WHERE key='controller_hold_revision'").fetchone(), ('2',))
@@ -498,7 +500,7 @@ class CompatibilityTest(unittest.TestCase):
                 db.execute('INSERT INTO controller_events VALUES (?,?)', (999, '{}'))
                 db.execute('INSERT INTO controller_requests VALUES (?,?,?,?,?,?,?)', (999, '{}', '{}', 'codex', 'done', 0.0, 0))
                 db.rollback()
-        app = server.App(self.directory, b, launch=lambda _: None)
+        app = server.App(self.directory, launch=lambda _: None)
         retained, receipt = (json.loads(value) for value in self.requests[0])
         self.assertEqual(app.admit(self.token, retained), (200, receipt))
         self.assertEqual(app.snapshot()['identity'], identity)

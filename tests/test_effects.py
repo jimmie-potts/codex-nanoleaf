@@ -4,11 +4,12 @@ from pathlib import Path
 import unittest
 
 from test_bridge import b, decode
+import configuration
 import effects
 
 ROOT = Path(__file__).resolve().parents[1]
 LAYOUT = json.loads((ROOT / 'tests/fixtures/lines-layout.json').read_text())
-GROUPS = b.pair_lines(LAYOUT)
+GROUPS = configuration.pair_lines(LAYOUT)
 ZONES = {p['panelId']: p for p in LAYOUT['layout']['positionData']}
 POSITIONS = [[sum(ZONES[p]['x'] for p in g) / 2, sum(ZONES[p]['y'] for p in g) / 2] for g in GROUPS]
 LAYOUTS = {'fifteen': (GROUPS, POSITIONS), 'two': ([[101, 102], [103, 104]], [[0, 0], [10, 0]])}

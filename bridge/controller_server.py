@@ -7,46 +7,30 @@ import re
 import secrets
 import sqlite3
 import time
+import configuration
 import controller_state as state
+from controller_state import HTTP, admission_transaction, check_deadline
+import database
 import devices
+import integration_api
+import jsonfile
+import launcher
+import modes
+import store
 
 ID=re.compile(r'[A-Za-z0-9_.-]{1,128}\Z')
-HTTP={'invalid-request':400,'unauthenticated':401,'forbidden':403,'unknown-device':404,
-      'revision-conflict':409,'stale-generation':409,'request-conflict':409,'request-order':409,
-      'request-expired':410,'unsupported-capability':422,'capacity':429,'transport-failure':503}
 
 
 class ListenerUnavailable(Exception):
     pass
 
 
-def check_deadline(deadline):
-    if deadline is not None and time.monotonic()>=deadline:
-        raise TimeoutError('Admission deadline expired.')
-
-
-@contextlib.contextmanager
-def admission_transaction(directory,deadline):
-    check_deadline(deadline)
-    remaining=2.5 if deadline is None else max(0,deadline-time.monotonic())
-    # The configured database already exists. Admission must not run migrations.
-    with contextlib.closing(sqlite3.connect((directory/'status.sqlite').resolve().as_uri()+'?mode=rw',uri=True,timeout=remaining)) as db,db:
-        db.execute('BEGIN IMMEDIATE')
-        check_deadline(deadline)
-        yield db
-        check_deadline(deadline)
-        if deadline is not None:
-            db.execute('PRAGMA busy_timeout='+str(max(0,int((deadline-time.monotonic())*1000))))
-        # Commit may wait for readers; its busy timeout is the remaining budget.
-        db.commit()
-
-
-def configure(directory,b,controller_id,device_id,source_id):
+def configure(directory,controller_id,device_id,source_id):
     """Create the original ledger, or add one for another registered device of the same controller."""
     if not all(isinstance(v,str) and ID.fullmatch(v) for v in (controller_id,device_id,source_id)):
         raise ValueError('Use neutral controller, device and source IDs.')
-    added=[device for device in b.registered_devices(directory) if device!=devices.DEFAULT]
-    with contextlib.closing(b.connect_state(directory)) as db,db:
+    added=[device for device in configuration.registered_devices(directory) if device!=devices.DEFAULT]
+    with contextlib.closing(database.connect_state(directory)) as db,db:
         db.execute('BEGIN IMMEDIATE')
         identity=dict(controllerId=controller_id,deviceId=device_id,sourceId=source_id)
         if not state.present(db):
@@ -66,26 +50,24 @@ def configure(directory,b,controller_id,device_id,source_id):
         state.init(db,identity,device_id)
 
 
-def issue(directory,b,principal,scopes):
+def issue(directory,principal,scopes):
     if not isinstance(principal,str) or not ID.fullmatch(principal) or not scopes or set(scopes)-{'read','control'}:raise ValueError('Invalid principal or scopes.')
     token=secrets.token_urlsafe(32)
-    with contextlib.closing(b.connect_state(directory)) as db,db:
+    with contextlib.closing(database.connect_state(directory)) as db,db:
         db.execute('BEGIN IMMEDIATE')
         if not state.present(db):raise ValueError('Configure the controller first.')
         if db.execute('SELECT COUNT(*) FROM controller_credentials').fetchone()[0]>=32 and not db.execute('SELECT 1 FROM controller_credentials WHERE principal=?',(principal,)).fetchone():
             raise ValueError('Credential capacity reached.')
         cancel(db,principal)
         db.execute('INSERT OR REPLACE INTO controller_credentials VALUES (?,?,?,1)',(principal,hashlib.sha256(token.encode()).hexdigest(),state.encoded(scopes)))
-        import integration_api
         integration_api.recover(db,principal=principal,cancel=True)
     return token
 
 
-def revoke(directory,b,principal):
-    with contextlib.closing(b.connect_state(directory)) as db,db:
+def revoke(directory,principal):
+    with contextlib.closing(database.connect_state(directory)) as db,db:
         db.execute('BEGIN IMMEDIATE')
         db.execute('UPDATE controller_credentials SET active=0 WHERE principal=?',(principal,))
-        import integration_api
         integration_api.recover(db,principal=principal,cancel=True)
         cancel(db,principal)
 
@@ -100,9 +82,9 @@ def cancel(db,principal=None):
 
 
 class App:
-    def __init__(self,directory,b,launch=None):
-        from controller_contract import load
-        self.contract=load();self.directory=directory;self.b=b;self.launch=launch or b.launch_worker
+    def __init__(self,directory,launch=None):
+        from controller_contract import load  # Optional listener dependency: requirements-controller.txt.
+        self.contract=load();self.directory=directory;self.launch=launch or launcher.launch_worker
         with contextlib.closing(state.readonly(directory)) as db:state.read(db)
 
     def facts(self,db,token,device=None,scope='read',host=True,origin=True,metadata=True):
@@ -121,7 +103,6 @@ class App:
         """The ledger for a public device ID; None addresses the original Lines device."""
         target=devices.DEFAULT if device is None else state.device_for(db,device)
         if target is None:
-            import integration_api
             raise integration_api.Failure('unknown-device')
         return target
 
@@ -136,19 +117,15 @@ class App:
         return snapshots
 
     def integration_snapshot(self,token,device,**checks):
-        import integration_api
         return integration_api.snapshot(self,token,device,**checks)
 
     def integration_animations(self,token,device,**checks):
-        import integration_api
         return integration_api.animations(self,token,device,**checks)
 
     def integration_admit(self,token,request,body_bytes=None,deadline=None,**checks):
-        import integration_api
         return integration_api.admit(self,token,request,body_bytes,deadline,**checks)
 
     def integration_cancel(self,token,device,ticket,deadline=None,**checks):
-        import integration_api
         return integration_api.cancel(self,token,device,ticket,deadline,**checks)
 
     def feed(self,cursor,device=None):
@@ -181,7 +158,7 @@ class App:
             check_deadline(deadline)
             receipt=result['receipt'];sequence=request['requestId']['sequence']
             command=request['command'];kind=command['kind']
-            control=self.b.control_state(db,device)
+            control=store.control_state(db,device)
             if result['scheduled'] and kind=='scene.activate' and control['mode']!='free':
                 # Scenes are content controls; Work and Quiet present agent status. Typed, retained, no write.
                 decision='unsupported-capability';result['scheduled']=0
@@ -191,15 +168,15 @@ class App:
                 # A policy generation is distinct from the request's optimistic expectation.
                 state.changed(db,mode=True,native=True,device=device)
                 data=state.read(db,device);receipt['generation']=state.ticket(data,data['generation'])
-                self.b.change_mode(db,command['mode'].lower(),time.time(),notify=False,device=device)
-                control=self.b.control_state(db,device)
+                modes.change_mode(db,command['mode'].lower(),time.time(),notify=False,device=device)
+                control=store.control_state(db,device)
                 launch=True
             elif result['scheduled']:
                 # A fresh native request authorizes another attempt; the override is desired state at once.
                 state.release(db,device)
                 if kind=='power.set':db.execute('INSERT OR REPLACE INTO meta VALUES (?,?)',(key('controller_power'),'1' if command['on'] else '0'))
                 elif kind=='brightness.set':db.execute('INSERT OR REPLACE INTO meta VALUES (?,?)',(key('controller_brightness'),str(command['percent'])))
-                self.b.mark_dirty(db)
+                store.mark_dirty(db)
                 launch=True
             principal=state.credential(db,token)[0]
             db.execute('INSERT INTO '+requests+' VALUES (?,?,?,?,?,?,?)',
@@ -212,7 +189,7 @@ class App:
         if launch:
             try:self.launch(self.directory)
             except Exception:
-                with contextlib.closing(self.b.connect_state(self.directory)) as db,db:
+                with contextlib.closing(database.connect_state(self.directory)) as db,db:
                     db.execute('BEGIN IMMEDIATE');state.finish(db,sequence,'failed','transport-failure',device)
                     state.hold(db,device,control['revision'])
                     receipt=json.loads(db.execute('SELECT receipt FROM '+requests+' WHERE sequence=?',(sequence,)).fetchone()[0])
@@ -297,7 +274,6 @@ def make_server(app,port=0):
                         code,result=app.integration_admit(token,body,length,deadline=self.admission_deadline,**checks)
                         return self.respond(code,result)
                     if parts.path=='/controller/integration/v1/cancel':
-                        import integration_api
                         if type(body) is not dict or set(body)!={'apiVersion','deviceId','requestId'} or body['apiVersion']!=integration_api.VERSION:
                             raise ValueError('Invalid cancellation.')
                         code,result=app.integration_cancel(token,body['deviceId'],body['requestId'],deadline=self.admission_deadline,**checks)
@@ -315,7 +291,6 @@ def make_server(app,port=0):
                 if parts.path=='/controller/integration/v1/animations' and set(query)=={'deviceId'}:
                     return self.respond(200,app.integration_animations(token,device,**checks))
                 if parts.path=='/controller/integration/v1/receipt' and set(query)=={'deviceId','epoch','sequence'}:
-                    import integration_api
                     ticket=dict(epoch=query['epoch'],sequence=int(query['sequence']))
                     return self.respond(200,integration_api.receipt(app,token,device,ticket,**checks))
                 if parts.path=='/controller/v1/snapshot' and set(query)=={'deviceId'}:
@@ -331,7 +306,6 @@ def make_server(app,port=0):
                     finally:self.server.feed_slots.release()
                 return self.respond(404,{'failure':{'code':'invalid-request'}})
             except (ValueError,TypeError,KeyError,RecursionError,UnicodeError) as error:
-                import integration_api
                 self.failure(error.code if isinstance(error,integration_api.Failure) else 'invalid-request')
             except (BrokenPipeError,ConnectionError,TimeoutError):pass
             except Exception:self.failure('transport-failure')
@@ -368,34 +342,32 @@ def make_server(app,port=0):
     return Server()
 
 
-def serve(directory,b,port=0):
-    import sqlite3
+def serve(directory,port=0,launch=None):
     with contextlib.closing(sqlite3.connect(directory/'controller-lock.sqlite',timeout=0)) as guard:
         try:guard.execute('BEGIN EXCLUSIVE')
         except sqlite3.OperationalError as error:
             if getattr(error,'sqlite_errorcode',None)==sqlite3.SQLITE_BUSY:
                 raise ListenerUnavailable('A controller is already running for this installation.') from None
             raise
-        with contextlib.closing(b.connect_state(directory)) as db,db:
+        with contextlib.closing(database.connect_state(directory)) as db,db:
             db.execute('BEGIN IMMEDIATE');clock=secrets.token_hex(16)
             for ledger in state.ledgers(db):
                 data=state.read(db,ledger);data['clockEpoch']=clock;data['stopped']=False;state.save(db,data,ledger);state.event(db,ledger)
-        app=App(directory,b)
+        app=App(directory,launch)
         try:server=make_server(app,port)
         except OSError as error:
             if error.errno==errno.EADDRINUSE:
                 raise ListenerUnavailable(f'Port {port} is already in use. Stop its owner or choose another controller port.') from None
             raise ListenerUnavailable(f'Cannot bind the controller to 127.0.0.1:{port}.') from None
-        b.write_json(directory/'controller-server.json',dict(apiVersion='1.0',port=server.server_port))
+        jsonfile.write_json(directory/'controller-server.json',dict(apiVersion='1.0',port=server.server_port))
         import threading
         stopping=threading.Event()
         def maintain():
             # Deadline recovery is clock-driven, never a consequence of a read route.
             while not stopping.wait(.5):
                 try:
-                    with contextlib.closing(b.connect_state(directory)) as db,db:
+                    with contextlib.closing(database.connect_state(directory)) as db,db:
                         db.execute('BEGIN IMMEDIATE');state.recover(db)
-                        import integration_api
                         integration_api.recover(db)
                         disabled=state.read(db).get('stopped')
                     if disabled:
@@ -413,32 +385,32 @@ def serve(directory,b,port=0):
             stopping.set();watchdog.join(3);server.server_close()
 
 
-def command(argv,b):
+def command(argv,launch=None):
+    """`bridge.py controller-*`; launch wakes the workers after an admitted command."""
     import argparse
     from pathlib import Path
     parser=argparse.ArgumentParser(description='Opt-in local controller API; state stays private to its installation.')
     parser.add_argument('action',choices=('controller-configure','controller-token','controller-revoke','controller-serve','controller-status','controller-disable'))
-    parser.add_argument('--state-dir',type=Path,default=b.data_dir(),help=argparse.SUPPRESS)
+    parser.add_argument('--state-dir',type=Path,default=configuration.data_dir(),help=argparse.SUPPRESS)
     parser.add_argument('--controller-id');parser.add_argument('--device-id');parser.add_argument('--source-id')
     parser.add_argument('--principal');parser.add_argument('--read-only',action='store_true');parser.add_argument('--port',type=int,default=0)
     args=parser.parse_args(argv);directory=args.state_dir
     try:
         if args.action=='controller-configure':
             directory.mkdir(parents=True,exist_ok=True)
-            configure(directory,b,args.controller_id,args.device_id,args.source_id)
-        elif args.action=='controller-token':print(issue(directory,b,args.principal,['read'] if args.read_only else ['read','control']))
-        elif args.action=='controller-revoke':revoke(directory,b,args.principal)
+            configure(directory,args.controller_id,args.device_id,args.source_id)
+        elif args.action=='controller-token':print(issue(directory,args.principal,['read'] if args.read_only else ['read','control']))
+        elif args.action=='controller-revoke':revoke(directory,args.principal)
         elif args.action=='controller-serve':
             if not 0<=args.port<=65535:raise ValueError('Invalid loopback port.')
-            serve(directory,b,args.port)
+            serve(directory,args.port,launch)
         elif args.action=='controller-status':
             with contextlib.closing(state.readonly(directory)) as db:print(state.encoded(state.snapshot(db,App.ledger(db,args.device_id))))
         elif args.action=='controller-disable':
-            with contextlib.closing(b.connect_state(directory)) as db,db:
+            with contextlib.closing(database.connect_state(directory)) as db,db:
                 db.execute('BEGIN IMMEDIATE')
                 for ledger in state.ledgers(db):
                     data=state.read(db,ledger);data['stopped']=True;state.save(db,data,ledger)
-                import integration_api
                 integration_api.recover(db,cancel=True)
                 cancel(db)
     except ListenerUnavailable as error:

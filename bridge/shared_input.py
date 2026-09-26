@@ -226,6 +226,8 @@ def fetch_snapshot(config, minimum_revision=0):
     return check_envelope(request(config, '/sessions?snapshotVersion=1.1'), config, minimum_revision)
 
 import devices
+import project_map as wall
+from store import control_state, mark_dirty
 
 # All tables are local presentation/configuration, never another agent reducer.
 TABLES = ('sessions','slots','waits','activity','receipts','comets','task_info')
@@ -284,38 +286,11 @@ def evict(db, device, payload):
         db.execute('DELETE FROM '+table+' WHERE session=? AND device=?', (key,device))
 
 
-def configure(directory, bridge, config):
-    config = validate_config(config)
-    with contextlib.closing(bridge.connect_state(directory)) as db, db:
-        db.execute('BEGIN IMMEDIATE')
-        if selected(db): raise FeedError('select-legacy-before-configure')
-        if db.execute('SELECT 1 FROM shared_ack WHERE result IS NULL').fetchone():
-            raise FeedError('acknowledgment-pending-use-explicit-retry')
-        db.execute('UPDATE shared_input SET config=?,generation=generation+1,envelope=NULL,received=NULL,connection=\'unavailable\',error=NULL WHERE id=1', (dumps(config),))
-        db.execute('DELETE FROM shared_ack')
-        db.execute('DELETE FROM shared_evictions')
-
-
-def source_config(directory, bridge):
-    with contextlib.closing(bridge.connect_state(directory)) as db:
-        value = state(db)
-    if not value['config']: raise FeedError('not-configured')
-    return value
-
-
-def preflight(directory, bridge, fetch=fetch_snapshot):
-    value = source_config(directory, bridge)
-    minimum = value['envelope']['snapshot']['revision'] if value['envelope'] else 0
-    result = check_envelope(fetch(value['config'], minimum_revision=minimum), value['config'], minimum)
-    if result['snapshot']['collector'] != 'running': raise FeedError('collector-unavailable')
-    return value, result
-
-
-def _dump_tables(db):
+def dump_tables(db):
     return {table: [list(row) for row in db.execute('SELECT * FROM ' + table)] for table in TABLES}
 
 
-def _restore_tables(db, saved):
+def restore_tables(db, saved):
     for table in TABLES:
         db.execute('DELETE FROM ' + table)
         legacy = devices.REBUILT.get(table)
@@ -327,7 +302,7 @@ def _restore_tables(db, saved):
             db.execute('INSERT INTO ' + table + columns + ' VALUES (' + ','.join('?' for _ in row) + ')', row)
 
 
-def _bound_preferences(db, config):
+def bound_preferences(db, config):
     result = {}
     for binding in config['bindings']:
         key = identity_key(binding['identity'])
@@ -336,76 +311,6 @@ def _bound_preferences(db, config):
         placed = db.execute('SELECT device,slot FROM slots WHERE session=? ORDER BY device', (key,)).fetchall()
         result[binding['legacySessionId']] = (info, placed)
     return result
-
-
-def _targets(bridge, directory):
-    # Devices whose Work mode queues completion comets; the original Lines device by default.
-    registered = getattr(bridge, 'registered_devices', None)
-    return registered(directory) if registered else [DEFAULT_DEVICE]
-
-
-def _metadata(directory, bridge):
-    # Read configuration only; device-aware load_config can perform network I/O.
-    try:
-        config=json.loads((Path(directory)/'config.json').read_text(encoding='utf-8-sig'))
-        if not isinstance(config,dict): config={}
-    except (OSError,ValueError):
-        config={}
-    return bridge.wall.Metadata(directory,config)
-
-
-def select_source(directory, bridge, source, fetch=fetch_snapshot, now=time.time):
-    if source not in ('legacy','shared'): raise FeedError('invalid-source')
-    if source == 'legacy':
-        home = bridge.os.environ.get('CODEX_HOME', str(Path.home() / '.codex'))
-        if not bridge.has_legacy_hooks(home):
-            raise FeedError('Legacy hooks are missing; run hooks register --codex-home <path> before selecting legacy.')
-    before = source_config(directory, bridge)
-    if before['source'] == source: return
-    envelope = preflight(directory, bridge, fetch)[1] if source == 'shared' else None
-    instant = now()
-    metadata = _metadata(directory,bridge) if source == 'shared' else None
-    if metadata: metadata.refresh()
-    with contextlib.closing(bridge.connect_state(directory)) as db, db:
-        db.execute('BEGIN IMMEDIATE')
-        current = state(db)
-        if current['generation'] != before['generation']: raise FeedError('selection-changed')
-        if db.execute('SELECT 1 FROM comets WHERE started IS NOT NULL LIMIT 1').fetchone():
-            raise FeedError('active-comet')
-        config = current['config']
-        if source == 'shared':
-            saved = _dump_tables(db)
-            # Copy only explicitly bound local presentation continuity.
-            bindings = {item['legacySessionId']: identity_key(item['identity']) for item in config['bindings']}
-            transferred = {table: [] for table in TABLES}
-            for table in ('slots','activity','task_info'):
-                for row in saved[table]:
-                    if row[0] in bindings:
-                        transferred[table].append([bindings[row[0]], *row[1:]])
-            _restore_tables(db, transferred)
-            db.execute('UPDATE shared_input SET backup=?,source=\'shared\',generation=generation+1,envelope=NULL,connection=\'unavailable\' WHERE id=1', (dumps(saved),))
-            db.execute('DELETE FROM shared_stale')
-            _project(db, bridge, envelope, config, instant, resync=True, targets=_targets(bridge, directory), metadata=metadata)
-        else:
-            prefs = _bound_preferences(db, config)
-            _restore_tables(db, current['backup'])
-            # Release old slots before applying the complete remap to avoid swaps colliding.
-            for session in prefs: db.execute('DELETE FROM slots WHERE session=?', (session,))
-            for session, (info, placed) in prefs.items():
-                if info: db.execute('UPDATE task_info SET project=?,manual_project=? WHERE session=?', (*info, session))
-                for device, slot in placed:
-                    db.execute('DELETE FROM slots WHERE slot=? AND device=?', (slot, device))
-                    db.execute('INSERT INTO slots (session, slot, device) VALUES (?,?,?)', (session, slot, device))
-            db.execute('DELETE FROM comets')
-            db.execute('DELETE FROM receipts')
-            db.execute('DELETE FROM shared_stale')
-            db.execute('INSERT INTO shared_stale SELECT id FROM sessions')
-            db.execute("UPDATE shared_input SET source='legacy',generation=generation+1,connection='unavailable',error=NULL WHERE id=1")
-        db.execute('DELETE FROM shared_suppressed_waves')
-        db.execute('DELETE FROM shared_evictions')
-        # Switching the task source resets every device's comets and display cache.
-        db.execute('DELETE FROM display_v3')
-        bridge.mark_dirty(db)
 
 
 ALERTS = {'blocked': {'approval','input'}, 'question': {'question'}}
@@ -470,7 +375,8 @@ def _forget_task(db, key):
         db.execute('DELETE FROM '+table+' WHERE '+column+'=?',(key,))
 
 
-def _project(db, bridge, envelope, config, instant, resync=False, targets=(DEFAULT_DEVICE,), metadata=None):
+def project_envelope(db, envelope, config, instant, resync=False, targets=(DEFAULT_DEVICE,), metadata=None):
+    """Project a checked envelope into local task state inside the caller's transaction."""
     current = state(db)
     previous = current['envelope']
     # The stored envelope holds only declared sessions, plus a local count of the skipped ones.
@@ -531,7 +437,7 @@ def _project(db, bridge, envelope, config, instant, resync=False, targets=(DEFAU
         changed = old != (turn,status)
         if changed:
             db.execute('INSERT OR REPLACE INTO sessions VALUES (?,?,?,?)', (key,turn,status,instant))
-            if status in bridge.COLORS:
+            if status in wall.STATUSES:
                 # A retained matching phase survives cutover and resync. New resync states
                 # use an expired wave epoch; ordinary current transitions get one wave.
                 epoch = (old_activity[2] if old_activity and old_activity[:2] == (turn,status)
@@ -550,18 +456,18 @@ def _project(db, bridge, envelope, config, instant, resync=False, targets=(DEFAU
             old_notices = {n['id'] for n in prior[key]['notices']}
             if any(n['id'] not in old_notices and config['consumerId'] not in n['acknowledgedBy'] for n in session['notices']):
                 for device in targets:
-                    if (bridge.control_state(db, device)['mode'] == 'work'
+                    if (control_state(db, device)['mode'] == 'work'
                             and not db.execute('SELECT 1 FROM shared_evictions WHERE session=? AND device=?', (key,device)).fetchone()):
                         db.execute('INSERT OR IGNORE INTO comets (session,turn,queued,source,started,device) VALUES (?,?,?,NULL,NULL,?)', (key,turn,instant,device))
         project = 'shared-project-' + session['projectId'] if session.get('projectId') else None
         if project:
-            db.execute('INSERT OR IGNORE INTO projects VALUES (?,?,?,?)', (project,session['projectId'],bridge.wall.default_color(project),'[]'))
+            db.execute('INSERT OR IGNORE INTO projects VALUES (?,?,?,?)', (project,session['projectId'],wall.default_color(project),'[]'))
         existing = db.execute('SELECT title,cwd,project,manual_project,turn,started FROM task_info WHERE session=?', (key,)).fetchone()
         identity=session['identity']
         local_title,local_project=('',None)
         if metadata and identity['provider']=='codex':
             local_title,local_project=metadata.lookup(db,identity['sessionId'])
-        title=session.get('label') or local_title or bridge.wall.fallback_title(identity['provider'],identity['sessionId'])
+        title=session.get('label') or local_title or wall.fallback_title(identity['provider'],identity['sessionId'])
         manual = existing[3] if existing else None
         started = existing[5] if existing and existing[4] == turn else (instant if not task_resync and turn else None)
         details=(title,'',project or local_project,manual,turn,started)
@@ -572,30 +478,7 @@ def _project(db, bridge, envelope, config, instant, resync=False, targets=(DEFAU
         if key not in live:
             _forget_task(db,key)
     db.execute("UPDATE shared_input SET envelope=?,received=?,connection='current',error=NULL WHERE id=1", (dumps(envelope),instant))
-    if previous != envelope or presentation_changed: bridge.mark_dirty(db)
-
-
-def accept(directory, bridge, envelope, now=time.time, generation=None, resync=False, metadata=None):
-    metadata = metadata if metadata is not None else _metadata(directory,bridge)
-    metadata.refresh()
-    with contextlib.closing(bridge.connect_state(directory)) as db, db:
-        db.execute('BEGIN IMMEDIATE'); current = state(db)
-        if current['source'] != 'shared' or generation is not None and current['generation'] != generation:
-            return False
-        minimum = current['envelope']['snapshot']['revision'] if current['envelope'] else 0
-        envelope = check_envelope(envelope, current['config'], minimum)
-        _project(db,bridge,envelope,current['config'],now(),resync,targets=_targets(bridge,directory),metadata=metadata)
-        return True
-
-
-def failed(directory, bridge, generation, code='feed-unavailable'):
-    with contextlib.closing(bridge.connect_state(directory)) as db, db:
-        db.execute('BEGIN IMMEDIATE'); current=state(db)
-        if current['source'] != 'shared' or current['generation'] != generation: return
-        db.execute("UPDATE shared_input SET connection=?,error=? WHERE id=1", ('stale' if current['envelope'] else 'unavailable', code))
-        db.execute('INSERT OR IGNORE INTO shared_stale SELECT id FROM sessions')
-        db.execute('DELETE FROM comets')
-        bridge.mark_dirty(db)
+    if previous != envelope or presentation_changed: mark_dirty(db)
 
 
 def inspect(directory, now=time.time):
@@ -637,108 +520,3 @@ def render_config(db, config):
     config['_wave_suppressed_slots'] = [slot for (slot,) in db.execute('SELECT slot FROM slots JOIN shared_suppressed_waves USING (session) JOIN activity USING (session) WHERE epoch=started AND slots.device=?', (device,))]
     row = db.execute("SELECT value FROM meta WHERE key='shared_wave_cutoff'").fetchone()
     if row: config['_wave_cutoff'] = max(config.get('_wave_cutoff',float('-inf')),float(row[0]))
-
-
-class Poller:
-    """One bounded request at a time, owned by the existing worker lock."""
-    def __init__(self, directory, bridge, metadata=None):
-        self.metadata=metadata if metadata is not None else _metadata(directory,bridge)
-        self.directory=directory; self.bridge=bridge; self.next_at=0; self.first=True; self.generation=None
-
-    def tick(self, instant):
-        with contextlib.closing(self.bridge.connect_state(self.directory)) as db:
-            current=state(db)
-        if current['source'] != 'shared':
-            self.first=True; self.generation=None
-            return False
-        if self.generation != current['generation']:
-            self.first=True;self.next_at=0;self.generation=current['generation']
-        if instant < self.next_at: return True
-        self.next_at=instant+1
-        try:
-            minimum=current['envelope']['snapshot']['revision'] if current['envelope'] else 0
-            envelope=fetch_snapshot(current['config'],minimum_revision=minimum)
-            accept(self.directory,self.bridge,envelope,now=lambda:instant,generation=self.generation,resync=self.first,metadata=self.metadata)
-            self.first=False
-        except FeedError as error:
-            failed(self.directory,self.bridge,self.generation,str(error))
-            self.first=True
-        return True
-
-
-def acknowledge(directory, bridge, session_key, notice_id, retry=False):
-    before=source_config(directory,bridge)
-    if before['source'] != 'shared' or not before['config'].get('controlTokenFile'):
-        raise FeedError('acknowledgment-unavailable')
-    with contextlib.closing(bridge.connect_state(directory)) as db:
-        pending=db.execute('SELECT payload,result FROM shared_ack WHERE id=1').fetchone()
-    if pending and pending[1] is None:
-        body=decode(pending[0])
-        if not retry or identity_key(body['identity']) != session_key or body['noticeId'] != notice_id:
-            raise FeedError('acknowledgment-pending-use-explicit-retry')
-    else:
-        if retry: raise FeedError('no-pending-acknowledgment')
-        envelope=fetch_snapshot(before['config'],minimum_revision=before['envelope']['snapshot']['revision'])
-        sessions=declared(envelope['snapshot'],before['config'])[0]['sessions']
-        session=next((s for s in sessions if identity_key(s['identity'])==session_key),None)
-        if not session or not any(n['id']==notice_id for n in session['notices']): raise FeedError('notice-unavailable')
-        body={'operation':'acknowledge','requestId':envelope['nextRequestId'],'identity':session['identity'],
-              'noticeId':notice_id,'consumerId':before['config']['consumerId']}
-        with contextlib.closing(bridge.connect_state(directory)) as db,db:
-            db.execute('BEGIN IMMEDIATE')
-            if state(db)['generation']!=before['generation']:raise FeedError('selection-changed')
-            if db.execute('SELECT 1 FROM shared_ack WHERE result IS NULL').fetchone():raise FeedError('acknowledgment-pending-use-explicit-retry')
-            db.execute('INSERT OR REPLACE INTO shared_ack VALUES (1,?,NULL)',(dumps(body),))
-    result=request(before['config'],'/commands',body,control=True)
-    if not (type(result) is dict and type(result.get('ok')) is bool):raise FeedError('invalid-acknowledgment')
-    if result['ok']:
-        if (set(result)!={'ok','revision','outcome'} or type(result['revision']) is not int
-                or not 0<=result['revision']<=9007199254740991 or result['outcome'] not in ('applied','duplicate','stale','ambiguous')):
-            raise FeedError('invalid-acknowledgment')
-    elif set(result)!={'ok','code'} or result['code'] not in ('invalid-event','invalid-operation','capacity','unavailable','storage-failed'):
-        raise FeedError('invalid-acknowledgment')
-    with contextlib.closing(bridge.connect_state(directory)) as db,db:
-        db.execute('UPDATE shared_ack SET result=? WHERE payload=?',(dumps(result),dumps(body)))
-    return result
-
-
-def command(argv, bridge):
-    import argparse
-    parser=argparse.ArgumentParser(description='Select and inspect shared Nanoleaf task input.')
-    parser.add_argument('command',choices=('shared-configure','shared-preflight','shared-select','shared-status','shared-acknowledge'))
-    parser.add_argument('source',nargs='?',choices=('legacy','shared'))
-    parser.add_argument('--state-dir',type=Path)
-    parser.add_argument('--config',type=Path)
-    parser.add_argument('--session');parser.add_argument('--notice');parser.add_argument('--retry',action='store_true')
-    args=parser.parse_args(argv); directory=args.state_dir or bridge.data_dir()
-    try:
-        if args.command=='shared-status':
-            result=inspect(directory)
-        elif args.command=='shared-configure':
-            if not args.config:raise FeedError('configuration-file-required')
-            config=decode(private_read(args.config,65536));configure(directory,bridge,config)
-            result=inspect(directory)
-        elif args.command=='shared-preflight':
-            _,envelope=preflight(directory,bridge)
-            result={'feed':'verified','ownerId':envelope['ownerId'],'revision':envelope['snapshot']['revision'],
-                    'producerReadiness':'operator-declared','clearOnNewTurn':'operator-declared-true'}
-        elif args.command=='shared-select':
-            if args.source is None:raise FeedError('source-required')
-            select_source(directory,bridge,args.source)
-            bridge.launch_worker(directory)
-            # Switching the task source resets comets and display caches on every device.
-            result=dict(inspect(directory),resetDevices='all')
-        else:
-            if not args.session or not args.notice:raise FeedError('notice-required')
-            result=acknowledge(directory,bridge,args.session,args.notice,retry=args.retry)
-        print(dumps(result))
-    except FeedError as error:
-        if str(error).startswith('Legacy hooks are missing; run hooks register'):
-            print(dumps({'error':'legacy-hooks-missing','message':'Run hooks register --codex-home <path> before selecting legacy.'}))
-            raise SystemExit(1)
-        print(dumps({'error':'shared-input-operation-failed'}))
-        raise SystemExit(1)
-    except (ImportError,OSError,sqlite3.Error,UnicodeError):
-        # Fixed output, including configuration paths and dependency failures.
-        print(dumps({'error':'shared-input-operation-failed'}))
-        raise SystemExit(1)

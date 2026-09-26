@@ -6,9 +6,13 @@ import math
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from test_bridge import b
+import configuration
+import database
+import jsonfile
+import modes
 import project_map as wall
 import wall_server
 
@@ -16,7 +20,7 @@ import wall_server
 class ConnectorGeometryTest(unittest.TestCase):
     def setUp(self):
         self.raw = json.loads((Path(__file__).parent / 'fixtures/lines-layout.json').read_text())
-        self.groups = b.pair_lines(self.raw)
+        self.groups = configuration.pair_lines(self.raw)
         self.config = {'line_groups': self.groups, 'zone_geometry': {
             'positionData': self.raw['layout']['positionData'],
             'orientation': self.raw['globalOrientation']['value']}}
@@ -56,20 +60,20 @@ class ConnectorGeometryTest(unittest.TestCase):
     def test_legacy_cache_is_enriched_without_replacing_saved_state(self):
         self.legacy()
         old = copy.deepcopy(self.config)
-        with contextlib.closing(b.connect_state(self.directory)) as db,db:
+        with contextlib.closing(database.connect_state(self.directory)) as db,db:
             db.execute("INSERT INTO line_prefs (line_id, project, signature) VALUES (?, 'project-canary', 1)", (wall.line_id(self.groups[0]),))
             before = list(db.iterdump())
-        with patch.object(b,'light_request',return_value={'panelLayout': self.raw}) as read:
-            wall_server.ensure_geometry(self.directory,b,self.config)
-            self.assertIsNotNone(self.config.get('connector_geometry'))
-            wall_server.ensure_geometry(self.directory,b,self.config)
-            read.assert_called_once_with(self.config,'GET')
+        read=Mock(return_value={'panelLayout': self.raw})
+        wall_server.ensure_geometry(self.directory,self.config,request=read)
+        self.assertIsNotNone(self.config.get('connector_geometry'))
+        wall_server.ensure_geometry(self.directory,self.config,request=read)
+        read.assert_called_once_with(self.config,'GET')
         saved = json.loads((self.directory/'layout.json').read_text())
         self.assertEqual({key:saved[key] for key in old}, old)
         self.assertEqual(self.config['zone_geometry'], old['zone_geometry'])
         self.assertEqual(json.loads((self.directory/'connector-geometry.json').read_text())['geometry'], self.config['connector_geometry'])
         self.assertNotIn('SECRET_CANARY',(self.directory/'connector-geometry.json').read_text())
-        with contextlib.closing(b.connect_state(self.directory)) as db:
+        with contextlib.closing(database.connect_state(self.directory)) as db:
             self.assertEqual(list(db.iterdump()),before)
 
     def test_graph_is_allowlisted_and_rejects_invalid_geometry(self):
@@ -119,19 +123,17 @@ class ConnectorGeometryTest(unittest.TestCase):
         del self.config['zone_geometry']
         original=copy.deepcopy(self.config)
         disk=(self.directory/'layout.json').read_bytes()
-        with patch.object(b,'light_request',return_value={'panelLayout':self.raw}), patch.object(b,'write_json',side_effect=OSError('PRIVATE_FAILURE')):
-            self.assertFalse(wall_server.ensure_geometry(self.directory,b,self.config))
+        with patch.object(jsonfile,'write_json',side_effect=OSError('PRIVATE_FAILURE')):
+            self.assertFalse(wall_server.ensure_geometry(self.directory,self.config,request=Mock(return_value={'panelLayout':self.raw})))
         self.assertEqual(self.config,original)
         self.assertEqual((self.directory/'layout.json').read_bytes(),disk)
-        with patch.object(b,'light_request',return_value={'panelLayout':self.raw}):
-            self.assertTrue(wall_server.ensure_geometry(self.directory,b,self.config))
+        self.assertTrue(wall_server.ensure_geometry(self.directory,self.config,request=Mock(return_value={'panelLayout':self.raw})))
         self.assertEqual(len(wall.geometry(self.config)),15)
         self.assertEqual(len(wall.connector_layout(self.config)['lines']),15)
-        with patch.object(b,'light_request',side_effect=AssertionError('Valid cache must not read device')):
-            self.assertTrue(wall_server.ensure_geometry(self.directory,b,self.config))
+        self.assertTrue(wall_server.ensure_geometry(self.directory,self.config,request=Mock(side_effect=AssertionError('Valid cache must not read device'))))
 
     def test_state_exposes_graph_and_preserves_legacy_fields(self):
-        app=wall_server.App(self.directory,b,self.config,launch=lambda _: self.fail('No worker launch'))
+        app=wall_server.App(self.directory,self.config,launch=lambda _: self.fail('No worker launch'))
         state=app.state()
         self.assertEqual(state['connector_layout'],wall.connector_layout(self.config))
         self.assertIsNone(state['connector_error'])
@@ -142,39 +144,39 @@ class ConnectorGeometryTest(unittest.TestCase):
     def test_failed_acquisition_is_bounded_in_free_and_can_recover(self):
         self.legacy()
         moment=[0]
-        b.set_mode(self.directory,'free',launch=lambda _:None)
+        modes.set_mode(self.directory,'free',launch=lambda _:None)
         with patch.object(wall_server.time,'monotonic',side_effect=lambda:moment[0]):
-            app=wall_server.App(self.directory,b,self.config,launch=lambda _: self.fail('No worker launch'))
-            with patch.object(b,'light_request',side_effect=OSError('PRIVATE_FAILURE')) as read:
-                for instant in range(10,100,10):
-                    moment[0]=instant
-                    state=app.state()
-                    self.assertEqual(len(state['lines']),15)
-                    self.assertIsNone(state['connector_layout'])
-                    self.assertNotIn('PRIVATE_FAILURE',json.dumps(state))
-                self.assertEqual(read.call_count,3)
+            read=Mock(side_effect=OSError('PRIVATE_FAILURE'))
+            app=wall_server.App(self.directory,self.config,launch=lambda _: self.fail('No worker launch'),request=read)
+            for instant in range(10,100,10):
+                moment[0]=instant
+                state=app.state()
+                self.assertEqual(len(state['lines']),15)
+                self.assertIsNone(state['connector_layout'])
+                self.assertNotIn('PRIVATE_FAILURE',json.dumps(state))
+            self.assertEqual(read.call_count,3)
             moment[0]=100
-            resumed=wall_server.App(self.directory,b,self.config,launch=lambda _:None)
-            with patch.object(b,'light_request',side_effect=[OSError('unavailable'),{'panelLayout':self.raw}]) as read:
-                moment[0]=110; self.assertIsNone(resumed.state()['connector_layout'])
-                moment[0]=120; self.assertIsNotNone(resumed.state()['connector_layout'])
-                moment[0]=150; resumed.state()
-                self.assertEqual(read.call_count,2)
+            read=Mock(side_effect=[OSError('unavailable'),{'panelLayout':self.raw}])
+            resumed=wall_server.App(self.directory,self.config,launch=lambda _:None,request=read)
+            moment[0]=110; self.assertIsNone(resumed.state()['connector_layout'])
+            moment[0]=120; self.assertIsNotNone(resumed.state()['connector_layout'])
+            moment[0]=150; resumed.state()
+            self.assertEqual(read.call_count,2)
 
     def test_concurrent_state_reads_share_one_complete_enrichment(self):
         self.legacy()
-        app=wall_server.App(self.directory,b,self.config,launch=lambda _: self.fail('No worker launch'))
+        read=Mock(return_value={'panelLayout':self.raw})
+        app=wall_server.App(self.directory,self.config,launch=lambda _: self.fail('No worker launch'),request=read)
         app.geometry_retry=0
-        with patch.object(b,'light_request',return_value={'panelLayout':self.raw}) as read:
-            with ThreadPoolExecutor(max_workers=8) as pool:
-                states=list(pool.map(lambda _:app.state(),range(24)))
-            self.assertEqual(read.call_count,1)
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            states=list(pool.map(lambda _:app.state(),range(24)))
+        self.assertEqual(read.call_count,1)
         self.assertTrue(all(s['connector_layout']==states[0]['connector_layout'] for s in states))
         self.assertEqual(json.loads((self.directory/'connector-geometry.json').read_text())['geometry'],self.config['connector_geometry'])
 
     def test_enrichment_does_not_overwrite_an_independent_layout_writer(self):
         self.legacy()
-        original_write=b.write_json
+        original_write=jsonfile.write_json
         def concurrent_write(path,value):
             layout_path=self.directory/'layout.json'
             other=json.loads(layout_path.read_text())
@@ -182,28 +184,25 @@ class ConnectorGeometryTest(unittest.TestCase):
             other['concurrent_marker']='preserve'
             original_write(layout_path,other)
             original_write(path,value)
-        with patch.object(b,'light_request',return_value={'panelLayout':self.raw}),patch.object(b,'write_json',side_effect=concurrent_write):
-            self.assertTrue(wall_server.ensure_geometry(self.directory,b,self.config))
+        with patch.object(jsonfile,'write_json',side_effect=concurrent_write):
+            self.assertTrue(wall_server.ensure_geometry(self.directory,self.config,request=Mock(return_value={'panelLayout':self.raw})))
         saved=json.loads((self.directory/'layout.json').read_text())
         self.assertEqual(saved.get('concurrent_marker'),'preserve')
         self.assertEqual(saved['line_positions'],[[123,456]]*15)
 
     def test_sidecar_recovers_on_restart_without_a_device_read(self):
         self.legacy()
-        with patch.object(b,'light_request',return_value={'panelLayout':self.raw}):
-            self.assertTrue(wall_server.ensure_geometry(self.directory,b,self.config))
+        self.assertTrue(wall_server.ensure_geometry(self.directory,self.config,request=Mock(return_value={'panelLayout':self.raw})))
         restarted=json.loads((self.directory/'layout.json').read_text())
         del restarted['zone_geometry']
-        with patch.object(b,'light_request',side_effect=AssertionError('No device read on restart')):
-            self.assertTrue(wall_server.ensure_geometry(self.directory,b,restarted))
+        self.assertTrue(wall_server.ensure_geometry(self.directory,restarted,request=Mock(side_effect=AssertionError('No device read on restart'))))
         self.assertEqual(wall.connector_layout(restarted),wall.connector_layout(self.config))
         self.assertEqual(len(wall.geometry(restarted)),15)
         self.assertNotIn('token',json.loads((self.directory/'connector-geometry.json').read_text()))
 
     def test_rediscovered_layout_invalidates_sidecar_with_the_same_line_ids(self):
         self.legacy()
-        with patch.object(b,'light_request',return_value={'panelLayout':self.raw}):
-            self.assertTrue(wall_server.ensure_geometry(self.directory,b,self.config))
+        self.assertTrue(wall_server.ensure_geometry(self.directory,self.config,request=Mock(return_value={'panelLayout':self.raw})))
         before=wall.connector_layout(self.config)
         layout=self.directory/'layout.json'
         saved=json.loads(layout.read_text())
@@ -212,17 +211,16 @@ class ConnectorGeometryTest(unittest.TestCase):
         layout.write_text(json.dumps(saved))
         updated=copy.deepcopy(self.raw)
         updated['globalOrientation']['value']+=90
-        with patch.object(b,'light_request',return_value={'panelLayout':updated}) as read:
-            self.assertTrue(wall_server.ensure_geometry(self.directory,b,saved))
-            read.assert_called_once()
+        read=Mock(return_value={'panelLayout':updated})
+        self.assertTrue(wall_server.ensure_geometry(self.directory,saved,request=read))
+        read.assert_called_once()
         self.assertNotEqual(wall.connector_layout(saved)['nodes'],before['nodes'])
         self.assertEqual([l['id'] for l in wall.connector_layout(saved)['lines']],[l['id'] for l in before['lines']])
 
     def test_running_map_refreshes_geometry_after_layout_rediscovery(self):
         self.legacy()
-        with patch.object(b,'light_request',return_value={'panelLayout':self.raw}):
-            self.assertTrue(wall_server.ensure_geometry(self.directory,b,self.config))
-        app=wall_server.App(self.directory,b,self.config,launch=lambda _:self.fail('No worker launch'))
+        self.assertTrue(wall_server.ensure_geometry(self.directory,self.config,request=Mock(return_value={'panelLayout':self.raw})))
+        app=wall_server.App(self.directory,self.config,launch=lambda _:self.fail('No worker launch'))
         before=app.state()
         saved=json.loads((self.directory/'layout.json').read_text())
         saved.pop('zone_geometry',None)
@@ -231,11 +229,11 @@ class ConnectorGeometryTest(unittest.TestCase):
         updated=copy.deepcopy(self.raw)
         updated['globalOrientation']['value']+=90
         app.geometry_retry=0
-        with patch.object(b,'light_request',return_value={'panelLayout':updated}) as read:
-            after=app.state()
-            read.assert_called_once()
-            app.state()
-            read.assert_called_once()
+        app.request=read=Mock(return_value={'panelLayout':updated})
+        after=app.state()
+        read.assert_called_once()
+        app.state()
+        read.assert_called_once()
         self.assertNotEqual(after['connector_layout']['nodes'],before['connector_layout']['nodes'])
         self.assertNotEqual(after['lines'][0]['points'],before['lines'][0]['points'])
         self.assertEqual([line['id'] for line in after['lines']],[line['id'] for line in before['lines']])
@@ -244,19 +242,18 @@ class ConnectorGeometryTest(unittest.TestCase):
 
     def test_startup_layout_replacement_cannot_relabel_old_memory_as_current(self):
         self.legacy()
-        with patch.object(b,'light_request',return_value={'panelLayout':self.raw}):
-            self.assertTrue(wall_server.ensure_geometry(self.directory,b,self.config))
+        self.assertTrue(wall_server.ensure_geometry(self.directory,self.config,request=Mock(return_value={'panelLayout':self.raw})))
         before=wall.connector_layout(self.config)
         saved=json.loads((self.directory/'layout.json').read_text())
         saved.pop('zone_geometry',None)
         (self.directory/'layout.json').write_text(json.dumps(saved))
         # The replacement lands after startup enrichment, before App construction.
-        app=wall_server.App(self.directory,b,self.config,launch=lambda _:self.fail('No worker launch'))
+        app=wall_server.App(self.directory,self.config,launch=lambda _:self.fail('No worker launch'))
         app.geometry_retry=0
         updated=copy.deepcopy(self.raw)
         updated['globalOrientation']['value']+=90
-        with patch.object(b,'light_request',return_value={'panelLayout':updated}) as read:
-            after=app.state()
-            read.assert_called_once()
+        app.request=read=Mock(return_value={'panelLayout':updated})
+        after=app.state()
+        read.assert_called_once()
         self.assertNotEqual(after['connector_layout']['nodes'],before['nodes'])
         self.assertNotIn('_connector_source',json.dumps(after))

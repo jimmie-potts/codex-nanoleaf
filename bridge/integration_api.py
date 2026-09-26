@@ -8,10 +8,13 @@ import re
 import time
 
 import controller_state as state
+from controller_state import HTTP, admission_transaction, check_deadline
 import devices
+import edits
 import effects
 import project_map as wall
 import shared_input
+from store import control_state
 
 VERSION = 'nanoleaf.integration/1.0'
 MAX_ITEMS = 1000
@@ -238,7 +241,11 @@ def validate(request):
         raise Failure('invalid-request')
 
 
-def operation(db, pairs, command):
+def edit(db, pairs, command):
+    """The shared configuration edit a validated command requests, with its opaque IDs resolved.
+
+    Returns edit(db, config), which applies it inside the caller's transaction.
+    """
     _, projects, tasks = projection(db, pairs)
     def project(value):
         if value is None: return None
@@ -246,12 +253,15 @@ def operation(db, pairs, command):
         return projects[value]
     kind = command['kind']
     if kind == 'settings.set':
-        return '/api/settings', {k: v for k, v in command.items() if k != 'kind'}
+        changes = {k: v for k, v in command.items() if k != 'kind'}
+        return lambda db, config: edits.settings(db, config, changes)
     if kind == 'project.color':
-        return '/api/project', dict(id=project(command['projectId']), color=command['color'])
+        target, color = project(command['projectId']), command['color']
+        return lambda db, config: edits.project_color(db, target, color)
     if kind == 'task.assign':
         if command['taskId'] not in tasks: raise Failure('revision-conflict')
-        return '/api/task', dict(id=tasks[command['taskId']], project=project(command['projectId']))
+        session, target = tasks[command['taskId']], project(command['projectId'])
+        return lambda db, config: edits.task_project(db, config, session, target)
     ids = {wall.line_id(pair) for pair in pairs}; lines = {}
     for e in command['elements']:
         if e['id'] not in ids: raise Failure('unsupported-capability')
@@ -259,7 +269,7 @@ def operation(db, pairs, command):
         if 'projectId' in e: value['project'] = project(e['projectId'])
         if 'signature' in e: value['signature'] = e['signature']
         lines[e['id']] = value
-    return '/api/assign', dict(lines=lines)
+    return lambda db, config: edits.assign(db, config, lines)
 
 
 def finish(db, sequence, outcome, code=None):
@@ -343,8 +353,11 @@ def play(db, sequence, generation, send):
     finish(db, sequence, 'sent')
 
 
-def process(db, b, config, now=None):
-    """Only the existing worker calls this, inside its configuration transaction."""
+def process(db, config, now=None):
+    """Only the existing worker calls this, inside its configuration transaction.
+
+    The configuration edit and its receipt commit together with the caller's transaction.
+    """
     if not state.present(db): return
     recover(db, now)
     row = db.execute("SELECT sequence,request,revision FROM integration_requests WHERE phase='queued'").fetchone()
@@ -355,18 +368,13 @@ def process(db, b, config, now=None):
         view, _, _ = projection(db, config['line_groups'])
         if view['revision'] != revision: raise Failure('revision-conflict')
         if wall.pending(db) or db.execute('SELECT 1 FROM comets WHERE started IS NOT NULL AND device=?', (devices.DEFAULT,)).fetchone(): return
-        import wall_server
-        route, payload = operation(db, config['line_groups'], json.loads(raw)['command'])
-        wall_server.apply_operation(db, b, config, route, payload)
-        state.changed(db)
-        b.mark_dirty(db)
+        edit(db, config['line_groups'], json.loads(raw)['command'])(db, config)
         finish(db, sequence, 'applied')
     except Failure as error:
         finish(db, sequence, 'failed', error.code)
 
 
 def error_result(error):
-    from controller_server import HTTP
     return HTTP.get(error.code, 400), {'failure': {'code': error.code}}
 
 
@@ -382,7 +390,6 @@ def receipt(app, token, device, ticket, **checks):
 
 
 def admit(app, token, request, body_bytes=None, deadline=None, **checks):
-    from controller_server import admission_transaction, check_deadline
     try:
         with admission_transaction(app.directory, deadline) as db:
             device = request.get('deviceId') if type(request) is dict else None
@@ -406,7 +413,7 @@ def admit(app, token, request, body_bytes=None, deadline=None, **checks):
             view, _, _ = projection(db, pairs)
             if request['command']['kind'] == ANIMATION:
                 # Content for Free only; Work and Quiet present agent status (hub ADR 0005).
-                if app.b.control_state(db)['mode'] != 'free': raise Failure('unsupported-capability')
+                if control_state(db)['mode'] != 'free': raise Failure('unsupported-capability')
                 if request['expectedRevision'] != view['revision']: raise Failure('revision-conflict')
                 try:
                     effects.render(request['command'], pairs, positions)
@@ -414,7 +421,7 @@ def admit(app, token, request, body_bytes=None, deadline=None, **checks):
                     raise Failure(error.code) from None
             else:
                 if request['expectedRevision'] != view['revision'] or wall.pending(db): raise Failure('revision-conflict')
-                operation(db, pairs, request['command'])
+                edit(db, pairs, request['command'])  # Resolves every opaque ID before admission.
             check_deadline(deadline)
             receipt = dict(apiVersion=VERSION, requestId=ticket, outcome='queued', priorEffects='none', physicalOutcome='unknown')
             db.execute('UPDATE integration_meta SET sequence=? WHERE id=1', (sequence + 1,))
@@ -438,7 +445,6 @@ def admit(app, token, request, body_bytes=None, deadline=None, **checks):
 
 
 def cancel(app, token, device, ticket, deadline=None, **checks):
-    from controller_server import admission_transaction
     try:
         with admission_transaction(app.directory, deadline) as db:
             principal = authorize(app, db, token, device, 'control', checks)

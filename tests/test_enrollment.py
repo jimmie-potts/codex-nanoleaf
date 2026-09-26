@@ -13,6 +13,10 @@ from unittest.mock import patch
 import urllib.error
 
 from test_bridge import b, Clock
+import configuration
+import database
+import jsonfile
+import modes
 from test_scene_restore import Device
 import controller_server as server
 import devices
@@ -56,21 +60,18 @@ class EnrollmentTest(unittest.TestCase):
         self.hooks.write_text(json.dumps({'hooks': {'Stop': [{'hooks': [{'type': 'command', 'command': 'trusted'}]}]}}))
         self.clock = Clock()
         self.fake = FakeDevices(self.clock)
-        b.write_json(self.directory / 'config.json', {
+        jsonfile.write_json(self.directory / 'config.json', {
             'ip': LINES_IP, 'token': LINES_TOKEN,
             'devices': {'wall': {'kind': 'lines', 'ip': LINES_IP, 'token_ref': 'token'}},
             'wall_port': 8765, 'controller_port': 41231, 'mcp_port': 41230})
         lines = devices.lines_entry([[100 + i * 2, 101 + i * 2] for i in range(15)], [[i * 10, 0] for i in range(15)])
         devices.save_layout(self.directory / 'layout.json', {'wall': lines})
-        patcher = patch.object(b, 'light_request', self.fake.request)
-        patcher.start()
-        self.addCleanup(patcher.stop)
-        server.configure(self.directory, b, 'local-controller', 'wall', 'local-source')
-        server.issue(self.directory, b, 'codex', ['read', 'control'])
-        b.write_json(self.directory / 'mcp-credentials.json', {'principals': [{'id': 'codex'}]})
+        server.configure(self.directory, 'local-controller', 'wall', 'local-source')
+        server.issue(self.directory, 'codex', ['read', 'control'])
+        jsonfile.write_json(self.directory / 'mcp-credentials.json', {'principals': [{'id': 'codex'}]})
         self.event('UserPromptSubmit', 'a')
         self.event('UserPromptSubmit', 'b')
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             db.execute("INSERT INTO line_prefs (line_id, project, signature, device) VALUES ('100:101', 'alpha', 1, 'wall')")
         self.mode('quiet')
 
@@ -79,10 +80,10 @@ class EnrollmentTest(unittest.TestCase):
                        launch=lambda _: None, now=self.clock.now)
 
     def mode(self, name, device='wall'):
-        b.set_mode(self.directory, name, launch=lambda _: None, now=self.clock.now, device=device)
+        modes.set_mode(self.directory, name, launch=lambda _: None, now=self.clock.now, device=device)
 
     def query(self, sql, *params):
-        with contextlib.closing(b.connect_state(self.directory)) as db:
+        with contextlib.closing(database.connect_state(self.directory)) as db:
             return db.execute(sql, params).fetchall()
 
     def config(self):
@@ -95,7 +96,7 @@ class EnrollmentTest(unittest.TestCase):
         """Every file in the state directory and the hooks file, plus the shared rows."""
         files = {path.name: path.read_bytes() for path in sorted(self.directory.iterdir())
                  if path.is_file() and not path.name.endswith(('.sqlite', '-journal', '-wal', '-shm'))}
-        with contextlib.closing(b.connect_state(self.directory)) as db:
+        with contextlib.closing(database.connect_state(self.directory)) as db:
             tables = [name for (name,) in db.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")]
             rows = {table: sorted(map(repr, db.execute('SELECT * FROM "' + table + '"'))) for table in tables}
         return files, rows, self.hooks.read_bytes()
@@ -103,12 +104,13 @@ class EnrollmentTest(unittest.TestCase):
     def enroll(self, **options):
         options.setdefault('ip', PANELS_IP)
         options.setdefault('token', PANELS_TOKEN)
-        return enrollment.enroll(self.directory, b, **options)
+        options.setdefault('request', self.fake.request)
+        return enrollment.enroll(self.directory, **options)
 
-    def run_command(self, *argv, stdin=''):
+    def run_command(self, *argv, stdin='', request=None):
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err), patch('sys.stdin', io.StringIO(stdin)):
-            code = enrollment.command([*argv, '--state-dir', str(self.directory)], b)
+            code = enrollment.command([*argv, '--state-dir', str(self.directory)], request=request or self.fake.request)
         return code, out.getvalue(), err.getvalue()
 
 
@@ -134,7 +136,7 @@ class EnrollTest(EnrollmentTest):
         after = self.snapshot()[1]
         for table in ('sessions', 'activity', 'task_info', 'line_prefs', 'slots', 'comets', 'controller_credentials'):
             self.assertEqual(after[table], rows[table], table)
-        self.assertEqual(b.get_status(self.directory)['mode'], 'quiet')
+        self.assertEqual(modes.get_status(self.directory)['mode'], 'quiet')
         # Only the verification read reached the new device; Lines was not contacted.
         self.assertEqual([(ip, method, endpoint) for ip, _, method, endpoint in self.fake.seen], [(PANELS_IP, 'GET', '')])
 
@@ -175,7 +177,7 @@ class EnrollTest(EnrollmentTest):
         self.enroll()
         self.mode('quiet', 'panels')
         element = self.layout()['devices']['panels']['elements'][0]['id']
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             db.execute("INSERT INTO line_prefs (line_id, project, signature, device) VALUES (?, 'beta', 0, 'panels')", (element,))
         files, rows, hooks = self.snapshot()
         self.fake.info[PANELS_IP]['panelLayout']['layout']['positionData'].pop()
@@ -188,12 +190,12 @@ class EnrollTest(EnrollmentTest):
                          {k: v for k, v in before.items() if k != 'token@panels'})
         self.assertEqual(self.snapshot()[1], rows)
         self.assertEqual(self.snapshot()[0]['layout.json'], files['layout.json'])
-        self.assertEqual(b.get_status(self.directory, 'panels')['mode'], 'quiet')
+        self.assertEqual(modes.get_status(self.directory, 'panels')['mode'], 'quiet')
 
     def test_repeat_refuses_an_entry_that_shares_the_lines_credential(self):
         config = self.config()
         config['devices']['panels'] = {'kind': 'panels', 'ip': PANELS_IP, 'token_ref': 'token'}
-        b.write_json(self.directory / 'config.json', config)  # A hand-edited registry.
+        jsonfile.write_json(self.directory / 'config.json', config)  # A hand-edited registry.
         before = self.snapshot()
         with self.assertRaisesRegex(ValueError, 'shares'):
             self.enroll()
@@ -203,14 +205,14 @@ class EnrollTest(EnrollmentTest):
         config = self.config()
         config['devices']['other'] = {'kind': 'panels', 'ip': OTHER_IP, 'token_ref': 'token@panels'}
         config['token@panels'] = 'otherCredential'
-        b.write_json(self.directory / 'config.json', config)  # A hand-edited registry.
+        jsonfile.write_json(self.directory / 'config.json', config)  # A hand-edited registry.
         before = self.snapshot()
         with self.assertRaisesRegex(ValueError, 'other'):
             self.enroll()
         self.assertEqual(self.snapshot(), before)
 
     def test_malformed_layout_is_refused_before_any_write(self):
-        b.write_json(self.directory / 'layout.json', {'version': 99, 'devices': {}})
+        jsonfile.write_json(self.directory / 'layout.json', {'version': 99, 'devices': {}})
         before = self.snapshot()
         with self.assertRaisesRegex(ValueError, 'layout'):
             self.enroll()
@@ -226,7 +228,7 @@ class EnrollTest(EnrollmentTest):
     def test_saved_geometry_loads_while_the_device_is_unreachable(self):
         self.enroll()
         self.fake.unreachable.add(PANELS_IP)
-        config = b.load_config(self.directory, 'panels')
+        config = configuration.load_config(self.directory, 'panels')
         self.assertEqual(len(config['elements']), 18)
         self.assertEqual(config['token'], PANELS_TOKEN)
 
@@ -242,7 +244,7 @@ class PrivacyTest(EnrollmentTest):
         for name in ('config.json', 'layout.json'):
             self.assertEqual(stat.S_IMODE((self.directory / name).stat().st_mode), 0o600, name)
         import wall_server
-        app = wall_server.App(self.directory, b, launch=lambda *_: None)
+        app = wall_server.App(self.directory, launch=lambda *_: None)
         self.assertNotIn(PANELS_TOKEN, json.dumps(app.state()))
         self.fake.info[OTHER_IP] = {'name': 'Canvas', 'model': 'NL29'}
         code, out, err = self.run_command('device-enroll', '--device', 'other', '--ip', OTHER_IP, '--token-file', str(token))
@@ -252,8 +254,8 @@ class PrivacyTest(EnrollmentTest):
     def test_http_failure_reports_only_the_status(self):
         def refuse(config, method, endpoint='', payload=None):
             raise urllib.error.HTTPError(f'http://{config["ip"]}:16021/api/v1/{config["token"]}/', 401, 'Unauthorized', {}, None)
-        with patch.object(b, 'light_request', refuse), patch('getpass.getpass', return_value=PANELS_TOKEN):
-            code, out, err = self.run_command('device-enroll', '--ip', PANELS_IP)
+        with patch('getpass.getpass', return_value=PANELS_TOKEN):
+            code, out, err = self.run_command('device-enroll', '--ip', PANELS_IP, request=refuse)
         self.assertEqual(code, 1)
         self.assertIn('401', err)
         self.assertNotIn(PANELS_TOKEN, out + err)
@@ -315,15 +317,15 @@ class PrivacyTest(EnrollmentTest):
 
     def test_windows_mounted_state_is_refused(self):
         with self.assertRaisesRegex(ValueError, 'Windows'):
-            enrollment.enroll(Path('/mnt/c/Users/fixture/CodexNanoleaf'), b, ip=PANELS_IP, token=PANELS_TOKEN)
+            enrollment.enroll(Path('/mnt/c/Users/fixture/CodexNanoleaf'), ip=PANELS_IP, token=PANELS_TOKEN)
         with self.assertRaisesRegex(ValueError, 'Windows'):
-            enrollment.remove(Path('/mnt/c/Users/fixture/CodexNanoleaf'), b, 'panels')
+            enrollment.remove(Path('/mnt/c/Users/fixture/CodexNanoleaf'), 'panels')
 
     def test_symlink_to_a_windows_drive_is_refused(self):
         linked = self.directory.parent / 'linked-state'
         linked.symlink_to('/mnt/c/Users/fixture/CodexNanoleaf')
         with self.assertRaisesRegex(ValueError, 'Windows'):
-            enrollment.enroll(linked, b, ip=PANELS_IP, token=PANELS_TOKEN)
+            enrollment.enroll(linked, ip=PANELS_IP, token=PANELS_TOKEN)
 
     def test_installer_reads_its_token_file_through_the_shared_reader(self):
         import install_linux
@@ -338,14 +340,14 @@ class FreeStartTest(EnrollmentTest):
             self.clock.sleep(seconds)
             self.assertLess(self.clock.now(), deadline, 'Worker did not release control')
         return b.run_worker(self.directory, sleep=advance, now=self.clock.now, read_unread=lambda: set(),
-                            device='panels')
+                            device='panels', request=self.fake.request)
 
     def test_enrolled_device_stays_dark_until_activated(self):
         self.enroll()
         self.fake.seen.clear()
         self.run_panels_worker()
         self.assertEqual(self.fake.seen, [])
-        self.assertEqual(b.get_status(self.directory, 'panels'), {'mode': 'free', 'pending': False, 'error': None})
+        self.assertEqual(modes.get_status(self.directory, 'panels'), {'mode': 'free', 'pending': False, 'error': None})
         empty = self.directory.parent / 'empty-token'
         empty.write_text('')
         code, out, err = self.run_command('device-enroll', '--ip', PANELS_IP, '--token-file', str(empty))
@@ -362,7 +364,7 @@ class FreeStartTest(EnrollmentTest):
         self.assertEqual(self.query("SELECT session FROM comets WHERE device='panels'"), [])
         self.assertEqual(self.query("SELECT value FROM meta WHERE key='wave_cutoff@panels'"), [(str(self.clock.now()),)])
         self.assertEqual(self.query("SELECT session FROM comets WHERE device='wall'"), [('a',)])
-        self.assertEqual(b.get_status(self.directory)['mode'], 'work')
+        self.assertEqual(modes.get_status(self.directory)['mode'], 'work')
 
     def test_output_names_activation_and_needs_no_restart(self):
         token = self.directory.parent / 'panels-token'
@@ -376,13 +378,13 @@ class FreeStartTest(EnrollmentTest):
                          {'wall_port': 8765, 'controller_port': 41231, 'mcp_port': 41230})
 
     def test_stale_state_for_a_new_id_is_cleared_before_registration(self):
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             for key, value in (('mode@panels', 'work'), ('mode_revision@panels', '4'), ('control_error@panels', 'old')):
                 db.execute('INSERT INTO meta VALUES (?, ?)', (key, value))
             db.execute("INSERT INTO comets (session, turn, queued, device) VALUES ('a', '1', 1, 'panels')")
         (self.directory / devices.scene_file('panels')).write_text('{}')
         self.enroll()
-        self.assertEqual(b.get_status(self.directory, 'panels'), {'mode': 'free', 'pending': False, 'error': None})
+        self.assertEqual(modes.get_status(self.directory, 'panels'), {'mode': 'free', 'pending': False, 'error': None})
         self.assertEqual(self.query("SELECT * FROM comets WHERE device='panels'"), [])
         self.assertFalse((self.directory / devices.scene_file('panels')).exists())
 
@@ -403,20 +405,20 @@ class RemoveTest(EnrollmentTest):
     def lines_state(self):
         rows = self.snapshot()[1]
         return ({table: [row for row in values if "'panels'" not in row] for table, values in rows.items() if table != 'meta'},
-                self.config()['devices']['wall'], self.layout()['devices']['wall'], b.get_status(self.directory))
+                self.config()['devices']['wall'], self.layout()['devices']['wall'], modes.get_status(self.directory))
 
     def test_removes_a_free_device_and_everything_it_owned(self):
         self.mode('work', 'panels')
         element = self.layout()['devices']['panels']['elements'][0]['id']
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             db.execute("INSERT INTO line_prefs (line_id, project, device) VALUES (?, 'beta', 'panels')", (element,))
             db.execute("INSERT INTO meta VALUES ('mode_applied@panels', '1')")
         (self.directory / devices.scene_file('panels')).write_text('{}')
         self.mode('free', 'panels')
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             db.execute("INSERT OR REPLACE INTO meta VALUES ('mode_applied@panels', '2')")
         before = self.lines_state()
-        result = enrollment.remove(self.directory, b, 'panels')
+        result = enrollment.remove(self.directory, 'panels')
         self.assertTrue(result['cleaned'])
         config = self.config()
         self.assertNotIn('panels', config['devices'])
@@ -430,46 +432,46 @@ class RemoveTest(EnrollmentTest):
     def test_refuses_before_the_free_handoff_unless_forced(self):
         self.mode('work', 'panels')
         with self.assertRaisesRegex(ValueError, 'mode free --device panels'):
-            enrollment.remove(self.directory, b, 'panels')
+            enrollment.remove(self.directory, 'panels')
         self.mode('free', 'panels')  # Pending: the worker has not applied Free yet.
         with self.assertRaisesRegex(ValueError, 'not been applied'):
-            enrollment.remove(self.directory, b, 'panels')
+            enrollment.remove(self.directory, 'panels')
         self.assertIn('panels', self.config()['devices'])
-        self.assertTrue(enrollment.remove(self.directory, b, 'panels', force=True)['cleaned'])
+        self.assertTrue(enrollment.remove(self.directory, 'panels', force=True)['cleaned'])
         self.assertNotIn('panels', self.config()['devices'])
 
     def test_lines_and_unknown_ids_cannot_be_removed(self):
         before = self.snapshot()
         for device in ('wall', 'missing'):
             with self.subTest(device=device), self.assertRaises(ValueError):
-                enrollment.remove(self.directory, b, device)
+                enrollment.remove(self.directory, device)
         self.assertEqual(self.snapshot(), before)
 
     def test_busy_worker_leaves_cleanup_for_a_rerun(self):
         with contextlib.closing(sqlite3.connect(self.directory / devices.lock_file('panels'), timeout=0)) as lock:
             lock.execute('BEGIN EXCLUSIVE')
-            result = enrollment.remove(self.directory, b, 'panels', wait=0.2)
+            result = enrollment.remove(self.directory, 'panels', wait=0.2)
         self.assertFalse(result['cleaned'])
         self.assertNotIn('panels', self.config()['devices'])
         self.assertIn('panels', self.layout()['devices'])
         self.assertTrue(self.query("SELECT 1 FROM meta WHERE key='mode@panels'"))
-        self.assertTrue(enrollment.remove(self.directory, b, 'panels')['cleaned'])
+        self.assertTrue(enrollment.remove(self.directory, 'panels')['cleaned'])
         self.assertNotIn('panels', self.layout()['devices'])
         self.assertFalse(self.query("SELECT 1 FROM meta WHERE key LIKE '%@panels'"))
         with self.assertRaisesRegex(ValueError, 'Unknown'):
-            enrollment.remove(self.directory, b, 'panels')
+            enrollment.remove(self.directory, 'panels')
 
     def test_removing_the_only_layout_entry_removes_it(self):
         layout = self.layout()
         del layout['devices']['wall']
-        b.write_json(self.directory / 'layout.json', layout)
-        self.assertTrue(enrollment.remove(self.directory, b, 'panels')['cleaned'])
+        jsonfile.write_json(self.directory / 'layout.json', layout)
+        self.assertTrue(enrollment.remove(self.directory, 'panels')['cleaned'])
         self.assertFalse((self.directory / 'layout.json').exists())
         with self.assertRaisesRegex(ValueError, 'Unknown'):
-            enrollment.remove(self.directory, b, 'panels')
+            enrollment.remove(self.directory, 'panels')
 
     def test_malformed_layout_is_refused_before_removal_writes(self):
-        b.write_json(self.directory / 'layout.json', {'version': 99, 'devices': {}})
+        jsonfile.write_json(self.directory / 'layout.json', {'version': 99, 'devices': {}})
         before = self.snapshot()
         code, out, err = self.run_command('device-remove', '--device', 'panels')
         self.assertEqual(code, 1)
@@ -485,12 +487,12 @@ class RemoveTest(EnrollmentTest):
         self.assertNotIn('panels', self.config()['devices'])
         self.assertNotIn('Nothing was changed', err)
         self.assertIn('again', err)
-        self.assertTrue(enrollment.remove(self.directory, b, 'panels')['cleaned'])
+        self.assertTrue(enrollment.remove(self.directory, 'panels')['cleaned'])
 
     def test_busy_state_is_reported_without_a_traceback(self):
         def busy(*args, **kwargs):
             raise sqlite3.OperationalError('database is locked')
-        with patch.object(b, 'connect_state', busy):
+        with patch.object(database, 'connect_state', busy):
             code, out, err = self.run_command('device-remove', '--device', 'panels')
         self.assertEqual(code, 1)
         self.assertIn('busy', err)
@@ -511,14 +513,14 @@ class AddressTest(EnrollmentTest):
         self.enroll()
         self.mode('quiet', 'panels')
         element = self.layout()['devices']['panels']['elements'][0]['id']
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             db.execute("INSERT INTO line_prefs (line_id, project, signature, device) VALUES (?, 'beta', 0, 'panels')", (element,))
             db.execute("INSERT INTO slots (session, slot, device) VALUES ('a', 0, 'panels')")
         (self.directory / devices.scene_file('panels')).write_text('{"version": 1, "scene": "Forest"}')
         self.fake.seen.clear()
 
     def change(self, device='panels', ip=NEW_IP):
-        return enrollment.change_address(self.directory, b, device, ip)
+        return enrollment.change_address(self.directory, device, ip, request=self.fake.request)
 
     # AC1: only the address changes; the device keeps its identity and saved state.
     def test_changes_only_the_registered_address(self):
@@ -535,16 +537,16 @@ class AddressTest(EnrollmentTest):
                          {k: v for k, v in files.items() if k != 'config.json'})
         self.assertEqual(after[1], rows)
         self.assertEqual(after[2], hooks)
-        self.assertEqual(b.get_status(self.directory, 'panels')['mode'], 'quiet')
+        self.assertEqual(modes.get_status(self.directory, 'panels')['mode'], 'quiet')
         # AC3: one verification read with the stored credential, and no light write.
         self.assertEqual(self.fake.seen, [(NEW_IP, PANELS_TOKEN, 'GET', '')])
-        self.assertEqual(b.load_config(self.directory, 'panels')['ip'], NEW_IP)
+        self.assertEqual(configuration.load_config(self.directory, 'panels')['ip'], NEW_IP)
 
     # AC2: the new address is checked before anything is written.
     def test_address_in_use_or_not_private_is_refused_before_contacting_a_device(self):
         config = self.config()
         config['devices']['second'] = {'kind': 'panels', 'ip': OTHER_IP, 'token_ref': 'token@second'}
-        b.write_json(self.directory / 'config.json', config)  # A second registered Panels device.
+        jsonfile.write_json(self.directory / 'config.json', config)  # A second registered Panels device.
         before = self.snapshot()
         for ip, reason in ((LINES_IP, 'already uses'), (OTHER_IP, '`second` already uses'),
                            (PANELS_IP, 'already registered at'),
@@ -601,7 +603,7 @@ class AddressTest(EnrollmentTest):
         self.assertEqual(self.fake.seen, [])
 
     def test_malformed_layout_is_refused_before_any_request(self):
-        b.write_json(self.directory / 'layout.json', {'version': 99, 'devices': {}})
+        jsonfile.write_json(self.directory / 'layout.json', {'version': 99, 'devices': {}})
         before = self.snapshot()
         with self.assertRaisesRegex(ValueError, 'layout'):
             self.change()
@@ -626,8 +628,7 @@ class AddressTest(EnrollmentTest):
         def refuse(config, method, endpoint='', payload=None):
             raise urllib.error.HTTPError(f'http://{config["ip"]}:16021/api/v1/{config["token"]}', 401,
                                          'Unauthorized', {}, io.BytesIO())
-        with patch.object(b, 'light_request', refuse):
-            code, out, err = self.run_command('device-address', '--device', 'panels', '--ip', NEW_IP)
+        code, out, err = self.run_command('device-address', '--device', 'panels', '--ip', NEW_IP, request=refuse)
         self.assertEqual(code, 1)
         self.assertIn('HTTP 401', err)
         self.assertNotIn(PANELS_TOKEN, out + err)
@@ -651,7 +652,7 @@ class DispatchTest(EnrollmentTest):
         argv = ['bridge.py', 'device-enroll', '--ip', PANELS_IP, '--token-file', str(token), '--state-dir', str(self.directory)]
         with patch.object(sys, 'argv', argv), contextlib.redirect_stdout(io.StringIO()):
             with self.assertRaises(SystemExit) as exit:
-                b.main()
+                b.main(request=self.fake.request)
         self.assertEqual(exit.exception.code, 0)
         self.assertEqual(self.config()['devices']['panels']['token_ref'], 'token@panels')
 

@@ -3,6 +3,9 @@ import copy
 import unittest
 import test_scene_restore as fixtures
 from test_bridge import b, decode
+import database
+import modes
+import store
 
 
 class CometTest(unittest.TestCase):
@@ -17,13 +20,13 @@ class CometTest(unittest.TestCase):
         self.unread.add(session)
 
     def prepare(self):
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
-            b.prune_comets(db, self.clock.now(), b.control_state(db)['mode'])
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
+            b.prune_comets(db, self.clock.now(), store.control_state(db)['mode'])
             snapshot = b.dashboard(db, self.config, self.clock.now())
             return snapshot, b.current_comet(db, self.clock.now())
 
     def mode(self, mode):
-        b.set_mode(self.directory, mode, launch=lambda _: None, now=self.clock.now)
+        modes.set_mode(self.directory, mode, launch=lambda _: None, now=self.clock.now)
 
     def test_geometry_head_tail_duration_and_zone_pairs(self):
         cfg = dict(self.config, _comet={'source': 0, 'started': 1000}, _mode='work')
@@ -75,7 +78,7 @@ class CometTest(unittest.TestCase):
         self.complete('a'); self.complete('b')
         self.prepare()
         self.unread.remove('b')
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             db.execute("UPDATE receipts SET observed=1")
             b.reconcile_read_state(db,self.unread,self.clock.now())
         self.clock.sleep(2)
@@ -95,7 +98,7 @@ class CometTest(unittest.TestCase):
         self.complete('a')
         for i in range(14): self.event('UserPromptSubmit',str(i))
         _, comet = self.prepare()
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             db.execute("UPDATE receipts SET observed=1")
             b.reconcile_read_state(db,set(),1000.5)
         self.event('UserPromptSubmit','extra')
@@ -119,7 +122,7 @@ class CometTest(unittest.TestCase):
         for action in ('UserPromptSubmit','Interrupt'):
             self.complete()
             self.prepare()
-            with contextlib.closing(b.connect_state(self.directory)) as db, db:
+            with contextlib.closing(database.connect_state(self.directory)) as db, db:
                 b.transition(db,{'hook_event_name':action,'session_id':'a','turn_id':'2' if action=='UserPromptSubmit' else '1'},1000.5)
             self.assertEqual(self.query('SELECT * FROM comets'),[])
             self.event('SessionEnd')
@@ -143,12 +146,12 @@ class CometTest(unittest.TestCase):
         self.assertEqual(self.query('SELECT started FROM comets'),[(1000,)])
         self.clock.sleep(.5)
         seen=[]
-        real=b.light_request
+        real=self.device.request
         def capture(cfg,*args,**kwargs):
             if cfg.get('_comet'): seen.append(copy.deepcopy(cfg['_comet']))
             return real(cfg,*args,**kwargs)
         from unittest.mock import patch
-        with patch.object(b,'light_request',capture):
+        with patch.object(self.device,'request',capture):
             self.run_worker([(1003,lambda:self.unread.clear())])
         self.assertTrue(seen)
         self.assertTrue(all(c['started']==1000 for c in seen))
@@ -161,7 +164,7 @@ class CometTest(unittest.TestCase):
 
     def test_historical_unread_reconciliation_does_not_enqueue(self):
         self.event('UserPromptSubmit')
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             db.execute("UPDATE sessions SET status='ended'")
             b.reconcile_read_state(db,{'a'},self.clock.now())
         self.assertEqual(self.query('SELECT * FROM comets'),[])
@@ -178,12 +181,12 @@ class CometTest(unittest.TestCase):
     def test_queued_comets_play_sequentially_in_worker(self):
         self.complete('a'); self.complete('b')
         starts=[]
-        real=b.light_request
+        real=self.device.request
         def capture(cfg,*args,**kwargs):
             if cfg.get('_comet') and cfg['_comet'] not in starts: starts.append(copy.deepcopy(cfg['_comet']))
             return real(cfg,*args,**kwargs)
         from unittest.mock import patch
-        with patch.object(b,'light_request',capture):
+        with patch.object(self.device,'request',capture):
             self.run_worker([(1005,lambda:self.unread.clear())])
         self.assertEqual(len(starts),2)
         self.assertGreaterEqual(starts[1]['started']-starts[0]['started'],2)
@@ -199,7 +202,7 @@ class CometTest(unittest.TestCase):
 
     def test_scene_end_after_read_keeps_active_source_until_finish(self):
         self.complete(); self.prepare()
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             db.execute("UPDATE receipts SET observed=1")
             b.reconcile_read_state(db,set(),1000.5)
         self.event('SessionEnd')

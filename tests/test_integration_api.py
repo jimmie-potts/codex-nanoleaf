@@ -5,22 +5,27 @@ import unittest
 from unittest.mock import patch
 import test_controller_state as baseline
 from test_bridge import b
+import configuration
+import launcher
+import database
+import jsonfile
+import modes
 
 
 class IntegrationTest(unittest.TestCase):
     def setUp(self):
         baseline.ControllerStateTest.setUp(self)
         self.config = {'line_groups': [[101, 102], [103, 104]]}
-        b.write_json(self.directory / 'config.json', self.config)
-        b.write_json(self.directory / 'layout.json', {'line_groups': self.config['line_groups']})
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        jsonfile.write_json(self.directory / 'config.json', self.config)
+        jsonfile.write_json(self.directory / 'layout.json', {'line_groups': self.config['line_groups']})
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             db.execute("INSERT INTO projects VALUES ('/private/project', 'PRIVATE_TITLE', '#112233', '[\"/private/root\"]')")
             db.execute("INSERT INTO task_info VALUES ('private-session','PRIVATE_TASK','/private/root','/private/project',NULL,'turn',42)")
             db.execute("INSERT INTO sessions VALUES ('private-session','turn','working',42)")
 
     def test_snapshot_is_private_and_byte_pure(self):
         before = (self.directory / 'status.sqlite').read_bytes()
-        with patch.object(b, 'load_config', side_effect=AssertionError('not a pure read')), patch.object(b, 'launch_worker', side_effect=AssertionError('read launched work')):
+        with patch.object(configuration, 'load_config', side_effect=AssertionError('not a pure read')), patch.object(launcher, 'launch_worker', side_effect=AssertionError('read launched work')):
             view = self.app.integration_snapshot(self.token, 'device')
         raw = json.dumps(view)
         for secret in ('/private', 'PRIVATE_TITLE', 'PRIVATE_TASK', 'private-session', self.token):
@@ -39,9 +44,9 @@ class IntegrationTest(unittest.TestCase):
 
     def process(self, now=None):
         import integration_api
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             db.execute('BEGIN IMMEDIATE')
-            integration_api.process(db, b, self.config, now=now)
+            integration_api.process(db, self.config, now=now)
 
     def test_admission_replay_apply_and_revision(self):
         request = self.request()
@@ -64,13 +69,13 @@ class IntegrationTest(unittest.TestCase):
 
     def test_principal_scope_and_cross_client_conflict(self):
         req = self.request()
-        reader = self.service.issue(self.directory, b, 'reader', ['read'])
+        reader = self.service.issue(self.directory, 'reader', ['read'])
         self.assertEqual(self.app.integration_admit(reader, req)[0], 403)
         self.assertEqual(self.app.integration_admit(self.token, dict(req, deviceId='other'))[0], 403)
         self.assertEqual(self.app.integration_admit(self.token, req)[0], 202)
-        other = self.service.issue(self.directory, b, 'other', ['read', 'control'])
+        other = self.service.issue(self.directory, 'other', ['read', 'control'])
         self.assertEqual(self.app.integration_admit(other, req)[0], 403)
-        b.set_mode(self.directory, 'quiet', launch=lambda _: None)
+        modes.set_mode(self.directory, 'quiet', launch=lambda _: None)
         self.process()
         result = self.app.integration_admit(self.token, req)[1]
         self.assertEqual(result['outcome'], 'failed')
@@ -78,7 +83,7 @@ class IntegrationTest(unittest.TestCase):
         self.assertEqual(result['priorEffects'], 'none')
 
     def test_deferred_cancel_revoke_and_expiry(self):
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             db.execute("INSERT INTO comets (session, turn, queued, source, started) VALUES ('task','turn',1,0,2)")
         req = self.request()
         self.app.integration_admit(self.token, req)
@@ -89,10 +94,10 @@ class IntegrationTest(unittest.TestCase):
         self.assertEqual(receipt['outcome'], 'cancelled')
         req = self.request()
         self.app.integration_admit(self.token, req)
-        self.service.revoke(self.directory, b, 'client')
+        self.service.revoke(self.directory, 'client')
         self.process()
         self.assertEqual(self.app.integration_admit(self.token, req)[0], 401)
-        self.token = self.service.issue(self.directory, b, 'client', ['read','control'])
+        self.token = self.service.issue(self.directory, 'client', ['read','control'])
         req = self.request()
         self.app.integration_admit(self.token, req)
         import time
@@ -102,7 +107,7 @@ class IntegrationTest(unittest.TestCase):
         self.assertEqual(receipt['priorEffects'], 'none')
 
     def test_actual_worker_applies_configuration(self):
-        b.write_json(self.directory / 'layout.json', dict(self.config, line_positions=[[0,0],[10,0]]))
+        jsonfile.write_json(self.directory / 'layout.json', dict(self.config, line_positions=[[0,0],[10,0]]))
         req = self.request()
         self.app.integration_admit(self.token, req)
         sent = []
@@ -127,7 +132,7 @@ class IntegrationTest(unittest.TestCase):
         self.assertEqual(json.loads(result.stdout)['requests'], len(fixtures['requests']))
 
     def test_wall_pending_desired_values_are_sanitized(self):
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             db.execute('INSERT INTO map_pending (payload) VALUES (?)', (json.dumps({'settings':{'style':'project'}, 'lines':{'101:102':{'project':'/private/project'}}, 'tasks':{'private-session':'/private/project'}}),))
         before = (self.directory / 'status.sqlite').read_bytes()
         view = self.app.integration_snapshot(self.token, 'device')
@@ -141,7 +146,7 @@ class IntegrationTest(unittest.TestCase):
         scene = b'{"scene":"PRIVATE_SCENE"}'
         (self.directory / 'scene-state.json').write_bytes(scene)
         view = self.app.integration_snapshot(self.token, 'device'); p = view['projects'][0]['id']; t = view['tasks'][0]['id']
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             db.execute("INSERT INTO receipts VALUES ('private-session','turn',10,0)")
         commands = [dict(kind='settings.set', style='project', coverage='status'),
                     dict(kind='elements.assign', elements=[dict(id='101:102', projectId=p, signature=1)]),
@@ -166,7 +171,7 @@ class IntegrationTest(unittest.TestCase):
     def test_concurrent_wall_edit_wins_without_overwrite(self):
         import wall_server
         import threading
-        app = wall_server.App(self.directory, b, config=self.config, launch=lambda _:None)
+        app = wall_server.App(self.directory, config=self.config, launch=lambda _:None)
         req = self.request(); barrier = threading.Barrier(2); results = []
         def native():
             barrier.wait(); results.append(self.app.integration_admit(self.token, req)[0])
@@ -191,7 +196,7 @@ class IntegrationTest(unittest.TestCase):
         self.app.integration_admit(self.token, req)
         self.assertEqual(self.app.integration_admit(self.token, self.request())[0], 429)
         self.process()
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             db.execute('DELETE FROM integration_requests')
         self.assertEqual(self.app.integration_admit(self.token, req)[0], 410)
 
@@ -214,7 +219,7 @@ class IntegrationTest(unittest.TestCase):
         env = test_shared_input.envelope(); session = env['snapshot']['sessions'][0]
         sid = shared_input.identity_key(session['identity']); pid = session.get('projectId') or 'chosen-project'
         session['projectId'] = pid
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             db.execute("UPDATE shared_input SET source='shared',envelope=?,generation=2", (json.dumps(env),))
             db.execute('INSERT INTO projects VALUES (?,?,?,?)', ('shared-project-'+pid,pid,'#aabbcc','[]'))
             db.execute('INSERT INTO task_info VALUES (?,?,?,?,?,?,?)', (sid,'PRIVATE_SHARED_TITLE','PRIVATE_SHARED_ROOT','shared-project-'+pid,None,'turn',42))
@@ -238,21 +243,21 @@ class IntegrationTest(unittest.TestCase):
         import time
         req = self.request(); self.app.integration_admit(self.token, req)
         # Recreate only the listener facade; its reads must not execute queued work.
-        self.app = self.service.App(self.directory, b, launch=lambda _:None)
+        self.app = self.service.App(self.directory, launch=lambda _:None)
         before = (self.directory / 'status.sqlite').read_bytes()
         self.assertEqual(integration_api.receipt(self.app,self.token,'device',req['requestId'])['outcome'], 'queued')
         self.assertEqual(before, (self.directory / 'status.sqlite').read_bytes())
-        with contextlib.closing(b.connect_state(self.directory)) as db, db:
+        with contextlib.closing(database.connect_state(self.directory)) as db, db:
             db.execute("INSERT OR REPLACE INTO meta VALUES ('controller_hold_revision','0')")
         self.process(time.time()+31)
         self.assertEqual(self.app.integration_admit(self.token,req)[1]['outcome'], 'failed')
         with contextlib.closing(self.state.readonly(self.directory)) as db:
             self.assertEqual(db.execute("SELECT value FROM meta WHERE key='controller_hold_revision'").fetchone(), ('0',))
         req = self.request(); self.app.integration_admit(self.token,req)
-        self.token = self.service.issue(self.directory,b,'client',['read','control'])
+        self.token = self.service.issue(self.directory,'client',['read','control'])
         self.assertEqual(self.app.integration_admit(self.token,req)[1]['outcome'], 'cancelled')
         req = self.request(); self.app.integration_admit(self.token,req)
-        self.service.command(['controller-disable','--state-dir',str(self.directory)], b)
+        self.service.command(['controller-disable','--state-dir',str(self.directory)])
         with contextlib.closing(self.state.readonly(self.directory)) as db:
             receipt=json.loads(db.execute('SELECT receipt FROM integration_requests WHERE sequence=?',(req['requestId']['sequence'],)).fetchone()[0])
             self.assertEqual(receipt['outcome'],'cancelled')

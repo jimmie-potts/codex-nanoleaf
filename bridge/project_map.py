@@ -5,13 +5,14 @@ import math
 from pathlib import Path
 import posixpath
 import re
-import sqlite3
 import devices
 import panels
 
 DEFAULT_SETTINGS=('classic','whole',0,0,0)
 # One task-light palette for every device. Only changed roles are stored.
 DEFAULT_PALETTE={'base':'#0a1866','working':'#00ff00','question':'#ffff00','blocked':'#ff0000','unread':'#9b30ff'}
+# The task statuses a Line indicates, in preview order; each has a palette role.
+STATUSES=('working','question','blocked','unread')
 HEX=re.compile(r'#[0-9a-fA-F]{6}')
 
 
