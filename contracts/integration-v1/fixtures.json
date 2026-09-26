@@ -1037,6 +1037,428 @@
         }
       },
       "valid": false
+    },
+    {
+      "name": "animation-preset-cozy",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "preset": "cozy"
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "animation-preset-ocean",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "preset": "ocean"
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "animation-preset-sunset",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "preset": "sunset"
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "animation-preset-aurora",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "preset": "aurora"
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "animation-preset-campfire",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "preset": "campfire"
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "animation-preset-forest",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "preset": "forest"
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "animation-preset-rain",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "preset": "rain"
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "animation-preset-focus",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "preset": "focus"
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "animation-preset-party",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "preset": "party"
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "animation-preset-celebration",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "preset": "celebration"
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "animation-preset-unknown",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "preset": "radar"
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "animation-preset-case",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "preset": "Cozy"
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "animation-preset-empty",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "preset": ""
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "animation-preset-null",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "preset": null
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "animation-preset-array",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "preset": []
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "animation-preset-number",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "preset": 1
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "animation-preset-newline",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "preset": "cozy\n"
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "animation-preset-mixed-pattern",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "preset": "cozy",
+          "pattern": "wave"
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "animation-preset-mixed-colors",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "preset": "cozy",
+          "colors": [
+            "#ffffff"
+          ]
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "animation-preset-mixed-speed",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "preset": "cozy",
+          "speed": "slow"
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "animation-preset-mixed-direction",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "preset": "cozy",
+          "direction": "right"
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "animation-preset-mixed-loop",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "preset": "cozy",
+          "loop": false
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "animation-preset-mixed-extra",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "preset": "cozy",
+          "extra": true
+        }
+      },
+      "valid": false
     }
   ],
   "receipts": [
