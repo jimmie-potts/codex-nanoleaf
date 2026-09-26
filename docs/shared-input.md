@@ -296,7 +296,10 @@ cutover/rollback, stale rendering, private inspection and retained forwarding.
 900 synthetic Linux operations across repeated 1/10/50-session profiles. It uses
 private disposable state, an authenticated fake loopback host and pure effect
 construction. The checked receipt in `docs/performance/gh29-shared-consumer.json`
-identifies source hashes. It is consumer overhead evidence, not the full-hook
+records the source hashes from [#62](https://github.com/jimmie-potts/codex-nanoleaf/pull/62);
+it has not been refreshed for the current script. The Python suite also runs a
+reduced measurement with one sample per repetition to check the script's owner
+calls and feed contract. The receipt is consumer overhead evidence, not the full-hook
 baseline, final Hub #30 integrated performance qualification, Windows timing,
 installed-client acceptance or optical evidence. Those gates retain their owners.
 

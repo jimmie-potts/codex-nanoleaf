@@ -17,7 +17,9 @@ import time
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'bridge'))
 import bridge as b
+import database
 import shared_input as shared
+import shared_source
 
 
 def run(samples=100):
@@ -30,23 +32,23 @@ def run(samples=100):
         class Handler(BaseHTTPRequestHandler):
             def log_message(self,*args):pass
             def do_GET(self):
-                if self.path!='/api/monitor/v1/sessions' or self.headers.get('Authorization')!='Bearer '+'a'*43:
+                if self.path!='/api/monitor/v1/sessions?snapshotVersion=1.1' or self.headers.get('Authorization')!='Bearer '+'a'*43:
                     self.send_error(403);return
                 raw=json.dumps(current).encode();self.send_response(200);self.send_header('Content-Length',str(len(raw)));self.end_headers();self.wfile.write(raw)
         server=ThreadingHTTPServer(('127.0.0.1',0),Handler)
         thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
         config={'version':1,'ownerId':'owner','consumerId':'nanoleaf','endpoint':f'http://127.0.0.1:{server.server_port}/api/monitor/v1',
                 'tokenFile':str(token),'clearOnNewTurn':True,'qualifiedSources':[{k:seed['identity'][k] for k in shared.SOURCE}],'bindings':[]}
-        shared.configure(directory,b,config)
         try:
             for count in (1,10,50):
+                # A fresh projection avoids rollback's personal legacy-hook check.
+                state=directory/f'profile-{count}';state.mkdir()
                 sessions=[]
                 for index in range(count):
-                    session=json.loads(json.dumps(seed));session['identity']['sessionId']=f'session-{index}';session['activity']='active';sessions.append(session)
-                snapshot={'apiVersion':'1.0','revision':1,'asOfMs':1000,'collector':'running','lossCount':0,'sessions':sessions}
+                    session=json.loads(json.dumps(seed));session['identity']['sessionId']=f'session-{index}';session['activity']='active';session['generation']=0;sessions.append(session)
+                snapshot={'apiVersion':'1.1','revision':1,'asOfMs':1000,'collector':'running','lossCount':0,'sessions':sessions}
                 current.update(apiVersion='1.0',ownerId='owner',connection='current',snapshot=snapshot,admissionRejected=0,nextRequestId='request-1')
-                if shared.inspect(directory)['source']=='shared':shared.select_source(directory,b,'legacy')
-                shared.configure(directory,b,config);shared.select_source(directory,b,'shared')
+                shared_source.configure(state,config);shared_source.select_source(state,'shared')
                 repetitions=[]
                 for repetition in range(3):
                     values=[];cpu=time.process_time()
@@ -54,8 +56,8 @@ def run(samples=100):
                         snapshot['revision']+=1
                         start=time.perf_counter()
                         value=shared.fetch_snapshot(config)
-                        shared.accept(directory,b,value)
-                        with contextlib.closing(b.connect_state(directory)) as db,db:
+                        shared_source.accept(state,value)
+                        with contextlib.closing(database.connect_state(state)) as db,db:
                             layout={'line_groups':[[100+i*2,101+i*2] for i in range(15)],'line_positions':[[i*10,0] for i in range(15)],'_mode':'work'}
                             projected=b.dashboard(db,layout,time.time());shared.render_config(db,layout)
                             b.effect_payload(layout,projected,time.time(),True)
