@@ -18,7 +18,7 @@ npm --prefix mcp run build
 npm --prefix mcp test
 ```
 
-The private vendored MCP archive is version `1.0.0`, source `06c9c504a107cc04093c34500dadbbc6082679d2`, from [device-mcp-v1.0.0](https://github.com/jimmie-potts/agent-device-hub/releases/tag/device-mcp-v1.0.0). SHA-256 is `03f1ec51ffe5aa576799ea756dc65c0d47285e1e321fce20dc9241029196eb62`. Verification checks its release pin, installed manifest, bundled contract and the matching direct runtime contract. Dependencies and artifact content are pinned in `mcp/package-lock.json`. CI needs no sibling checkout or new private repository credential.
+The private vendored MCP archive is version `1.0.1`, source `6b561baf3698415740184b702fc73107daec9022`, from [device-mcp-v1.0.1](https://github.com/jimmie-potts/agent-device-hub/releases/tag/device-mcp-v1.0.1). SHA-256 is `e6cd65600d02128f5c996e6e4940654d1a9a67b312f7d27148a2137d766a7e32`. Verification checks its release pin, installed manifest, bundled contract and the matching direct runtime contract. Dependencies and artifact content are pinned in `mcp/package-lock.json`. CI needs no sibling checkout or new private repository credential.
 
 ## Fresh Linux route
 

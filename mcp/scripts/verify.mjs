@@ -3,10 +3,10 @@ import { fileURLToPath } from 'node:url';
 import { readFile } from 'node:fs/promises';
 import { verifyArchiveChecksum, verifyInstalledMcpPackage } from '@jimmie-potts/device-mcp';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const receipt = JSON.parse(await readFile(resolve(root, 'vendor/device-mcp-1.0.0-receipt.json'), 'utf8'));
-if (receipt.version !== '1.0.0' || receipt.sourceRevision !== '06c9c504a107cc04093c34500dadbbc6082679d2' || receipt.sha256 !== '03f1ec51ffe5aa576799ea756dc65c0d47285e1e321fce20dc9241029196eb62')
+const receipt = JSON.parse(await readFile(resolve(root, 'vendor/device-mcp-1.0.1-receipt.json'), 'utf8'));
+if (receipt.version !== '1.0.1' || receipt.sourceRevision !== '6b561baf3698415740184b702fc73107daec9022' || receipt.sha256 !== 'e6cd65600d02128f5c996e6e4940654d1a9a67b312f7d27148a2137d766a7e32')
     throw new Error('Unexpected release receipt');
-await verifyArchiveChecksum(resolve(root, 'vendor/jimmie-potts-device-mcp-1.0.0.tgz'), receipt.sha256);
+await verifyArchiveChecksum(resolve(root, 'vendor/jimmie-potts-device-mcp-1.0.1.tgz'), receipt.sha256);
 await verifyInstalledMcpPackage(resolve(dirname(fileURLToPath(import.meta.resolve('@jimmie-potts/device-mcp'))), '..'));
 await verifyArchiveChecksum(resolve(root, 'bridge/vendor/device-contracts-1.0.0/jimmie-potts-device-contracts-1.0.0.tgz'), '5e0b30ac92e6e8e1e38d8249b740b565de66e3cc810a04bc6fac23e182e84e87');
 // The direct runtime contract must have exactly the verified bundled files.
