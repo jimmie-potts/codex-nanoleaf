@@ -179,6 +179,18 @@ def snapshot(app, token, device, **checks):
         return view
 
 
+def remembered_scene_id(directory, data):
+    """Read the worker's saved target; advertise only an existing ledger scene ID."""
+    try:
+        saved = json.loads((directory / devices.scene_file(devices.DEFAULT)).read_text(encoding='utf-8-sig'))
+    except (OSError, ValueError):
+        return None
+    scene = saved.get('scene') if isinstance(saved, dict) else None
+    if not isinstance(scene, dict) or not isinstance(scene.get('name'), str):
+        return None
+    return next((identity for identity, name in state.scenes(data) if name == scene['name']), None)
+
+
 def animations(app, token, device, **checks):
     """The animation option set with the identity values a play request needs, in one read."""
     with contextlib.closing(state.readonly(app.directory)) as db:
@@ -189,6 +201,7 @@ def animations(app, token, device, **checks):
         sequence = db.execute('SELECT sequence FROM integration_meta WHERE id=1').fetchone()[0]
         return dict(apiVersion=VERSION, identity=view['identity'], mode=view['mode'], revision=view['revision'],
                     nextRequestId=state.ticket(state.read(db), sequence),
+                    rememberedSceneId=remembered_scene_id(app.directory, state.read(db)),
                     patterns=[dict(id=name, spatial=spatial) for name, spatial in effects.PATTERNS.items()],
                     speeds=list(effects.SPEEDS), directions=list(effects.DIRECTIONS), defaults=dict(effects.DEFAULTS),
                     limits=dict(minColors=effects.MIN_COLORS, maxColors=effects.MAX_COLORS,

@@ -226,7 +226,11 @@ unchanged; keep MCP and hub credentials separate. Read the options
 from `GET /animations` instead. It returns `patterns` (each `{id, spatial}`),
 `speeds`, `directions`, `defaults` and `limits` (`minColors`, `maxColors`,
 `maxFramesPerZone` and `maxEffectBytes`), plus `mode`, `revision` and
-`nextRequestId` for the next request. It is a pure read like the snapshot.
+`nextRequestId` for the next animation request. It also returns
+`rememberedSceneId`: the opaque advertised ID matching the worker's saved scene,
+or null if no readable target is saved or that scene is no longer advertised.
+This read leaves the scene file, remembered brightness and both snapshot shapes
+unchanged. It neither observes the device nor launches its worker.
 The [local MCP tools](local-mcp.md#play-animations) use this route.
 
 ## Element geometry

@@ -116,6 +116,34 @@ class AdmissionTest(AnimationTest):
                     self.assertEqual(self.receipt(req)['physicalOutcome'], 'unknown')
                     self.device.calls.clear()
 
+    def test_remembered_scene_id_is_read_only_and_null_when_unavailable(self):
+        self.assertIsNone(self.options()['rememberedSceneId'])
+        self.run_worker()  # Observe the fake device through its sole worker.
+        path = self.directory / 'scene-state.json'
+        saved = path.read_bytes()
+        database_before = (self.directory / 'status.sqlite').read_bytes()
+        scenes_view = self.app.integration_snapshot(self.token, 'device')['scenes']
+        expected = next(scene['id'] for scene in scenes_view if scene.get('name') == 'Beach Waves')
+        calls = list(self.device.calls)
+        self.assertEqual(self.options()['rememberedSceneId'], expected)
+        self.assertEqual(path.read_bytes(), saved)
+        self.assertEqual((self.directory / 'status.sqlite').read_bytes(), database_before)
+        self.assertNotIn('rememberedSceneId', self.app.integration_snapshot(self.token, 'device'))
+        self.assertNotIn('rememberedSceneId', self.app.snapshot())
+        state = json.loads(saved)
+        state['scene']['name'] = 'Disappeared scene'
+        for payload in (state, dict(state, scene=None), [], {'scene': 'invalid'}):
+            path.write_text(json.dumps(payload))
+            before = path.read_bytes()
+            self.assertIsNone(self.options()['rememberedSceneId'])
+            self.assertEqual(path.read_bytes(), before)
+        path.write_text('invalid JSON')
+        self.assertIsNone(self.options()['rememberedSceneId'])
+        path.unlink()
+        self.assertIsNone(self.options()['rememberedSceneId'])
+        self.assertFalse(path.exists())
+        self.assertEqual(self.device.calls, calls)
+
     def test_options_route_is_pure_and_the_snapshot_shape_is_unchanged(self):
         reader = server.issue(self.directory, 'reader', ['read'])
         before = (self.directory / 'status.sqlite').read_bytes()

@@ -18,11 +18,11 @@ const FREE_FIRST = 'Animations play only in Free. If nanoleaf_animations_list re
 const HEX = (length: number) => new RegExp(`^[a-f0-9]{${length}}$`);
 const extensionTicket = { type: 'object' as const, additionalProperties: false, properties: { epoch: { type: 'string', pattern: '^[a-f0-9]{32}$' }, sequence: { type: 'integer', minimum: 0, maximum: MAX_SEQUENCE } }, required: ['epoch', 'sequence'] };
 const word = { type: 'string', pattern: '^[a-z]{1,32}$' }, count = { type: 'integer', minimum: 0, maximum: MAX_SEQUENCE };
-const animationsViewSchema = { type: 'object' as const, additionalProperties: false, properties: { apiVersion: { const: EXTENSION }, identity: ref('identity'), mode: { enum: ['Work', 'Quiet', 'Free'] }, revision: { type: 'string', pattern: '^[a-f0-9]{64}$' }, nextRequestId: extensionTicket,
+const animationsViewSchema = { type: 'object' as const, additionalProperties: false, properties: { apiVersion: { const: EXTENSION }, identity: ref('identity'), mode: { enum: ['Work', 'Quiet', 'Free'] }, revision: { type: 'string', pattern: '^[a-f0-9]{64}$' }, nextRequestId: extensionTicket, rememberedSceneId: { anyOf: [{ type: 'null' }, { type: 'string', pattern: `^${SCENE_ID_PATTERN}$` }] },
     patterns: { type: 'array', maxItems: 16, items: { type: 'object', additionalProperties: false, properties: { id: word, spatial: { type: 'boolean' } }, required: ['id', 'spatial'] } }, speeds: { type: 'array', maxItems: 16, items: word }, directions: { type: 'array', maxItems: 16, items: word },
     defaults: { type: 'object', additionalProperties: false, properties: { speed: word, direction: word, loop: { type: 'boolean' } }, required: ['speed', 'direction', 'loop'] },
     limits: { type: 'object', additionalProperties: false, properties: { minColors: count, maxColors: count, maxFramesPerZone: count, maxEffectBytes: count }, required: ['minColors', 'maxColors', 'maxFramesPerZone', 'maxEffectBytes'] } },
-    required: ['apiVersion', 'identity', 'mode', 'revision', 'nextRequestId', 'patterns', 'speeds', 'directions', 'defaults', 'limits'] };
+    required: ['apiVersion', 'identity', 'mode', 'revision', 'nextRequestId', 'rememberedSceneId', 'patterns', 'speeds', 'directions', 'defaults', 'limits'] };
 const animationReceiptSchema = { type: 'object' as const, additionalProperties: false, properties: { apiVersion: { const: EXTENSION }, requestId: extensionTicket, outcome: { enum: OUTCOMES }, priorEffects: { enum: PRIOR_EFFECTS }, physicalOutcome: { const: 'unknown' }, failure: { type: 'object', additionalProperties: false, properties: { code: ref('failureCode') }, required: ['code'] } }, required: ['apiVersion', 'requestId', 'outcome', 'priorEffects', 'physicalOutcome'] };
 const failureVariant = { properties: { kind: { const: 'failure' }, code: ref('failureCode'), priorEffects: { enum: ['none', 'possible'] }, retry: { const: 'never-automatically' }, requestId: extensionTicket, message: { type: 'string', maxLength: 512 } }, required: ['code', 'priorEffects', 'retry'] };
 const animationsOutputSchema = { type: 'object' as const, additionalProperties: false, $defs: schema.$defs, properties: { ...failureVariant.properties, kind: { enum: ['animations', 'failure'] }, animations: animationsViewSchema }, required: ['kind'], oneOf: [{ properties: { kind: { const: 'animations' }, animations: animationsViewSchema }, required: ['animations'] }, failureVariant] };
@@ -35,13 +35,14 @@ function validTicket(value: unknown): value is { epoch: string; sequence: number
     return record(value) && exactKeys(value, ['epoch', 'sequence']) && typeof value.epoch === 'string' && HEX(32).test(value.epoch) && counter(value.sequence);
 }
 function validAnimations(value: unknown, config: Config): boolean {
-    if (!record(value) || !exactKeys(value, ['apiVersion', 'identity', 'mode', 'revision', 'nextRequestId', 'patterns', 'speeds', 'directions', 'defaults', 'limits']) || value.apiVersion !== EXTENSION)
+    if (!record(value) || !exactKeys(value, ['apiVersion', 'identity', 'mode', 'revision', 'nextRequestId', 'rememberedSceneId', 'patterns', 'speeds', 'directions', 'defaults', 'limits']) || value.apiVersion !== EXTENSION)
         return false;
     if (!validate('identity', value.identity) || (value.identity as { controllerId: string }).controllerId !== config.controllerId || (value.identity as { deviceId: string }).deviceId !== config.deviceId)
         return false;
     const { defaults, limits, patterns } = value;
     return ['Work', 'Quiet', 'Free'].includes(value.mode as string) && typeof value.revision === 'string' && HEX(64).test(value.revision) && validTicket(value.nextRequestId)
         && Array.isArray(patterns) && patterns.length <= 16 && patterns.every(item => record(item) && exactKeys(item, ['id', 'spatial']) && words([item.id]) && typeof item.spatial === 'boolean')
+        && (value.rememberedSceneId === null || (typeof value.rememberedSceneId === 'string' && SCENE_ID.test(value.rememberedSceneId)))
         && words(value.speeds) && words(value.directions)
         && record(defaults) && exactKeys(defaults, ['speed', 'direction', 'loop']) && words([defaults.speed, defaults.direction]) && typeof defaults.loop === 'boolean'
         && record(limits) && exactKeys(limits, ['minColors', 'maxColors', 'maxFramesPerZone', 'maxEffectBytes']) && Object.values(limits).every(counter);
@@ -225,6 +226,29 @@ function extensions(config: Config, store: Pick<CredentialStore, 'forDispatch'>,
             return extensionFailure(genericFailure(result.body, result.status) ?? 'transport-failure', false);
         }
     };
+    const restoreMessage = 'Scene restore requires an advertised remembered scene in Free. In Work or Quiet, switch to Free with nanoleaf_mode_set, then read nanoleaf_status for fresh request identity before restoring.';
+    const sceneRestore: ServiceExtension = {
+        description: 'Stop a Lines animation by activating the remembered scene. Free mode only; never switches mode or changes remembered brightness. Take request identity and revisions from nanoleaf_status. Queued or sent is not visible-light confirmation.',
+        scope: 'control', annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+        inputSchema: { type: 'object', additionalProperties: false, $defs: schema.$defs, properties: { requestId: ref('ticket'), expectedConfigurationRevision: ref('counter'), expectedGeneration: ref('ticket') }, required: ['requestId', 'expectedConfigurationRevision', 'expectedGeneration'] },
+        outputSchema: { ...outputSchema, properties: { ...outputSchema.properties, message: { type: 'string', maxLength: 512 } } },
+        async invoke(args, context) {
+            const listed = await animationsList.invoke({}, context);
+            if (listed.isError)
+                return { ...listed, data: { ...listed.data, requestId: args.requestId } };
+            const options = listed.data.animations as Record<string, unknown>;
+            if (options.mode !== 'Free')
+                return extensionFailure('unsupported-capability', false, args.requestId, restoreMessage);
+            if (options.rememberedSceneId === null)
+                return extensionFailure('unsupported-capability', false, args.requestId, 'No advertised remembered scene is available to restore.');
+            // Reuse activation, including its current authority check, receipt matching and no-retry policy.
+            const result = await sceneActivate.invoke({ ...args, sceneId: options.rememberedSceneId }, context);
+            const receipt = result.data.receipt as Receipt | undefined;
+            if (result.data.code === 'unsupported-capability' || receipt?.failure?.code === 'unsupported-capability')
+                return { ...result, data: { ...result.data, message: restoreMessage } };
+            return result;
+        }
+    };
     const animationPlay: ServiceExtension = {
         description: 'Play a Nanoleaf animation on the Lines. Free mode only; the tool never switches mode itself, so switch with nanoleaf_mode_set first and take requestId and expectedRevision from nanoleaf_animations_list. Direction applies to wave and gradient only. Queued or sent is not visible-light confirmation.',
         scope: 'control', annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
@@ -261,7 +285,7 @@ function extensions(config: Config, store: Pick<CredentialStore, 'forDispatch'>,
             return extensionFailure('uncertain-result', true, requestId);
         }
     };
-    return { status: extension(false), mode: extension(true), scenes: scenesList, sceneActivate, animations: animationsList, animationPlay };
+    return { status: extension(false), mode: extension(true), scenes: scenesList, sceneActivate, animations: animationsList, animationPlay, sceneRestore };
 }
 export function bindings(config: Config, store: Pick<CredentialStore, 'forDispatch'>, transport: Transport = exchange) {
     // Without a Panels target the descriptions stay exactly as before; with one they name each device.
@@ -274,7 +298,7 @@ export function bindings(config: Config, store: Pick<CredentialStore, 'forDispat
         registrations.push({ controllerId: config.controllerId, deviceId: panelsDeviceId, extensions: { status, mode, scenes, sceneActivate } as typeof lines });
     }
     const registry = createDeviceRegistry(registrations);
-    const tools = [...bindServiceTools(registry, { deviceId: config.deviceId, bindings: [{ extension: 'status', name: 'nanoleaf_status' }, { extension: 'mode', name: 'nanoleaf_mode_set' }, { extension: 'scenes', name: 'nanoleaf_scenes_list' }, { extension: 'sceneActivate', name: 'nanoleaf_scene_activate' }, { extension: 'animations', name: 'nanoleaf_animations_list' }, { extension: 'animationPlay', name: 'nanoleaf_animation_play' }] })];
+    const tools = [...bindServiceTools(registry, { deviceId: config.deviceId, bindings: [{ extension: 'status', name: 'nanoleaf_status' }, { extension: 'mode', name: 'nanoleaf_mode_set' }, { extension: 'scenes', name: 'nanoleaf_scenes_list' }, { extension: 'sceneActivate', name: 'nanoleaf_scene_activate' }, { extension: 'animations', name: 'nanoleaf_animations_list' }, { extension: 'animationPlay', name: 'nanoleaf_animation_play' }, { extension: 'sceneRestore', name: 'nanoleaf_scene_restore' }] })];
     if (panelsDeviceId)
         tools.push(...bindServiceTools(registry, { deviceId: panelsDeviceId, bindings: [{ extension: 'status', name: 'nanoleaf_panels_status' }, { extension: 'mode', name: 'nanoleaf_panels_mode_set' }, { extension: 'scenes', name: 'nanoleaf_panels_scenes_list' }, { extension: 'sceneActivate', name: 'nanoleaf_panels_scene_activate' }] }));
     return { registry, tools };
