@@ -60,6 +60,31 @@ class ValidationTest(unittest.TestCase):
         self.assertFalse(effects.valid({'kind': 'animation.play', 'pattern': 'wave'}))
 
 
+class PresetTest(unittest.TestCase):
+    def test_presets_resolve_to_identical_bounded_explicit_frames(self):
+        self.assertEqual(list(effects.PRESETS), ['cozy', 'ocean', 'sunset', 'aurora', 'campfire',
+                                                'forest', 'rain', 'focus', 'party', 'celebration'])
+        advertised = json.loads((ROOT / 'mcp/tests/animations.json').read_text())['presets']
+        self.assertEqual(advertised, [dict(id=name, **fields) for name, fields in effects.PRESETS.items()])
+        for name, fields in effects.PRESETS.items():
+            with self.subTest(preset=name):
+                preset = {'kind': 'animation.play', 'preset': name}
+                explicit = dict(kind='animation.play', **fields)
+                self.assertTrue(effects.valid(preset))
+                self.assertTrue(effects.valid(explicit))
+                actual = effects.render(preset, GROUPS, POSITIONS)
+                self.assertEqual(actual, effects.render(explicit, GROUPS, POSITIONS))
+                self.assertLessEqual(effects.size(actual), effects.MAX_BYTES)
+                self.assertLessEqual(max(map(len, decode(actual).values())), effects.MAX_FRAMES)
+                self.assertEqual(preset, {'kind': 'animation.play', 'preset': name})
+
+    def test_presets_reject_unknown_names_and_all_overrides(self):
+        for name in ('unknown', 'Cozy', '', None, [], 1):
+            self.assertFalse(effects.valid({'kind': 'animation.play', 'preset': name}))
+        for key, value in dict(pattern='wave', colors=['#ffffff'], speed='slow', direction='right', loop=False).items():
+            self.assertFalse(effects.valid({'kind': 'animation.play', 'preset': 'cozy', key: value}))
+
+
 class EncoderTest(unittest.TestCase):
     def test_display_encodes_zone_frames(self):
         write = effects.display([(7, [(1, 2, 3, 4)]), (9, [(5, 6, 7, 1), (8, 9, 10, 2)])], animated=True, loop=True, lines=True)

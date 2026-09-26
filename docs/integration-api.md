@@ -16,7 +16,7 @@ controller listener serves both APIs on the same authenticated loopback endpoint
 | `elements.assign` | Stable physical Line ID, nullable project ID, optional `signature` 0 or 1 | Machine `control` |
 | `task.assign` | Opaque task ID, nullable project override | Machine `control` |
 | `project.color` | Opaque project ID, `#RRGGBB` saved color | Machine `control` |
-| `animation.play` | Pattern, 1 to 8 colors, speed, direction, loop; Free only | Machine `control`; see [requested animations](#requested-animations) |
+| `animation.play` | Explicit pattern/colors/options or a named preset; Free only | Machine `control`; see [requested animations](#requested-animations) |
 | Animation options | Patterns, speeds, directions, defaults, limits | Machine `read`, `GET /animations` |
 | Element geometry | Any configured device, the Lines or the Panels | Machine `read`, `GET /geometry`; see [element geometry](#element-geometry) |
 | Cancel a configuration edit or queued animation | Its original request ticket | Owning machine principal with `control` |
@@ -162,6 +162,8 @@ a 1 MiB saved `layout.json`, which every extension route reads under the same bo
 The existing controller thread, socket, transaction-deadline and body limits apply.
 
 ## Requested animations
+
+The animation options route also returns `presets`, a list of `{id, pattern, colors, speed, direction?}` definitions. The static moods are `cozy`, `ocean`, `sunset`, `aurora`, `campfire`, `forest`, `rain`, `focus`, `party` and `celebration` ([#153](https://github.com/jimmie-potts/codex-nanoleaf/issues/153)). Submit `{"kind":"animation.play","preset":"ocean"}` as an alternative to explicit fields. Preset names are exact and cannot be combined with pattern, colors, speed, direction or loop. The server uses the same bounded encoder and retains the original preset request for replay. Unknown names and mixed inputs return `invalid-request`; Free-only admission and geometry/byte failures remain unchanged. The integration snapshot gains no fields.
 
 [Issue #92](https://github.com/jimmie-potts/codex-nanoleaf/issues/92) adds one
 light operation, `animation.play`, and [ADR 0014](decisions/0014-requested-animations.md)

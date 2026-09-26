@@ -18,11 +18,14 @@ const FREE_FIRST = 'Animations play only in Free. If nanoleaf_animations_list re
 const HEX = (length: number) => new RegExp(`^[a-f0-9]{${length}}$`);
 const extensionTicket = { type: 'object' as const, additionalProperties: false, properties: { epoch: { type: 'string', pattern: '^[a-f0-9]{32}$' }, sequence: { type: 'integer', minimum: 0, maximum: MAX_SEQUENCE } }, required: ['epoch', 'sequence'] };
 const word = { type: 'string', pattern: '^[a-z]{1,32}$' }, count = { type: 'integer', minimum: 0, maximum: MAX_SEQUENCE };
+const colorsSchema = { type: 'array', minItems: 1, maxItems: 8, items: { type: 'string', pattern: '^#[0-9a-fA-F]{6}$' } };
+const presetSchema = { type: 'object', additionalProperties: false, properties: { id: word, pattern: { enum: PATTERNS }, colors: colorsSchema, speed: { enum: SPEEDS }, direction: { enum: DIRECTIONS } }, required: ['id', 'pattern', 'colors', 'speed'] };
 const animationsViewSchema = { type: 'object' as const, additionalProperties: false, properties: { apiVersion: { const: EXTENSION }, identity: ref('identity'), mode: { enum: ['Work', 'Quiet', 'Free'] }, revision: { type: 'string', pattern: '^[a-f0-9]{64}$' }, nextRequestId: extensionTicket, rememberedSceneId: { anyOf: [{ type: 'null' }, { type: 'string', pattern: `^${SCENE_ID_PATTERN}$` }] },
+    presets: { type: 'array', maxItems: 32, items: presetSchema },
     patterns: { type: 'array', maxItems: 16, items: { type: 'object', additionalProperties: false, properties: { id: word, spatial: { type: 'boolean' } }, required: ['id', 'spatial'] } }, speeds: { type: 'array', maxItems: 16, items: word }, directions: { type: 'array', maxItems: 16, items: word },
     defaults: { type: 'object', additionalProperties: false, properties: { speed: word, direction: word, loop: { type: 'boolean' } }, required: ['speed', 'direction', 'loop'] },
     limits: { type: 'object', additionalProperties: false, properties: { minColors: count, maxColors: count, maxFramesPerZone: count, maxEffectBytes: count }, required: ['minColors', 'maxColors', 'maxFramesPerZone', 'maxEffectBytes'] } },
-    required: ['apiVersion', 'identity', 'mode', 'revision', 'nextRequestId', 'rememberedSceneId', 'patterns', 'speeds', 'directions', 'defaults', 'limits'] };
+    required: ['apiVersion', 'identity', 'mode', 'revision', 'nextRequestId', 'rememberedSceneId', 'presets', 'patterns', 'speeds', 'directions', 'defaults', 'limits'] };
 const animationReceiptSchema = { type: 'object' as const, additionalProperties: false, properties: { apiVersion: { const: EXTENSION }, requestId: extensionTicket, outcome: { enum: OUTCOMES }, priorEffects: { enum: PRIOR_EFFECTS }, physicalOutcome: { const: 'unknown' }, failure: { type: 'object', additionalProperties: false, properties: { code: ref('failureCode') }, required: ['code'] } }, required: ['apiVersion', 'requestId', 'outcome', 'priorEffects', 'physicalOutcome'] };
 const failureVariant = { properties: { kind: { const: 'failure' }, code: ref('failureCode'), priorEffects: { enum: ['none', 'possible'] }, retry: { const: 'never-automatically' }, requestId: extensionTicket, message: { type: 'string', maxLength: 512 } }, required: ['code', 'priorEffects', 'retry'] };
 const animationsOutputSchema = { type: 'object' as const, additionalProperties: false, $defs: schema.$defs, properties: { ...failureVariant.properties, kind: { enum: ['animations', 'failure'] }, animations: animationsViewSchema }, required: ['kind'], oneOf: [{ properties: { kind: { const: 'animations' }, animations: animationsViewSchema }, required: ['animations'] }, failureVariant] };
@@ -35,7 +38,7 @@ function validTicket(value: unknown): value is { epoch: string; sequence: number
     return record(value) && exactKeys(value, ['epoch', 'sequence']) && typeof value.epoch === 'string' && HEX(32).test(value.epoch) && counter(value.sequence);
 }
 function validAnimations(value: unknown, config: Config): boolean {
-    if (!record(value) || !exactKeys(value, ['apiVersion', 'identity', 'mode', 'revision', 'nextRequestId', 'rememberedSceneId', 'patterns', 'speeds', 'directions', 'defaults', 'limits']) || value.apiVersion !== EXTENSION)
+    if (!record(value) || !exactKeys(value, ['apiVersion', 'identity', 'mode', 'revision', 'nextRequestId', 'rememberedSceneId', 'presets', 'patterns', 'speeds', 'directions', 'defaults', 'limits']) || value.apiVersion !== EXTENSION)
         return false;
     if (!validate('identity', value.identity) || (value.identity as { controllerId: string }).controllerId !== config.controllerId || (value.identity as { deviceId: string }).deviceId !== config.deviceId)
         return false;
@@ -43,6 +46,13 @@ function validAnimations(value: unknown, config: Config): boolean {
     return ['Work', 'Quiet', 'Free'].includes(value.mode as string) && typeof value.revision === 'string' && HEX(64).test(value.revision) && validTicket(value.nextRequestId)
         && Array.isArray(patterns) && patterns.length <= 16 && patterns.every(item => record(item) && exactKeys(item, ['id', 'spatial']) && words([item.id]) && typeof item.spatial === 'boolean')
         && (value.rememberedSceneId === null || (typeof value.rememberedSceneId === 'string' && SCENE_ID.test(value.rememberedSceneId)))
+        && Array.isArray(value.presets) && value.presets.length <= 32 && value.presets.every(item =>
+            record(item) && exactKeys(item, ['id', 'pattern', 'colors', 'speed'], ['direction'])
+            && words([item.id]) && PATTERNS.includes(item.pattern as string) && SPEEDS.includes(item.speed as string)
+            && Array.isArray(item.colors) && item.colors.length >= 1 && item.colors.length <= 8
+            && item.colors.every(color => typeof color === 'string' && /^#[0-9a-fA-F]{6}$/.test(color))
+            && (!('direction' in item) || (SPATIAL.includes(item.pattern as string) && DIRECTIONS.includes(item.direction as string))))
+        && new Set(value.presets.map(item => item.id)).size === value.presets.length
         && words(value.speeds) && words(value.directions)
         && record(defaults) && exactKeys(defaults, ['speed', 'direction', 'loop']) && words([defaults.speed, defaults.direction]) && typeof defaults.loop === 'boolean'
         && record(limits) && exactKeys(limits, ['minColors', 'maxColors', 'maxFramesPerZone', 'maxEffectBytes']) && Object.values(limits).every(counter);
@@ -203,7 +213,7 @@ function extensions(config: Config, store: Pick<CredentialStore, 'forDispatch'>,
     };
     const extensionFailure = (code: string, possible: boolean, requestId?: unknown, message?: string) => ({ data: { kind: 'failure', code, priorEffects: possible ? 'possible' : 'none', retry: 'never-automatically', ...(requestId ? { requestId } : {}), ...(message ? { message } : {}) }, isError: true });
     const animationsList: ServiceExtension = {
-        description: 'List the Nanoleaf animation patterns, speeds, directions and limits, with the current mode, expectedRevision and requestId that nanoleaf_animation_play needs. Reads without refreshing tasks or sending light commands.',
+        description: 'List the Nanoleaf mood presets, animation patterns, speeds, directions and limits, with the current mode, expectedRevision and requestId that nanoleaf_animation_play needs. Reads without refreshing tasks or sending light commands.',
         scope: 'read', annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
         inputSchema: { type: 'object', additionalProperties: false, properties: {}, required: [] }, outputSchema: animationsOutputSchema,
         async invoke(_args, context) {
@@ -250,16 +260,16 @@ function extensions(config: Config, store: Pick<CredentialStore, 'forDispatch'>,
         }
     };
     const animationPlay: ServiceExtension = {
-        description: 'Play a Nanoleaf animation on the Lines. Free mode only; the tool never switches mode itself, so switch with nanoleaf_mode_set first and take requestId and expectedRevision from nanoleaf_animations_list. Direction applies to wave and gradient only. Queued or sent is not visible-light confirmation.',
+        description: 'Play a Nanoleaf animation on the Lines. Free mode only; the tool never switches mode itself, so switch with nanoleaf_mode_set first and take requestId and expectedRevision from nanoleaf_animations_list. Supply either a preset name or explicit animation fields, never both. Direction applies to wave and gradient only. Queued or sent is not visible-light confirmation.',
         scope: 'control', annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
-        inputSchema: { type: 'object', additionalProperties: false, properties: { requestId: extensionTicket, expectedRevision: { type: 'string', pattern: '^[a-f0-9]{64}$' }, pattern: { enum: PATTERNS },
+        inputSchema: { type: 'object', additionalProperties: false, properties: { requestId: extensionTicket, expectedRevision: { type: 'string', pattern: '^[a-f0-9]{64}$' }, preset: word, pattern: { enum: PATTERNS },
             colors: { type: 'array', minItems: 1, maxItems: 8, items: { type: 'string', pattern: '^#[0-9a-fA-F]{6}$' } }, speed: { enum: SPEEDS }, direction: { enum: DIRECTIONS }, loop: { type: 'boolean' } },
-            required: ['requestId', 'expectedRevision', 'pattern', 'colors'] }, outputSchema: animationPlayOutputSchema,
+            required: ['requestId', 'expectedRevision'], oneOf: [{ properties: { preset: word, pattern: false, colors: false, speed: false, direction: false, loop: false }, required: ['preset'] }, { properties: { preset: false, pattern: { enum: PATTERNS }, colors: colorsSchema }, required: ['pattern', 'colors'] }] }, outputSchema: animationPlayOutputSchema,
         async invoke(args, context) {
             const requestId = args.requestId as { epoch: string; sequence: number };
             if ('direction' in args && !SPATIAL.includes(args.pattern as string))
                 return extensionFailure('invalid-request', false, requestId);
-            const command = { kind: 'animation.play', pattern: args.pattern, colors: args.colors, ...Object.fromEntries(['speed', 'direction', 'loop'].filter(key => key in args).map(key => [key, args[key]])) };
+            const command = { kind: 'animation.play', ...Object.fromEntries(['preset', 'pattern', 'colors', 'speed', 'direction', 'loop'].filter(key => key in args).map(key => [key, args[key]])) };
             const request = { apiVersion: EXTENSION, controllerId: config.controllerId, deviceId: config.deviceId, requestId, expectedRevision: args.expectedRevision, command };
             let credential;
             try {

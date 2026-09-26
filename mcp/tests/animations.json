@@ -61,5 +61,118 @@
   "maxColors": 8,
   "maxFramesPerZone": 20,
   "maxEffectBytes": 8192
- }
+ },
+ "presets": [
+  {
+   "id": "cozy",
+   "pattern": "breathe",
+   "speed": "slow",
+   "colors": [
+    "#ff8c1a",
+    "#ff5a00",
+    "#d93a1a"
+   ]
+  },
+  {
+   "id": "ocean",
+   "pattern": "wave",
+   "speed": "slow",
+   "direction": "right",
+   "colors": [
+    "#003f8a",
+    "#0077b6",
+    "#00b4d8",
+    "#48cae4",
+    "#2ec4b6"
+   ]
+  },
+  {
+   "id": "sunset",
+   "pattern": "gradient",
+   "speed": "slow",
+   "direction": "up",
+   "colors": [
+    "#ff4800",
+    "#ff7b00",
+    "#ff006e",
+    "#8338ec",
+    "#3a0ca3"
+   ]
+  },
+  {
+   "id": "aurora",
+   "pattern": "wave",
+   "speed": "slow",
+   "direction": "right",
+   "colors": [
+    "#00ff87",
+    "#00c9a7",
+    "#7b2ff7",
+    "#2d00f7"
+   ]
+  },
+  {
+   "id": "campfire",
+   "pattern": "sparkle",
+   "speed": "fast",
+   "colors": [
+    "#ff3c00",
+    "#ff7a00",
+    "#ffb000"
+   ]
+  },
+  {
+   "id": "forest",
+   "pattern": "gradient",
+   "speed": "slow",
+   "direction": "up",
+   "colors": [
+    "#0b3d0b",
+    "#1f7a1f",
+    "#6ab04c",
+    "#b8e994"
+   ]
+  },
+  {
+   "id": "rain",
+   "pattern": "sparkle",
+   "speed": "medium",
+   "colors": [
+    "#1e3a8a",
+    "#3b82f6",
+    "#93c5fd"
+   ]
+  },
+  {
+   "id": "focus",
+   "pattern": "breathe",
+   "speed": "slow",
+   "colors": [
+    "#1d4ed8",
+    "#0ea5e9"
+   ]
+  },
+  {
+   "id": "party",
+   "pattern": "pulse",
+   "speed": "fast",
+   "colors": [
+    "#ff006e",
+    "#fb5607",
+    "#ffbe0b",
+    "#3a86ff",
+    "#8338ec"
+   ]
+  },
+  {
+   "id": "celebration",
+   "pattern": "sparkle",
+   "speed": "fast",
+   "colors": [
+    "#ffd700",
+    "#ffffff",
+    "#ff4fd8"
+   ]
+  }
+ ]
 }

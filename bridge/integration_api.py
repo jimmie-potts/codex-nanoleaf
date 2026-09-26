@@ -202,6 +202,7 @@ def animations(app, token, device, **checks):
         return dict(apiVersion=VERSION, identity=view['identity'], mode=view['mode'], revision=view['revision'],
                     nextRequestId=state.ticket(state.read(db), sequence),
                     rememberedSceneId=remembered_scene_id(app.directory, state.read(db)),
+                    presets=[dict(fields, id=name, colors=list(fields['colors'])) for name, fields in effects.PRESETS.items()],
                     patterns=[dict(id=name, spatial=spatial) for name, spatial in effects.PATTERNS.items()],
                     speeds=list(effects.SPEEDS), directions=list(effects.DIRECTIONS), defaults=dict(effects.DEFAULTS),
                     limits=dict(minColors=effects.MIN_COLORS, maxColors=effects.MAX_COLORS,

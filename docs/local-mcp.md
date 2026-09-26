@@ -66,9 +66,11 @@ Read status first. Mode calls require its `nextRequestId`, `configurationRevisio
 
 ## Play animations
 
-`nanoleaf_animations_list` needs the read scope and takes no arguments. It returns the controller's [animation options](integration-api.md#requested-animations): the patterns and whether each takes a direction, the speeds, directions, defaults and limits. It also returns the current `mode`, `revision` and `nextRequestId`. It reads without touching tasks or lights.
+`nanoleaf_animations_list` needs the read scope and takes no arguments. It returns the controller's [animation options](integration-api.md#requested-animations): the curated presets with their explicit parameters, the patterns and whether each takes a direction, the speeds, directions, defaults and limits. It also returns the current `mode`, `revision` and `nextRequestId`. It reads without touching tasks or lights.
 
 `nanoleaf_animation_play` needs the control scope. It takes `requestId` (the listing's `nextRequestId`), `expectedRevision` (the listing's `revision`), `pattern` and 1 to 8 `#rrggbb` `colors`, plus optional `speed`, `loop` and, for `wave` and `gradient` only, `direction`. It sends one `animation.play` extension command with those values unchanged and adds no defaults of its own. The tool never switches mode. In Work or Quiet the controller rejects the command as `unsupported-capability` before any write, and the tool's failure carries a message saying to switch to Free with `nanoleaf_mode_set` and list the options again. To play "a slow blue-green ocean wave", call `nanoleaf_mode_set` with Free, call `nanoleaf_animations_list`, then play `wave` with `["#0044aa", "#00aa66"]` at `slow`.
+
+For a named mood, supply `preset` instead of every explicit animation field. For example, `{requestId, expectedRevision, preset: "ocean"}` sends one preset-only request; the server resolves its palette, speed and direction. Presets cannot be combined with `pattern`, `colors`, `speed`, `direction` or `loop`. The ten moods are `cozy`, `ocean`, `sunset`, `aurora`, `campfire`, `forest`, `rain`, `focus`, `party` and `celebration`. Their explicit parameters appear in `nanoleaf_animations_list`. The same Free gate, encoder bounds and receipts apply; source checks do not establish physical palette approval.
 
 Both spatial patterns also accept `clockwise` and `counterclockwise`, rotating
 around the saved Line-centroid. All patterns accept `faster`, one step above

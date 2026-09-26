@@ -22,7 +22,7 @@ test('lists animation options with the identity values a play request needs',asy
 });
 
 for(const [name,body] of [['another device',{...animations,identity:{...snapshot.identity,deviceId:'other'}}],['another version',{...animations,apiVersion:'nanoleaf.integration/2.0'}],
- ['an unknown mode',{...animations,mode:'Media'}],['a malformed revision',{...animations,revision:'x'}],['an extra field',{...animations,tasks:[]}]])test(`rejects animation options from ${name}`,async()=>{
+ ['an unknown mode',{...animations,mode:'Media'}],['a malformed revision',{...animations,revision:'x'}],['an extra field',{...animations,tasks:[]}], ['malformed presets',{...animations,presets:[{id:'bad',pattern:'breathe',colors:['red'],speed:'slow'}]}], ['spatial direction on a non-spatial preset',{...animations,presets:[{id:'bad',pattern:'breathe',colors:['#ffffff'],speed:'slow',direction:'right'}]}], ['duplicate preset names',{...animations,presets:[animations.presets[0],animations.presets[0]]}]])test(`rejects animation options from ${name}`,async()=>{
  const b=bindings(config,credentials,async()=>({status:200,body}));
  const result=await invokeDeviceTool(b.registry,tool(b,'nanoleaf_animations_list'),{},principal);
  assert.equal(result.isError,true);assert.equal(result.structuredContent.data.code,'transport-failure');
@@ -110,4 +110,19 @@ for (const direction of ['clockwise', 'counterclockwise']) test(`advertises and 
   assert.equal(result.isError, true);
  }
  assert.equal(calls.length, 2);
+});
+
+test('preset play forwards only the name and refuses every explicit override', async () => {
+ const calls = [];
+ const b = bindings(config, credentials, async(c, operation, token, request) => {
+  calls.push(request); return {status:202, body:receipt('queued')};
+ });
+ const args = {requestId:playArgs.requestId, expectedRevision:playArgs.expectedRevision, preset:'ocean'};
+ const result = await invokeDeviceTool(b.registry, tool(b,'nanoleaf_animation_play'), args, principal);
+ assert.equal(result.isError, false);
+ assert.deepEqual(calls[0].command, {kind:'animation.play', preset:'ocean'});
+ for (const [key,value] of Object.entries({pattern:'wave',colors:['#ffffff'],speed:'fast',direction:'right',loop:false})) {
+  assert.equal((await invokeDeviceTool(b.registry, tool(b,'nanoleaf_animation_play'), {...args,[key]:value},principal)).isError,true);
+ }
+ assert.equal(calls.length,1);
 });
