@@ -300,6 +300,41 @@ class LinuxInstallTest(unittest.TestCase):
                     process.terminate()
                 process.communicate(timeout=5)
 
+    def test_copied_runtime_holds_and_starts_every_shared_module(self):
+        """AC4/AC6 of #118: packaging evidence from an isolated copy, not an installed upgrade."""
+        import install_linux
+        source = Path(b.__file__).parent
+        layout = json.loads((source.parent / 'tests/fixtures/lines-layout.json').read_text())
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary) / 'state'
+            install_linux.prepare_state(directory, '192.0.2.12', 'fixtureToken',
+                                        request=lambda *_: {'panelLayout': layout})
+            runtime = install_linux.copy_runtime(directory) / 'bridge'
+            modules = sorted(path.stem for path in source.glob('*.py') if path.name != 'install_linux.py')
+            self.assertEqual(sorted(path.stem for path in runtime.glob('*.py')), modules)
+            clean = {key: value for key, value in os.environ.items() if key != 'PYTHONPATH'}
+            # Every module imports from the copy alone, without the source tree on the path.
+            probe = ('import importlib, json, sys; sys.path.insert(0, sys.argv[1]); '
+                     'print(json.dumps({m: importlib.import_module(m).__file__ for m in sys.argv[2:]}))')
+            result = subprocess.run([sys.executable, '-I', '-c', probe, str(runtime), *modules],
+                                    capture_output=True, text=True, timeout=20, cwd=temporary, env=clean)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            for module, path in json.loads(result.stdout).items():
+                self.assertEqual(Path(path).parent, runtime, module)
+            launcher = install_linux.write_launcher(directory, Path(sys.executable))
+            codex = Path(temporary) / 'codex'
+            for arguments in (['--help'], ['status'], ['map-status'], ['shared-status'], ['shared-select', '--help'],
+                              ['hooks', 'register', '--codex-home', str(codex)], ['controller-status', '--help'],
+                              ['controller-configure', '--controller-id', 'local-controller', '--device-id', 'wall',
+                               '--source-id', 'local-source'], ['controller-status'], ['device-enroll', '--help']):
+                with self.subTest(command=' '.join(arguments)):
+                    result = subprocess.run([str(launcher), *arguments], capture_output=True, text=True,
+                                            timeout=20, cwd=temporary, env=clean)
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            hooks = json.loads((codex / 'hooks.json').read_text())
+            command = hooks['hooks']['Stop'][0]['hooks'][0]['command']
+            self.assertEqual(shlex.split(command)[1], str(runtime / 'bridge.py'))
+
     def test_runtime_launcher_and_hooks_use_same_linux_state(self):
         import install_linux
         with tempfile.TemporaryDirectory() as temporary:
