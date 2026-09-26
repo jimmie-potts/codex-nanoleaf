@@ -311,6 +311,26 @@ class DeviceTest(unittest.TestCase):
             shared_input.restore_tables(db, restored)
             self.assertEqual(shared_input.dump_tables(db), restored)
 
+    def test_device_aware_backup_restores_each_devices_rows(self):
+        import shared_input
+        self.write_two_devices()
+        backup = {'sessions': [['a', 't', 'working', 900.0], ['b', 't', 'unread', 901.0]],
+                  'slots': [['a', 0, 'wall'], ['a', 2, 'panels'], ['b', 1, 'panels']],
+                  'waits': [['a', 't', 'permission:shell', 'permission', 'shell']],
+                  'activity': [['a', 't', 'working', 900.0], ['b', 't', 'unread', 901.0]],
+                  'receipts': [['b', 't', 901.0, 0]],
+                  'comets': [['b', 't', 902.0, 1, 903.0, 'panels'], ['b', 't', 902.0, None, None, 'wall']],
+                  'task_info': [['a', 'Title', '/synthetic', 'p', 'q', 't', 900.0]]}
+        for _ in range(2):  # Repeated initialization keeps the restored rows.
+            with contextlib.closing(database.connect_state(self.directory)) as db, db:
+                db.execute('BEGIN IMMEDIATE')
+                shared_input.restore_tables(db, backup)
+                self.assertEqual(shared_input.dump_tables(db), backup)
+        self.assertEqual(self.query('SELECT device, session, source, started FROM comets ORDER BY device'),
+                         [('panels', 'b', 1, 903.0), ('wall', 'b', None, None)])
+        self.assertEqual(self.query('SELECT device, session, slot FROM slots ORDER BY device, slot'),
+                         [('panels', 'b', 1), ('panels', 'a', 2), ('wall', 'a', 0)])
+
     # AC6: untargeted callers
     def test_untargeted_callers_address_default_device(self):
         self.write_two_devices()

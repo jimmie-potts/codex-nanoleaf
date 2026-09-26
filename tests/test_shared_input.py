@@ -1248,3 +1248,92 @@ class DeclaredSourceConfigTest(unittest.TestCase):
         for invalid in ({**UndeclaredSourceTest.CLAUDE, 'client': 'desktop'}, {**UndeclaredSourceTest.CLAUDE, 'sessionId': 'x'}):
             with self.subTest(invalid=invalid), self.assertRaises(s.FeedError):
                 s.validate_config(dict(config, qualifiedSources=[invalid]))
+
+
+class TaskBackupTest(unittest.TestCase):
+    """#120: the legacy task backup and the source switch around it, as whole operations."""
+    BACKED_UP = ('sessions','slots','waits','activity','receipts','comets','task_info')
+    select=SelectionTest.select; rows=SelectionTest.rows
+
+    def setUp(self):
+        SelectionTest.setUp(self)
+        jsonfile.write_json(self.path/'config.json',{'ip':'192.0.2.1','token':'fake','panelsToken':'other','devices':{
+            'panels':{'kind':'panels','ip':'192.0.2.2','token_ref':'panelsToken'}}})
+        event=lambda session,name,**extra: b.handle_event(self.path,{'session_id':session,'turn_id':'t1','hook_event_name':name,**extra},
+                                                         launch=lambda _:None,now=lambda:self.instant+len(session))
+        # An unbound task waiting for approval and an unbound completed task keep their private legacy rows.
+        event('other','UserPromptSubmit'); event('other','PermissionRequest',tool_name='shell')
+        event('done','UserPromptSubmit'); event('done','Stop')
+        modes.set_mode(self.path,'quiet',launch=lambda _:None,device='panels')
+        with contextlib.closing(database.connect_state(self.path)) as db,db:
+            db.executemany('INSERT INTO slots (session,slot,device) VALUES (?,?,?)',
+                           [('legacy',4,'panels'),('other',1,'wall'),('other',0,'panels'),('done',2,'wall')])
+            db.execute("INSERT INTO projects VALUES ('chosen','Chosen','#445566','[]')")
+            db.execute("INSERT INTO line_prefs (line_id,project,signature,device) VALUES ('100:101','project',1,'wall')")
+            db.execute("INSERT INTO comets (session,turn,queued,source,started,device) VALUES ('done','t1',1010,NULL,NULL,'panels')")
+        for name in ('scene-state.json','scene-state.panels.json'):
+            (self.path/name).write_text(json.dumps({'scene':{'name':name,'brightness':30}}))
+
+    def snapshot(self):
+        with contextlib.closing(database.connect_state(self.path)) as db:
+            tables={table:sorted(db.execute('SELECT * FROM '+table).fetchall(),key=repr)
+                    for table in self.BACKED_UP+('projects','line_prefs','map_settings')}
+            tables['modes']=sorted(db.execute("SELECT key,value FROM meta WHERE key LIKE 'mode%'").fetchall())
+        tables['scenes']=[(self.path/name).read_bytes() for name in ('scene-state.json','scene-state.panels.json')]
+        return tables
+
+    def test_stored_backup_keeps_each_row_in_table_column_order(self):
+        with contextlib.closing(database.connect_state(self.path)) as db:
+            expected={table:sorted(db.execute('SELECT * FROM '+table).fetchall(),key=repr) for table in self.BACKED_UP}
+        self.select()
+        with contextlib.closing(database.connect_state(self.path)) as db:
+            stored=json.loads(db.execute('SELECT backup FROM shared_input WHERE id=1').fetchone()[0])
+        self.assertEqual(set(stored),set(self.BACKED_UP))
+        self.assertEqual({table:sorted(map(tuple,rows),key=repr) for table,rows in stored.items()},expected)
+
+    def test_cutover_and_rollback_preserve_legacy_state_and_carry_bound_choices(self):
+        before=self.snapshot()
+        self.select(); key=self.s.identity_key(fixture()['sessions'][0]['identity'])
+        # Only the bound task crosses over, keeping its placements, epoch and manual project.
+        self.assertEqual(sorted(self.rows('SELECT session,slot,device FROM slots')),[(key,0,'wall'),(key,4,'panels')])
+        self.assertEqual(self.rows('SELECT manual_project FROM task_info'),[('project',)])
+        with contextlib.closing(database.connect_state(self.path)) as db,db:
+            db.execute("UPDATE slots SET slot=5 WHERE session=? AND device='wall'",(key,))
+            db.execute("UPDATE slots SET slot=6 WHERE session=? AND device='panels'",(key,))
+            db.execute("UPDATE task_info SET manual_project='chosen' WHERE session=?",(key,))
+        shared_project=self.rows('SELECT project FROM task_info')[0][0]
+        shared_source.select_source(self.path,'legacy',now=lambda:1005)
+        for _ in range(2):
+            after=self.snapshot()  # Repeated initialization changes nothing.
+            self.assertEqual(self.s.inspect(self.path)['source'],'legacy')
+            for table in ('sessions','waits','activity','modes','scenes','line_prefs','map_settings'):
+                self.assertEqual(after[table],before[table],table)
+            self.assertEqual(after['receipts'],[])  # Rollback drops receipts; the worker rebuilds them for unread tasks.
+            self.assertEqual(after['comets'],[])  # Switching resets every device's comets.
+            self.assertLessEqual(set(before['projects']),set(after['projects']))
+            self.assertEqual(sorted(after['slots']),sorted([row for row in before['slots'] if row[0]!='legacy']
+                                                           +[('legacy',5,'wall'),('legacy',6,'panels')]))
+            legacy=[row for row in before['task_info'] if row[0]=='legacy'][0]
+            self.assertEqual(after['task_info'],sorted([row for row in before['task_info'] if row[0]!='legacy']
+                                                       +[(*legacy[:3],shared_project,'chosen',*legacy[5:])],key=repr))
+
+    def test_failed_cutover_leaves_legacy_state_untouched(self):
+        before=self.snapshot()
+        with patch.object(self.s,'project_envelope',side_effect=RuntimeError('projection failed')):
+            with self.assertRaises(RuntimeError): self.select()
+        self.assertEqual(self.snapshot(),before)
+        with contextlib.closing(database.connect_state(self.path)) as db:
+            self.assertEqual(db.execute('SELECT source,generation,backup FROM shared_input').fetchall(),[('legacy',1,None)])
+
+    def test_damaged_backup_refuses_rollback_without_partial_restore(self):
+        self.select()
+        with contextlib.closing(database.connect_state(self.path)) as db,db:
+            saved=json.loads(db.execute('SELECT backup FROM shared_input WHERE id=1').fetchone()[0])
+            saved['task_info'].append(['damaged','row'])  # Every earlier table would already be restored.
+            db.execute('UPDATE shared_input SET backup=? WHERE id=1',(json.dumps(saved),))
+        before=self.snapshot()
+        with patch('builtins.print') as output, self.assertRaises(SystemExit):
+            shared_source.command(['shared-select','legacy','--state-dir',str(self.path)],launch=lambda _:None)
+        output.assert_called_once_with('{"error":"shared-input-operation-failed"}')
+        self.assertEqual(self.snapshot(),before)
+        self.assertEqual(self.s.inspect(self.path)['source'],'shared')
