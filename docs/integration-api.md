@@ -16,8 +16,9 @@ controller listener serves both APIs on the same authenticated loopback endpoint
 | `elements.assign` | Stable physical Line ID, nullable project ID, optional `signature` 0 or 1 | Machine `control` |
 | `task.assign` | Opaque task ID, nullable project override | Machine `control` |
 | `project.color` | Opaque project ID, `#RRGGBB` saved color | Machine `control` |
-| `animation.play` | Explicit pattern/colors/options or a named preset; Free only | Machine `control`; see [requested animations](#requested-animations) |
-| Animation options | Patterns, speeds, directions, defaults, limits | Machine `read`, `GET /animations` |
+| `animation.play` | Explicit pattern/colors/options, preset or favorite; Free only | Machine `control`; see [requested animations](#requested-animations) |
+| `animation.save`, `animation.rename`, `animation.forget` | Private named recipes; all modes | Machine `control`; see [favorites](#animation-favorites) |
+| Animation options | Patterns, speeds, directions, defaults, presets, favorites, limits | Machine `read`, `GET /animations` |
 | Element geometry | Any configured device, the Lines or the Panels | Machine `read`, `GET /geometry`; see [element geometry](#element-geometry) |
 | Cancel a configuration edit or queued animation | Its original request ticket | Owning machine principal with `control` |
 | Power, brightness, saved-scene activation | Shared v1 `power.set`, `brightness.set`, `scene.activate` | Machine `control`, unchanged `/controller/v1/commands`; see [general controls](controller-api.md#general-controls) |
@@ -234,6 +235,26 @@ or null if no readable target is saved or that scene is no longer advertised.
 This read leaves the scene file, remembered brightness and both snapshot shapes
 unchanged. It neither observes the device nor launches its worker.
 The [local MCP tools](local-mcp.md#play-animations) use this route.
+
+## Animation favorites
+
+[Issue #154](https://github.com/jimmie-potts/codex-nanoleaf/issues/154) adds private named recipes, governed by [ADR 0017](decisions/0017-private-animation-favorites.md). The animation-options route lists `favorites` as `{name, animation}` entries and adds `maxFavorites: 32` and `maxFavoriteName: 80` to its limits. This remains a machine-authenticated pure read; favorites never enter browser projections or the Hub's snapshot. Snapshot keys and capabilities are unchanged. Favorite changes invalidate the extension revision.
+
+Configuration commands use the same envelope, current ticket and expected revision as other extension edits:
+
+```json
+{"kind":"animation.save","name":"my ripple","animation":{"pattern":"wave","colors":["#0044aa","#00aa66"],"direction":"clockwise","speed":"faster"}}
+{"kind":"animation.save","name":"my ocean","animation":{"preset":"ocean"}}
+{"kind":"animation.rename","name":"my ripple","newName":"evening ripple"}
+{"kind":"animation.forget","name":"my ocean"}
+{"kind":"animation.play","favorite":"evening ripple"}
+```
+
+Save creates a new entry from supplied fields or a preset; it does not capture current output. Its applied recipe freezes all applicable defaults. Names are case-sensitive, 1–80 Unicode characters, nonblank and control-free, with no silent trimming. An occupied save name or rename target fails with `revision-conflict`; atomic rename leaves both recipes intact on collision, including a same-name rename. Missing rename/delete/play names fail with `unsupported-capability`. A 33rd save fails with `capacity`; rename still works at the bound. These admission failures consume no ticket.
+
+Save, rename and forget work in every mode and use the existing configuration queue, replay, cancellation, expiry and revocation rules. Their atomic receipt is `applied`, `priorEffects: configuration`, and `physicalOutcome: unknown`. They send no light command, change no mode and do not clear a transport hold or mark the display dirty. A held worker can leave them queued until cancellation or expiry, as for other configuration edits.
+
+Favorite playback is an exclusive alternative to a preset or explicit fields. It stays Free-only, checks the current layout and frame/byte bounds, and returns the existing animation transport receipts. Changing or deleting a recipe does not stop an already-playing effect. SQLite reopen and source upgrades retain favorites; rollback keeps the database. Do not use reset/fresh setup as an upgrade. Separate MCP and Hub principals preserve the existing request-history privacy boundary.
 
 ## Element geometry
 

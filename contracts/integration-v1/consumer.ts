@@ -5,15 +5,20 @@ export const patterns = {wave: true, gradient: true, pulse: false, breathe: fals
 export type Pattern = keyof typeof patterns;
 export const presets = ['cozy', 'ocean', 'sunset', 'aurora', 'campfire', 'forest', 'rain', 'focus', 'party', 'celebration'] as const;
 export type Preset = typeof presets[number];
-export type ExplicitAnimation = {kind: 'animation.play'; preset?: never; pattern: Pattern; colors: string[]; speed?: 'slow' | 'medium' | 'fast' | 'faster';
+export type ExplicitAnimation = {kind: 'animation.play'; preset?: never; favorite?: never; pattern: Pattern; colors: string[]; speed?: 'slow' | 'medium' | 'fast' | 'faster';
   direction?: 'left' | 'right' | 'up' | 'down' | 'outward' | 'inward' | 'clockwise' | 'counterclockwise'; loop?: boolean};
-export type PresetAnimation = {kind: 'animation.play'; preset: Preset; pattern?: never; colors?: never; speed?: never; direction?: never; loop?: never};
-export type Animation = ExplicitAnimation | PresetAnimation;
+export type PresetAnimation = {kind: 'animation.play'; preset: Preset; favorite?: never; pattern?: never; colors?: never; speed?: never; direction?: never; loop?: never};
+export type FavoriteAnimation = {kind: 'animation.play'; favorite: string; preset?: never; pattern?: never; colors?: never; speed?: never; direction?: never; loop?: never};
+export type Animation = ExplicitAnimation | PresetAnimation | FavoriteAnimation;
+export type AnimationRecipe = Omit<ExplicitAnimation, 'kind'> | Omit<PresetAnimation, 'kind'>;
 export type Command =
   | {kind: 'settings.set'; style?: 'classic' | 'project'; coverage?: 'whole' | 'status'}
   | {kind: 'elements.assign'; elements: {id: string; projectId?: string | null; signature?: 0 | 1}[]}
   | {kind: 'task.assign'; taskId: string; projectId: string | null}
   | {kind: 'project.color'; projectId: string; color: string}
+  | {kind: 'animation.save'; name: string; animation: AnimationRecipe}
+  | {kind: 'animation.rename'; name: string; newName: string}
+  | {kind: 'animation.forget'; name: string}
   | Animation;
 export type Request = {apiVersion: typeof apiVersion; controllerId: string; deviceId: string;
   requestId: Ticket; expectedRevision: string; command: Command};
@@ -30,6 +35,8 @@ const exact = (v: Record<string, any>, keys: string[]) => Object.keys(v).sort().
 const match = (v: unknown, regex: RegExp) => typeof v === 'string' && !/[\r\n]/.test(v) && regex.test(v);
 const ref = (v: unknown, kind: string, nullable = false) => nullable && v === null || match(v, new RegExp('^' + kind + '-[a-f0-9]{64}$'));
 export const ticket = (v: unknown): v is Ticket => object(v) && exact(v, ['epoch', 'sequence']) && match(v.epoch, /^[a-f0-9]{32}$/) && Number.isSafeInteger(v.sequence) && v.sequence >= 0;
+
+const favoriteName = (v: unknown): v is string => typeof v === 'string' && [...v].length >= 1 && [...v].length <= 80 && v.trim().length > 0 && !/\p{C}/u.test(v);
 
 export function validateRequest(v: unknown): v is Request {
   if (!object(v) || !exact(v, ['apiVersion','controllerId','deviceId','requestId','expectedRevision','command']) || v.apiVersion !== apiVersion || !ticket(v.requestId)
@@ -51,7 +58,14 @@ export function validateRequest(v: unknown): v is Request {
     }
     case 'task.assign': return exact(c, ['kind','taskId','projectId']) && ref(c.taskId, 'task') && ref(c.projectId, 'project', true);
     case 'project.color': return exact(c, ['kind','projectId','color']) && ref(c.projectId, 'project') && match(c.color, /^#[a-fA-F0-9]{6}$/);
+    case 'animation.save':
+      return exact(c, ['kind', 'name', 'animation']) && favoriteName(c.name) && object(c.animation)
+        && !('kind' in c.animation) && !('favorite' in c.animation)
+        && validateRequest({...v, command: {kind: 'animation.play', ...c.animation}});
+    case 'animation.rename': return exact(c, ['kind', 'name', 'newName']) && favoriteName(c.name) && favoriteName(c.newName);
+    case 'animation.forget': return exact(c, ['kind', 'name']) && favoriteName(c.name);
     case 'animation.play': {
+      if ('favorite' in c) return exact(c, ['kind', 'favorite']) && favoriteName(c.favorite);
       if ('preset' in c) return exact(c, ['kind', 'preset']) && presets.includes(c.preset);
       const keys = Object.keys(c);
       if (!['kind','pattern','colors'].every(k => keys.includes(k)) || !keys.every(k => ['kind','pattern','colors','speed','direction','loop'].includes(k))

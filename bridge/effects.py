@@ -6,6 +6,7 @@ transition time, in deciseconds, and loops the whole list when asked.
 import json
 import math
 import re
+import unicodedata
 
 # Spatial patterns take a direction; the others light every Line together or per Line.
 PATTERNS = {'wave': True, 'gradient': True, 'pulse': False, 'breathe': False, 'sparkle': False}
@@ -25,6 +26,7 @@ PRESETS = {
     'party': dict(pattern='pulse', speed='fast', colors=['#ff006e', '#fb5607', '#ffbe0b', '#3a86ff', '#8338ec']),
     'celebration': dict(pattern='sparkle', speed='fast', colors=['#ffd700', '#ffffff', '#ff4fd8']),
 }
+MAX_FAVORITES, MAX_NAME = 32, 80
 MIN_COLORS, MAX_COLORS = 1, 8
 # The envelope already verified on the Lines: the middle-Line comet preview sends
 # 20 frames per zone in a 9,009-byte request. Stay at or below both.
@@ -65,9 +67,30 @@ def size(payload):
     return len(json.dumps(payload).encode())
 
 
+def valid_name(value):
+    return (type(value) is str and 1 <= len(value) <= MAX_NAME and bool(value.strip())
+            and not any(unicodedata.category(char).startswith('C') for char in value))
+
+
+def freeze(recipe):
+    """Copy caller-supplied fields or a preset into a complete, stable explicit recipe."""
+    command = dict(kind='animation.play', **recipe)
+    if 'preset' in command:
+        command = dict(kind='animation.play', **PRESETS[command['preset']])
+    result = {key: value for key, value in command.items() if key != 'kind'}
+    result['colors'] = list(result['colors'])
+    for key in ('speed', 'loop'):
+        result.setdefault(key, DEFAULTS[key])
+    if PATTERNS[result['pattern']]:
+        result.setdefault('direction', DEFAULTS['direction'])
+    return result
+
+
 def valid(command):
     if type(command) is not dict or command.get('kind') != 'animation.play':
         return False
+    if 'favorite' in command:
+        return set(command) == {'kind', 'favorite'} and valid_name(command['favorite'])
     if 'preset' in command:
         return set(command) == {'kind', 'preset'} and type(command['preset']) is str and command['preset'] in PRESETS
     if not {'kind', 'pattern', 'colors'} <= set(command) or set(command) - FIELDS:

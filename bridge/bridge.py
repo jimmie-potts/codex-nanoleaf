@@ -774,7 +774,7 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
                         if animation:
                             active_execution[0] = None  # Journaled in the extension ledger, not a v1 request.
                             try:
-                                payload = effects.render(command, config['line_groups'], config.get('line_positions'))
+                                payload = effects.render(integration_api.resolve_animation(db, command), config['line_groups'], config.get('line_positions'))
                             except effects.Rejected as error:
                                 integration_api.finish(db, sequence, 'failed', error.code)
                                 continue
