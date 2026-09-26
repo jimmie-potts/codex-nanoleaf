@@ -60,7 +60,9 @@
   "minColors": 1,
   "maxColors": 8,
   "maxFramesPerZone": 20,
-  "maxEffectBytes": 8192
+  "maxEffectBytes": 8192,
+  "maxFavorites": 32,
+  "maxFavoriteName": 80
  },
  "presets": [
   {
@@ -173,6 +175,20 @@
     "#ffffff",
     "#ff4fd8"
    ]
+  }
+ ],
+ "favorites": [
+  {
+   "name": "my ripple",
+   "animation": {
+    "pattern": "wave",
+    "colors": [
+     "#123456"
+    ],
+    "speed": "medium",
+    "direction": "right",
+    "loop": true
+   }
   }
  ]
 }

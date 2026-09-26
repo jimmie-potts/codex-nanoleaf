@@ -26,6 +26,7 @@ MAX_LAYOUT_BYTES = 1048576
 OPERATIONS = ('settings.set', 'elements.assign', 'task.assign', 'project.color')
 # Advertised by its own read route so the 1.0 snapshot keeps its exact shape.
 ANIMATION = 'animation.play'
+FAVORITE_OPERATIONS = ('animation.save', 'animation.rename', 'animation.forget')
 PRIOR_EFFECTS = {'applied': 'configuration', 'sent': 'confirmed-transmission', 'uncertain': 'possible'}
 
 
@@ -38,7 +39,52 @@ class Failure(ValueError):
 def init(db):
     db.execute('CREATE TABLE IF NOT EXISTS integration_meta (id INTEGER PRIMARY KEY, sequence INTEGER NOT NULL)')
     db.execute('INSERT OR IGNORE INTO integration_meta VALUES (1,0)')
+    db.execute('CREATE TABLE IF NOT EXISTS animation_favorites (name TEXT PRIMARY KEY, recipe TEXT NOT NULL)')
     db.execute('CREATE TABLE IF NOT EXISTS integration_requests (sequence INTEGER PRIMARY KEY, principal TEXT, request TEXT, receipt TEXT, phase TEXT, created REAL, revision TEXT)')
+
+
+def favorites(db):
+    """Bounded private recipes; callers choose whether to expose them on the machine-only route."""
+    entries = db.execute('SELECT name,recipe FROM animation_favorites ORDER BY name LIMIT ?', (effects.MAX_FAVORITES + 1,)).fetchall()
+    if len(entries) > effects.MAX_FAVORITES:
+        raise Failure('capacity')
+    return [dict(name=name, animation=json.loads(recipe)) for name, recipe in entries]
+
+
+def resolve_animation(db, command):
+    if 'favorite' not in command:
+        return command
+    row = db.execute('SELECT recipe FROM animation_favorites WHERE name=?', (command['favorite'],)).fetchone()
+    if row is None:
+        raise effects.Rejected('unsupported-capability')
+    recipe = json.loads(row[0])
+    if not effects.valid(dict(kind=ANIMATION, **recipe)) or 'favorite' in recipe or 'preset' in recipe:
+        raise effects.Rejected('unsupported-capability')
+    return dict(kind=ANIMATION, **recipe)
+
+
+def favorite_edit(db, command, apply=False):
+    """Check now, then check and commit again inside the worker's receipt transaction."""
+    name, kind = command['name'], command['kind']
+    exists = db.execute('SELECT 1 FROM animation_favorites WHERE name=?', (name,)).fetchone()
+    if kind == 'animation.save':
+        if exists: raise Failure('revision-conflict')
+        if db.execute('SELECT COUNT(*) FROM animation_favorites').fetchone()[0] >= effects.MAX_FAVORITES:
+            raise Failure('capacity')
+        if apply:
+            db.execute('INSERT INTO animation_favorites VALUES (?,?)', (name, state.encoded(effects.freeze(command['animation']))))
+    else:
+        if not exists: raise Failure('unsupported-capability')
+        if kind == 'animation.rename':
+            if db.execute('SELECT 1 FROM animation_favorites WHERE name=?', (command['newName'],)).fetchone():
+                raise Failure('revision-conflict')
+            if apply:
+                db.execute('UPDATE animation_favorites SET name=? WHERE name=?', (command['newName'], name))
+        elif apply:
+            db.execute('DELETE FROM animation_favorites WHERE name=?', (name,))
+    if apply:
+        # These recipes do not change the current display or authorize another transport attempt.
+        state.changed(db)
 
 
 def geometry(directory):
@@ -119,7 +165,7 @@ def projection(db, pairs):
         project, half = prefs.get(key, (None, 0))
         view['elements'].append(dict(id=key, projectId=project_id(project), signature=half))
     # Include full private pending bytes only in the digest, never in public output.
-    revision_data = dict(view, pending=wall.pending(db), sourceGeneration=current['generation'])
+    revision_data = dict(view, pending=wall.pending(db), sourceGeneration=current['generation'], favorites=favorites(db))
     view['revision'] = hashlib.sha256(state.encoded(revision_data).encode()).hexdigest()
     return view, projects, tasks
 
@@ -203,10 +249,12 @@ def animations(app, token, device, **checks):
                     nextRequestId=state.ticket(state.read(db), sequence),
                     rememberedSceneId=remembered_scene_id(app.directory, state.read(db)),
                     presets=[dict(fields, id=name, colors=list(fields['colors'])) for name, fields in effects.PRESETS.items()],
+                    favorites=favorites(db),
                     patterns=[dict(id=name, spatial=spatial) for name, spatial in effects.PATTERNS.items()],
                     speeds=list(effects.SPEEDS), directions=list(effects.DIRECTIONS), defaults=dict(effects.DEFAULTS),
                     limits=dict(minColors=effects.MIN_COLORS, maxColors=effects.MAX_COLORS,
-                                maxFramesPerZone=effects.MAX_FRAMES, maxEffectBytes=effects.MAX_BYTES))
+                                maxFramesPerZone=effects.MAX_FRAMES, maxEffectBytes=effects.MAX_BYTES,
+                                maxFavorites=effects.MAX_FAVORITES, maxFavoriteName=effects.MAX_NAME))
 
 
 def saved_layout(directory, device):
@@ -276,6 +324,18 @@ def validate(request):
         if not effects.valid(c):
             raise Failure('invalid-request')
         return
+    if kind in FAVORITE_OPERATIONS:
+        fields = {'kind', 'name', 'animation'} if kind == 'animation.save' else ({'kind', 'name', 'newName'} if kind == 'animation.rename' else {'kind', 'name'})
+        if set(c) != fields or not effects.valid_name(c['name']):
+            raise Failure('invalid-request')
+        if kind == 'animation.rename' and not effects.valid_name(c['newName']):
+            raise Failure('invalid-request')
+        if kind == 'animation.save':
+            recipe = c['animation']
+            if (type(recipe) is not dict or 'kind' in recipe or 'favorite' in recipe
+                    or not effects.valid(dict(kind=ANIMATION, **recipe))):
+                raise Failure('invalid-request')
+        return
     if kind not in OPERATIONS:
         raise Failure('unsupported-capability')
     if kind == 'settings.set':
@@ -307,6 +367,9 @@ def edit(db, pairs, command):
 
     Returns edit(db, config), which applies it inside the caller's transaction.
     """
+    if command['kind'] in FAVORITE_OPERATIONS:
+        favorite_edit(db, command)
+        return lambda db, config: favorite_edit(db, command, apply=True)
     _, projects, tasks = projection(db, pairs)
     def project(value):
         if value is None: return None
@@ -477,7 +540,7 @@ def admit(app, token, request, body_bytes=None, deadline=None, **checks):
                 if control_state(db)['mode'] != 'free': raise Failure('unsupported-capability')
                 if request['expectedRevision'] != view['revision']: raise Failure('revision-conflict')
                 try:
-                    effects.render(request['command'], pairs, positions)
+                    effects.render(resolve_animation(db, request['command']), pairs, positions)
                 except effects.Rejected as error:
                     raise Failure(error.code) from None
             else:

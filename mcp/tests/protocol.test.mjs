@@ -50,7 +50,7 @@ for(const version of ['2025-11-25','2025-06-18'])test(`real MCP ${version} initi
  let session,id=0;
  async function rpc(method,params,extra={}){const response=await fetch(host.url,{method:'POST',headers:{Authorization:`Bearer ${token}`,Accept:'application/json, text/event-stream','Content-Type':'application/json',...(session?{'Mcp-Session-Id':session,'MCP-Protocol-Version':version}:{}),...extra},body:JSON.stringify({jsonrpc:'2.0',...(method.startsWith('notifications/')?{}:{id:++id}),method,params})});const text=await response.text();return {response,body:text?JSON.parse(text):null};}
  const init=await rpc('initialize',{protocolVersion:version,capabilities:{},clientInfo:{name:'Codex-source-fixture',version:'0.153.4'}});assert.equal(init.response.status,200);session=init.response.headers.get('mcp-session-id');await rpc('notifications/initialized');
- const listed=await rpc('tools/list',{});assert.deepEqual(listed.body.result.tools.map(t=>t.name).sort(),['nanoleaf_animation_play','nanoleaf_animations_list','nanoleaf_mode_set','nanoleaf_scene_activate','nanoleaf_scene_restore','nanoleaf_scenes_list','nanoleaf_status']);assert.equal(reads,0);assert.equal(commands.length,0);
+ const listed=await rpc('tools/list',{});assert.deepEqual(listed.body.result.tools.map(t=>t.name).sort(),['nanoleaf_animation_forget','nanoleaf_animation_play','nanoleaf_animation_rename','nanoleaf_animation_save','nanoleaf_animations_list','nanoleaf_mode_set','nanoleaf_scene_activate','nanoleaf_scene_restore','nanoleaf_scenes_list','nanoleaf_status']);assert.equal(reads,0);assert.equal(commands.length,0);
  const status=await rpc('tools/call',{name:'nanoleaf_status',arguments:{}});if(!external)assert.deepEqual(status.body.result.structuredContent.data.snapshot,snapshot);else assert.deepEqual(status.body.result.structuredContent.data.snapshot.identity,snapshot.identity);assert.equal(commands.length,0);
  const args={requestId:snapshot.nextRequestId,expectedConfigurationRevision:snapshot.configurationRevision,expectedGeneration:snapshot.generation,mode:'Quiet'};
  const write=await rpc('tools/call',{name:'nanoleaf_mode_set',arguments:args});assert.equal(write.body.result.structuredContent.data.receipt.outcome,'queued');if(!external)assert.deepEqual(commands[0].requestId,args.requestId);
@@ -83,6 +83,17 @@ for(const version of ['2025-11-25','2025-06-18'])test(`real MCP ${version} initi
   const mood=await rpc('tools/call',{name:'nanoleaf_animation_play',arguments:moodArgs});
   assert.equal(mood.body.result.structuredContent.data.receipt.outcome,'queued');
   assert.deepEqual(commands.at(-1).command,{kind:'animation.play',preset:'ocean'});
+  for (const [name, fields, command] of [
+   ['nanoleaf_animation_save', {name:'my ripple', animation:{preset:'ocean'}}, {kind:'animation.save',name:'my ripple',animation:{preset:'ocean'}}],
+   ['nanoleaf_animation_rename', {name:'my ripple',newName:'ocean favorite'}, {kind:'animation.rename',name:'my ripple',newName:'ocean favorite'}],
+   ['nanoleaf_animation_forget', {name:'ocean favorite'}, {kind:'animation.forget',name:'ocean favorite'}],
+   ['nanoleaf_animation_play', {favorite:'my ripple'}, {kind:'animation.play',favorite:'my ripple'}],
+  ]) {
+   const favorite=await rpc('tools/call',{name,arguments:{requestId:animations.nextRequestId,expectedRevision:animations.revision,...fields}});
+   assert.equal(favorite.body.result.isError,false,JSON.stringify(favorite.body));
+   assert.equal(favorite.body.result.structuredContent.data.receipt.outcome,'queued');
+   assert.deepEqual(commands.at(-1).command,command);
+  }
   const refused=await rpc('tools/call',{name:'nanoleaf_animation_play',arguments:{...playArgs,pattern:'breathe',speed:'fast'}});assert.equal(refused.body.result.isError,true);assert.match(refused.body.result.structuredContent.data.message,/nanoleaf_mode_set/);
   const beforeInvalid=commands.length;const invalidAnimation=await rpc('tools/call',{name:'nanoleaf_animation_play',arguments:{...playArgs,pattern:'pulse',direction:'left'}});assert.equal(invalidAnimation.body.result.isError,true);assert.equal(commands.length,beforeInvalid);
   const unknownScene=await rpc('tools/call',{name:'nanoleaf_scene_activate',arguments:{...sceneArgs,requestId:{...sceneArgs.requestId,sequence:sceneArgs.requestId.sequence+1},sceneId:'scene-'+'d'.repeat(64)}});assert.equal(unknownScene.body.result.isError,true);assert.equal(unknownScene.body.result.structuredContent.data.code,'unsupported-capability');assert.equal(unknownScene.body.result.structuredContent.data.priorEffects,'none');

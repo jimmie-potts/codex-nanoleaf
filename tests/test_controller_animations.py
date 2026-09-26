@@ -192,7 +192,7 @@ class AdmissionTest(AnimationTest):
         self.assertEqual(view['speeds'], ['slow', 'medium', 'fast', 'faster'])
         self.assertEqual(view['directions'], ['left', 'right', 'up', 'down', 'outward', 'inward', 'clockwise', 'counterclockwise'])
         self.assertEqual(view['defaults'], {'speed': 'medium', 'direction': 'right', 'loop': True})
-        self.assertEqual(view['limits'], {'minColors': 1, 'maxColors': 8, 'maxFramesPerZone': 20, 'maxEffectBytes': 8192})
+        self.assertEqual(view['limits'], {'minColors': 1, 'maxColors': 8, 'maxFramesPerZone': 20, 'maxEffectBytes': 8192, 'maxFavorites': 32, 'maxFavoriteName': 80})
         snapshot = self.app.integration_snapshot(reader, 'device')
         self.assertEqual((view['mode'], view['revision'], view['nextRequestId'], view['identity']),
                          ('Work', snapshot['revision'], snapshot['nextRequestId'], snapshot['identity']))

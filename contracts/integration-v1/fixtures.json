@@ -1459,6 +1459,856 @@
         }
       },
       "valid": false
+    },
+    {
+      "name": "favorite-play",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "favorite": "my ripple"
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "favorite-save",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.save",
+          "name": "my ripple",
+          "animation": {
+            "pattern": "wave",
+            "colors": [
+              "#ffffff"
+            ]
+          }
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "favorite-save-preset",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.save",
+          "name": "cozy copy",
+          "animation": {
+            "preset": "cozy"
+          }
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "favorite-rename",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.rename",
+          "name": "my ripple",
+          "newName": "My ripple"
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "favorite-forget",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.forget",
+          "name": "my ripple"
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "favorite-unicode-length",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.forget",
+          "name": "\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00"
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "favorite-invalid-name-animation.forget-0",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.forget",
+          "name": ""
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "favorite-invalid-name-animation.save-0",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.save",
+          "name": "",
+          "animation": {
+            "preset": "cozy"
+          }
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "favorite-invalid-name-animation.rename-0",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.rename",
+          "name": "old",
+          "newName": ""
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "favorite-invalid-name-animation.play-0",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "favorite": ""
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "favorite-invalid-name-animation.forget-1",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.forget",
+          "name": " "
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "favorite-invalid-name-animation.save-1",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.save",
+          "name": " ",
+          "animation": {
+            "preset": "cozy"
+          }
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "favorite-invalid-name-animation.rename-1",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.rename",
+          "name": "old",
+          "newName": " "
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "favorite-invalid-name-animation.play-1",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "favorite": " "
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "favorite-invalid-name-animation.forget-2",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.forget",
+          "name": "\n"
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "favorite-invalid-name-animation.save-2",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.save",
+          "name": "\n",
+          "animation": {
+            "preset": "cozy"
+          }
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "favorite-invalid-name-animation.rename-2",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.rename",
+          "name": "old",
+          "newName": "\n"
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "favorite-invalid-name-animation.play-2",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "favorite": "\n"
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "favorite-invalid-name-animation.forget-3",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.forget",
+          "name": "a\u0000b"
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "favorite-invalid-name-animation.save-3",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.save",
+          "name": "a\u0000b",
+          "animation": {
+            "preset": "cozy"
+          }
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "favorite-invalid-name-animation.rename-3",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.rename",
+          "name": "old",
+          "newName": "a\u0000b"
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "favorite-invalid-name-animation.play-3",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "favorite": "a\u0000b"
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "favorite-invalid-name-animation.forget-4",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.forget",
+          "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "favorite-invalid-name-animation.save-4",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.save",
+          "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "animation": {
+            "preset": "cozy"
+          }
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "favorite-invalid-name-animation.rename-4",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.rename",
+          "name": "old",
+          "newName": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "favorite-invalid-name-animation.play-4",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "favorite": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "favorite-invalid-name-animation.forget-5",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.forget",
+          "name": "a\u200bb"
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "favorite-invalid-name-animation.save-5",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.save",
+          "name": "a\u200bb",
+          "animation": {
+            "preset": "cozy"
+          }
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "favorite-invalid-name-animation.rename-5",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.rename",
+          "name": "old",
+          "newName": "a\u200bb"
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "favorite-invalid-name-animation.play-5",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "favorite": "a\u200bb"
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "favorite-invalid-name-animation.forget-6",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.forget",
+          "name": 17
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "favorite-invalid-name-animation.save-6",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.save",
+          "name": 17,
+          "animation": {
+            "preset": "cozy"
+          }
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "favorite-invalid-name-animation.rename-6",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.rename",
+          "name": "old",
+          "newName": 17
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "favorite-invalid-name-animation.play-6",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "favorite": 17
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "favorite-invalid-recipe-0",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.save",
+          "name": "bad",
+          "animation": {}
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "favorite-invalid-recipe-1",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.save",
+          "name": "bad",
+          "animation": {
+            "favorite": "nested"
+          }
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "favorite-invalid-recipe-2",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.save",
+          "name": "bad",
+          "animation": {
+            "kind": "animation.play",
+            "preset": "cozy"
+          }
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "favorite-invalid-recipe-3",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.save",
+          "name": "bad",
+          "animation": {
+            "preset": "cozy",
+            "loop": false
+          }
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "favorite-mixed-preset",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "favorite": "name",
+          "preset": "cozy"
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "favorite-mixed-pattern",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "favorite": "name",
+          "pattern": "wave"
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "favorite-mixed-colors",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "favorite": "name",
+          "colors": [
+            "#ffffff"
+          ]
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "favorite-mixed-speed",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "favorite": "name",
+          "speed": "fast"
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "favorite-mixed-direction",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "favorite": "name",
+          "direction": "right"
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "favorite-mixed-loop",
+      "request": {
+        "apiVersion": "nanoleaf.integration/1.0",
+        "controllerId": "controller",
+        "deviceId": "device",
+        "requestId": {
+          "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sequence": 0
+        },
+        "expectedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "command": {
+          "kind": "animation.play",
+          "favorite": "name",
+          "loop": false
+        }
+      },
+      "valid": false
     }
   ],
   "receipts": [

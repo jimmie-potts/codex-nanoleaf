@@ -14,7 +14,7 @@ test('fixed tools delegate status and preserve exact mode identity',async()=>{
  const calls=[];
  const receipt={apiVersion:'1.0',...config,requestId:args.requestId,configurationRevision:args.expectedConfigurationRevision,generation:args.expectedGeneration,outcome:'queued',priorEffects:'none',completedOperations:[],uncertainOperations:[]};
  const {registry,tools}=bindings(config,{forDispatch:async()=>({upstreamToken:'a'.repeat(43)})},async(c,operation,token,request)=>{calls.push({operation,request});return {status:operation==='snapshot'?200:202,body:operation==='snapshot'?snapshot:receipt};});
- assert.deepEqual(tools.map(t=>t.name),['nanoleaf_status','nanoleaf_mode_set','nanoleaf_scenes_list','nanoleaf_scene_activate','nanoleaf_animations_list','nanoleaf_animation_play','nanoleaf_scene_restore']);
+ assert.deepEqual(tools.map(t=>t.name),['nanoleaf_status','nanoleaf_mode_set','nanoleaf_scenes_list','nanoleaf_scene_activate','nanoleaf_animations_list','nanoleaf_animation_play','nanoleaf_scene_restore','nanoleaf_animation_save','nanoleaf_animation_rename','nanoleaf_animation_forget']);
  const read=await invokeDeviceTool(registry,tools[0],{},principal);assert.deepEqual(read.structuredContent.data.snapshot,snapshot);
  const write=await invokeDeviceTool(registry,tools[1],args,principal);assert.deepEqual(write.structuredContent.data.receipt,receipt);
  assert.deepEqual(calls[1].request,{apiVersion:'1.0',...config,requestId:args.requestId,expectedConfigurationRevision:args.expectedConfigurationRevision,expectedGeneration:args.expectedGeneration,command:{kind:'mode.set',mode:'Work'}});

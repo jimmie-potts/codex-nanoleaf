@@ -97,6 +97,19 @@ between discovery and dispatch. Existing receipts and uncertainty are preserved,
 without retries. The saved scene and brightness remain under the worker's
 existing policy; this tool sends no brightness command.
 
+## Save animation favorites
+
+`nanoleaf_animations_list` also returns private `favorites` entries with complete recipes and the 32-favorite/80-character name bounds. Use its current `nextRequestId` and `revision` as `requestId` and `expectedRevision` for each command.
+
+- `nanoleaf_animation_save` takes `name` and `animation`, which contains explicit play fields or `{preset: "ocean"}`. It creates a new favorite and freezes applicable defaults. It does not capture the current display or overwrite an occupied name.
+- `nanoleaf_animation_rename` takes `name` and `newName`. It atomically renames an existing favorite, rejecting an occupied target without changing either entry.
+- `nanoleaf_animation_forget` takes `name` and deletes that existing favorite.
+- `nanoleaf_animation_play` accepts `favorite: "my ripple"` as an exclusive alternative to `preset` or explicit fields.
+
+The three configuration tools work in Work, Quiet and Free, never switch mode, and return configuration receipts (`applied` with `priorEffects: configuration`). Playback remains Free-only and returns transport evidence. Deleting or renaming a favorite does not stop an already-playing animation. Names are case-sensitive and preserved exactly; blanks, control characters and names longer than 80 Unicode characters are rejected. After a collision, refresh the list and choose an explicit next action. A lost response retains the original ticket; no tool retries automatically.
+
+Favorites stay in private installation SQLite across database reopen and source upgrades. The browser and Hub do not receive them. See [the extension guide](integration-api.md#animation-favorites) for error and recovery details.
+
 ## Control the Panels
 
 After the Panels have their own [controller ledger](controller-api.md#add-the-nl22-light-panels), add `"panelsDeviceId": "panels"` to the private MCP configuration and restart the host. The host then binds the Panels as a second fixed target with four more tools:

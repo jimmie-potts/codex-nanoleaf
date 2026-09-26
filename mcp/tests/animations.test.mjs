@@ -126,3 +126,95 @@ test('preset play forwards only the name and refuses every explicit override', a
  }
  assert.equal(calls.length,1);
 });
+
+test('saves, renames, forgets and replays favorites without changing mode', async () => {
+ const calls=[];
+ const b=bindings(config,credentials,async(c,operation,token,request)=>{
+  calls.push({operation,request});
+  return {status:200,body:receipt(request.command.kind==='animation.play'?'sent':'applied',
+   {priorEffects:request.command.kind==='animation.play'?'confirmed-transmission':'configuration'})};
+ });
+ const common={requestId:playArgs.requestId,expectedRevision:playArgs.expectedRevision};
+ for(const [name,input,command] of [
+  ['nanoleaf_animation_save',{name:'my ripple',animation:{preset:'ocean'}},{kind:'animation.save',name:'my ripple',animation:{preset:'ocean'}}],
+  ['nanoleaf_animation_rename',{name:'my ripple',newName:'favorite'},{kind:'animation.rename',name:'my ripple',newName:'favorite'}],
+  ['nanoleaf_animation_forget',{name:'favorite'},{kind:'animation.forget',name:'favorite'}],
+  ['nanoleaf_animation_play',{favorite:'favorite'},{kind:'animation.play',favorite:'favorite'}],
+ ]){
+  const binding=tool(b,name);assert.ok(binding,name);
+  const result=await invokeDeviceTool(b.registry,binding,{...common,...input},principal);
+  assert.equal(result.isError,false,JSON.stringify(result));
+  assert.deepEqual(calls.at(-1),{operation:'extension-command',request:{apiVersion:'nanoleaf.integration/1.0',...config,...common,command}});
+ }
+ assert.equal(calls.length,4);
+});
+
+for (const [label, favorites] of [
+ ['duplicate names',[animations.favorites[0],animations.favorites[0]]],
+ ['blank name',[{...animations.favorites[0],name:' '}]],
+ ['control in name',[{...animations.favorites[0],name:'a\n'}]],
+ ['too many',Array(33).fill(animations.favorites[0])],
+ ['unresolved recipe',[{name:'bad',animation:{preset:'cozy'}}]],
+ ['missing defaults',[{name:'bad',animation:{pattern:'wave',colors:['#ffffff']}}]],
+ ['bad direction',[{name:'bad',animation:{pattern:'pulse',colors:['#ffffff'],speed:'fast',loop:true,direction:'clockwise'}}]],
+]) test(`rejects favorite listing with ${label}`,async()=>{
+ const b=bindings(config,credentials,async()=>({status:200,body:{...animations,favorites}}));
+ const result=await invokeDeviceTool(b.registry,tool(b,'nanoleaf_animations_list'),{},principal);
+ assert.equal(result.structuredContent.data.code,'transport-failure');
+});
+
+test('favorite edits reject malformed names and recipes before dispatch',async()=>{
+ let count=0;const b=bindings(config,credentials,async()=>{count++;return {status:202,body:receipt('queued')};});
+ const common={requestId:playArgs.requestId,expectedRevision:playArgs.expectedRevision};
+ for(const name of ['', ' ', 'x'.repeat(81), 'a\n', 'a\u200bb']){
+  for(const [toolName,args] of [
+   ['nanoleaf_animation_save',{name,animation:{preset:'cozy'}}],
+   ['nanoleaf_animation_rename',{name:'old',newName:name}],
+   ['nanoleaf_animation_forget',{name}],
+   ['nanoleaf_animation_play',{favorite:name}],
+  ])assert.equal((await invokeDeviceTool(b.registry,tool(b,toolName),{...common,...args},principal)).isError,true);
+ }
+ for(const animation of [{},{favorite:'old'},{preset:'cozy',loop:false},{pattern:'pulse',colors:['#ffffff'],direction:'right'},
+  {kind:'animation.play',preset:'cozy'},{pattern:'wave',colors:['red']},{pattern:'wave',colors:['#ffffff'],extra:42}])
+  assert.equal((await invokeDeviceTool(b.registry,tool(b,'nanoleaf_animation_save'),{...common,name:'safe',animation},principal)).isError,true);
+ for(const args of [{favorite:'name',preset:'cozy'},{favorite:'name',loop:false},{favorite:'name',pattern:'wave',colors:['#ffffff']}])
+  assert.equal((await invokeDeviceTool(b.registry,tool(b,'nanoleaf_animation_play'),{...common,...args},principal)).isError,true);
+ assert.equal(count,0);
+});
+
+for(const [label,body] of [
+ ['a transport receipt',receipt('sent')],
+ ['another ticket',receipt('applied',{priorEffects:'configuration',requestId:{...playArgs.requestId,sequence:99}})],
+ ['inconsistent prior effects',receipt('applied')],
+ ['configuration on failure',receipt('failed',{priorEffects:'configuration',failure:{code:'capacity'}})],
+ ['claimed physical output',receipt('applied',{priorEffects:'configuration',physicalOutcome:'visible'})],
+])test(`favorite save treats ${label} as uncertain and never retries`,async()=>{
+ let count=0;const b=bindings(config,credentials,async()=>{count++;return {status:200,body};});
+ const args={requestId:playArgs.requestId,expectedRevision:playArgs.expectedRevision,name:'new',animation:{preset:'cozy'}};
+ const data=(await invokeDeviceTool(b.registry,tool(b,'nanoleaf_animation_save'),args,principal)).structuredContent.data;
+ assert.equal(data.code,'uncertain-result');assert.equal(data.priorEffects,'possible');assert.deepEqual(data.requestId,args.requestId);assert.equal(count,1);
+});
+
+test('favorite edits preserve collision and missing-name failures without Free guidance',async()=>{
+ for(const [status,code] of [[409,'revision-conflict'],[422,'unsupported-capability'],[429,'capacity']]){
+  const b=bindings(config,credentials,async()=>({status,body:{failure:{code}}}));
+  const args={requestId:playArgs.requestId,expectedRevision:playArgs.expectedRevision,name:'old',newName:'occupied'};
+  const result=await invokeDeviceTool(b.registry,tool(b,'nanoleaf_animation_rename'),args,principal);
+  assert.equal(result.structuredContent.data.code,code);assert.equal(result.structuredContent.data.priorEffects,'none');assert.equal('message' in result.structuredContent.data,false);
+ }
+});
+
+test('favorite tools honor read-only scope and current credential revocation',async()=>{
+ let count=0;const transport=async()=>{count++;return {status:202,body:receipt('queued')};};
+ const b=bindings(config,credentials,transport), revoked=bindings(config,{forDispatch:async()=>{throw Error('revoked');}},transport);
+ for(const [name,fields] of [
+  ['nanoleaf_animation_save',{name:'one',animation:{preset:'cozy'}}],
+  ['nanoleaf_animation_rename',{name:'one',newName:'two'}],
+  ['nanoleaf_animation_forget',{name:'one'}],
+ ]){
+  const args={requestId:playArgs.requestId,expectedRevision:playArgs.expectedRevision,...fields};
+  assert.equal((await invokeDeviceTool(b.registry,tool(b,name),args,{...principal,credential:{...principal.credential,scopes:['read']}})).isError,true);
+  assert.equal((await invokeDeviceTool(revoked.registry,tool(revoked,name),args,principal)).isError,true);
+ }
+ assert.equal(count,0);
+});
