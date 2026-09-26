@@ -107,5 +107,7 @@ controller. It has separate versioned requests and configuration receipts; share
 controller v1 mode commands remain unchanged. Pure reads exclude local titles and
 paths. The existing worker applies edits on the installation's native database.
 Its one light command, the Free-only [`animation.play`](integration-api.md#requested-animations),
-is played by the same worker with transport receipts.
+is played by the same worker with transport receipts. A read-only
+[geometry route](integration-api.md#element-geometry) gives the hub each device's
+saved element shape.
 Source delivery does not enable the listener, switch task input or change an installation.
