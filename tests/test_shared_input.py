@@ -15,10 +15,22 @@ ROOT = Path(__file__).resolve().parents[1]
 class SharedContractTest(unittest.TestCase):
     def test_released_fixture_corpus(self):
         import shared_input
-        corpus = json.loads((ROOT / 'bridge/vendor/agent-state-1.0.0/package/fixtures/snapshots-v1.json').read_text())
+        corpus = json.loads((ROOT / 'bridge/vendor/agent-state-3.3.0/package/fixtures/snapshots-v1.json').read_text())
         for case in corpus['cases']:
             with self.subTest(case=case['id']):
                 self.assertEqual(shared_input.validate_snapshot(case['input'])['ok'], case['valid'])
+
+    def test_released_title_fixture_corpus_and_credentials(self):
+        import shared_input as s
+        corpus=json.loads((s.PACKAGE/'fixtures/snapshots-v1.2.json').read_text())
+        for case in corpus['cases']:
+            with self.subTest(case=case['id']):
+                self.assertEqual(s.validate_snapshot(case['input'])['ok'],case['valid'])
+        value=fixture();value['apiVersion']='1.2'
+        for key,secret in (('title',{'value':'Bearer '+'a'*43,'source':'provider'}),
+                           ('project','token=secret-value'),('tokenFile','/private/token')):
+            candidate=copy.deepcopy(value);candidate['sessions'][0][key]=secret
+            self.assertFalse(s.validate_snapshot(candidate)['ok'])
 
     def test_generation_validation_preserves_closed_contract(self):
         import shared_input as s
@@ -31,7 +43,7 @@ class SharedContractTest(unittest.TestCase):
             candidate=copy.deepcopy(value)
             if mutation=='missing': del candidate['sessions'][0]['generation']
             if mutation=='private': candidate['sessions'][0]['prompt']='PRIVATE_CANARY'
-            if mutation=='future': candidate['apiVersion']='1.2'
+            if mutation=='future': candidate['apiVersion']='1.3'
             self.assertFalse(s.validate_snapshot(candidate)['ok'],mutation)
         self.assertEqual(value,fixture(),'validation does not mutate its input')
 
@@ -41,7 +53,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
 def fixture():
-    corpus = json.loads((ROOT / 'bridge/vendor/agent-state-1.0.0/package/fixtures/snapshots-v1.json').read_text())
+    corpus = json.loads((ROOT / 'bridge/vendor/agent-state-3.3.0/package/fixtures/snapshots-v1.json').read_text())
     snapshot = copy.deepcopy(corpus['cases'][0]['input'])
     snapshot['apiVersion'] = '1.1'
     for session in snapshot['sessions']: session['generation'] = 0
@@ -87,7 +99,7 @@ class TransportTest(unittest.TestCase):
     def test_authenticated_snapshot(self):
         result = self.s.fetch_snapshot(self.config)
         self.assertEqual(result, envelope())
-        self.assertEqual(self.requests, [('/api/monitor/v1/sessions?snapshotVersion=1.1', 'Bearer ' + 'a'*43)])
+        self.assertEqual(self.requests, [('/api/monitor/v1/sessions?snapshotVersion=1.2', 'Bearer ' + 'a'*43)])
 
     def test_invalid_feed_is_content_free(self):
         for mutation in ('owner', 'private', 'revision', 'redirect'):
@@ -163,7 +175,7 @@ class SelectionTest(unittest.TestCase):
         b.handle_event(self.path,{'session_id':'legacy','turn_id':'bad','hook_event_name':'UserPromptSubmit'},launch=lambda _:None)
         self.assertEqual(self.rows('SELECT id,status FROM sessions'),[(key,'working')])
         view=self.s.inspect(self.path)
-        self.assertEqual(view['source'],'shared'); self.assertNotIn('LOCAL TITLE',json.dumps(view))
+        self.assertEqual(view['source'],'shared')
         self.assertNotIn(str(self.path),json.dumps(view)); self.assertNotIn('tokenFile',json.dumps(view))
         self.assertEqual(self.rows('SELECT * FROM comets'),[])
 
@@ -522,9 +534,9 @@ class ReleaseTest(unittest.TestCase):
     def test_pinned_archive_and_extracted_files(self):
         import hashlib
         import tarfile
-        package=ROOT/'bridge/vendor/agent-state-1.0.0'
-        archive=package/'jimmie-potts-agent-state-1.0.0.tgz'
-        self.assertEqual(hashlib.sha256(archive.read_bytes()).hexdigest(),'ae589d311e282c3356579c85507a3aa973ab7990e06e062143aeb08d8d2dcc99')
+        package=ROOT/'bridge/vendor/agent-state-3.3.0'
+        archive=package/'jimmie-potts-agent-state-3.3.0.tgz'
+        self.assertEqual(hashlib.sha256(archive.read_bytes()).hexdigest(),'b539d5296a627dece9da4f9a3713e288c3f2247c84a8e2179ff13cbcec70bd7d')
         with tarfile.open(archive) as tar:
             for path in (package/'package').rglob('*'):
                 if not path.is_file() or '__pycache__' in path.parts:continue
@@ -535,7 +547,7 @@ class ReleaseTest(unittest.TestCase):
         import subprocess
         import tarfile
         with tempfile.TemporaryDirectory() as temporary:
-            archive=ROOT/'bridge/vendor/agent-state-1.0.0/jimmie-potts-agent-state-1.0.0.tgz'
+            archive=ROOT/'bridge/vendor/agent-state-3.3.0/jimmie-potts-agent-state-3.3.0.tgz'
             with tarfile.open(archive) as tar:tar.extractall(temporary,filter='data')
             module=(Path(temporary)/'package/dist/index.js').as_uri()
             program='''

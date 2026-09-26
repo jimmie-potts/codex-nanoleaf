@@ -1,0 +1,115 @@
+{
+  "artifact": "@jimmie-potts/agent-state",
+  "version": "3.3.0",
+  "sourceRevision": "9d0b78d8f89ab8911339ac982a6dd02357e93843",
+  "reviewedHead": "3bc2e0c408bee9bf89e8c03cfbf330e58abb39e1",
+  "reviewBase": "0a1af41d2d5440aa40ec6353116ff4d40d982fcf",
+  "filename": "jimmie-potts-agent-state-3.3.0.tgz",
+  "sha256": "b539d5296a627dece9da4f9a3713e288c3f2247c84a8e2179ff13cbcec70bd7d",
+  "sourceTree": "af0781a595fecd4617f68094f538d04432e34c0a",
+  "pr": "https://github.com/jimmie-potts/agent-device-hub/pull/452",
+  "issue": "https://github.com/jimmie-potts/agent-device-hub/issues/424",
+  "uiApproval": "https://github.com/jimmie-potts/agent-device-hub/pull/452#issuecomment-5847985991",
+  "reviews": {
+    "Standards": "passed; final head and advanced main reviewed",
+    "Specification": "passed; final head and advanced main reviewed"
+  },
+  "node": "24.21.0",
+  "python": "3.14.4",
+  "packageChecks": [
+    {
+      "command": [
+        "npm",
+        "ci"
+      ],
+      "exitCode": 0
+    },
+    {
+      "command": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "exitCode": 0
+    },
+    {
+      "command": [
+        "npm",
+        "run",
+        "test:lifecycle:package:built"
+      ],
+      "exitCode": 0
+    },
+    {
+      "command": [
+        "npm",
+        "run",
+        "test:agent-state:package:built"
+      ],
+      "exitCode": 0
+    }
+  ],
+  "mainCiChecks": [
+    {
+      "id": 108443695518,
+      "name": "Checks / Contracts and state Python 3.12 on ubuntu-latest",
+      "head": "9d0b78d8f89ab8911339ac982a6dd02357e93843",
+      "conclusion": "success",
+      "app": "depot-code-access",
+      "details_url": "https://depot.dev/orgs/0kwdkp3sc9/workflows/1h395lbllr?job=ngsq2c8dzx&repo=jimmie-potts%2Fagent-device-hub"
+    },
+    {
+      "id": 108443693408,
+      "name": "Checks / Contracts and state Python 3.14 on ubuntu-latest",
+      "head": "9d0b78d8f89ab8911339ac982a6dd02357e93843",
+      "conclusion": "success",
+      "app": "depot-code-access",
+      "details_url": "https://depot.dev/orgs/0kwdkp3sc9/workflows/1h395lbllr?job=bpn4m2k0vk&repo=jimmie-potts%2Fagent-device-hub"
+    },
+    {
+      "id": 108443692026,
+      "name": "Checks / MCP on ubuntu-latest",
+      "head": "9d0b78d8f89ab8911339ac982a6dd02357e93843",
+      "conclusion": "success",
+      "app": "depot-code-access",
+      "details_url": "https://depot.dev/orgs/0kwdkp3sc9/workflows/1h395lbllr?job=zgf1nnt4mv&repo=jimmie-potts%2Fagent-device-hub"
+    },
+    {
+      "id": 108443690406,
+      "name": "Checks / Dashboard browser and contracts on ubuntu-latest",
+      "head": "9d0b78d8f89ab8911339ac982a6dd02357e93843",
+      "conclusion": "success",
+      "app": "depot-code-access",
+      "details_url": "https://depot.dev/orgs/0kwdkp3sc9/workflows/1h395lbllr?job=h0xqr9ln27&repo=jimmie-potts%2Fagent-device-hub"
+    },
+    {
+      "id": 108443687719,
+      "name": "Checks / Workflow checks on ubuntu-latest",
+      "head": "9d0b78d8f89ab8911339ac982a6dd02357e93843",
+      "conclusion": "success",
+      "app": "depot-code-access",
+      "details_url": "https://depot.dev/orgs/0kwdkp3sc9/workflows/1h395lbllr?job=k7sfwv96dw&repo=jimmie-potts%2Fagent-device-hub"
+    },
+    {
+      "id": 108443685149,
+      "name": "Work guide / Work guide build and browser checks",
+      "head": "9d0b78d8f89ab8911339ac982a6dd02357e93843",
+      "conclusion": "success",
+      "app": "depot-code-access",
+      "details_url": "https://depot.dev/orgs/0kwdkp3sc9/workflows/279z323tsh?job=0m5btfxkpg&repo=jimmie-potts%2Fagent-device-hub"
+    }
+  ],
+  "apiVersions": [
+    "1.0",
+    "1.1",
+    "1.2"
+  ],
+  "installedAcceptance": "pending; no installation or device work authorized",
+  "lifecycle": {
+    "version": "1.1.0",
+    "sha256": "3afd731d76c8bac66ce14d7210e606771f249f75e76edd8bc9a9ec76815c5d35",
+    "manifestSha256": "b4d86c76f1293b6410d5e452d7b1925e86fea785ff27cbfbe8a536ea34fb2d6d",
+    "release": "https://github.com/jimmie-potts/agent-device-hub/releases/tag/agent-lifecycle-contracts-v1.1.0"
+  },
+  "durableFormat": "2.1"
+}

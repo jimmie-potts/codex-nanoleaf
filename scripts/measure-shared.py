@@ -32,7 +32,7 @@ def run(samples=100):
         class Handler(BaseHTTPRequestHandler):
             def log_message(self,*args):pass
             def do_GET(self):
-                if self.path!='/api/monitor/v1/sessions?snapshotVersion=1.1' or self.headers.get('Authorization')!='Bearer '+'a'*43:
+                if self.path!='/api/monitor/v1/sessions?snapshotVersion=1.2' or self.headers.get('Authorization')!='Bearer '+'a'*43:
                     self.send_error(403);return
                 raw=json.dumps(current).encode();self.send_response(200);self.send_header('Content-Length',str(len(raw)));self.end_headers();self.wfile.write(raw)
         server=ThreadingHTTPServer(('127.0.0.1',0),Handler)

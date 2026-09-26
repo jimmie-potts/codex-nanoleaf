@@ -13,13 +13,13 @@ source selection. Runtime state stays on the Linux filesystem.
 ## Prepare a source
 
 Use the selected installation's Python runtime with the dependencies in
-`requirements-controller.txt`. The consumer pins Agent State 1.0.0 from
-[the immutable release](https://github.com/jimmie-potts/agent-device-hub/releases/tag/agent-state-v1.0.0),
-archive SHA-256 `ae589d311e282c3356579c85507a3aa973ab7990e06e062143aeb08d8d2dcc99`.
+`requirements-controller.txt`. The consumer pins Agent State 3.3.0 from
+[the immutable release](https://github.com/jimmie-potts/agent-device-hub/releases/tag/agent-state-v3.3.0),
+archive SHA-256 `b539d5296a627dece9da4f9a3713e288c3f2247c84a8e2179ff13cbcec70bd7d`.
 Its unchanged Python validator, schemas and fixtures are extracted alongside the
-archive. The consumer checks snapshot 1.1 generations, validates the remaining fields as the unchanged closed 1.0 shape, then preserves generations in its private saved envelope. Every live session must provide a safe integer generation between zero and the snapshot revision. Legacy input does not import the optional validator dependency.
+archive. The released validator checks snapshot 1.2 titles and projects as well as lifecycle state. The consumer also accepts generation-bearing 1.1 snapshots without shared metadata. Every live session must provide a safe integer generation between zero and the snapshot revision. Legacy input does not import the optional validator dependency.
 
-This reader requires a host that supports `GET /api/monitor/v1/sessions?snapshotVersion=1.1`, such as standalone Hub 0.3.0. Install the compatible owner before upgrading this consumer. Earlier Pixoo embedded owners and snapshot 1.0-only hosts cannot supply the required generation; preflight reports unavailable without fallback. Provision the
+This reader requires a host that supports `GET /api/monitor/v1/sessions?snapshotVersion=1.2`, such as standalone Hub 0.4.0. Install the compatible owner before upgrading this consumer. Earlier Pixoo embedded owners and snapshot 1.0-only hosts cannot supply the required generation; preflight reports unavailable without fallback. Provision the
 Nanoleaf consumer **when initializing the shared host** with:
 
 ```json
@@ -127,8 +127,14 @@ Source fixtures and hosted CI do not prove installed behavior or light output.
 ## Task continuity and rollback
 
 Sessions use the full provider/client/host/source/session identity. Several
-sessions in one project remain separate. Shared project IDs and labels must be
-explicitly chosen upstream. No local automatic title or path is uploaded.
+sessions in one project remain separate. Shared titles and project names come from the owner. A hub label wins over a
+shared title, followed by the existing local Codex title and provider fallback.
+Project allocation uses manual preference, shared project, then local Codex
+metadata. A shared project name uses its project ID when present, otherwise a
+stable hash of the name. Renaming an identified project preserves its color,
+roots and reservations. The local reader remains a fallback until shared
+coverage is verified; no Claude transcript reader is added. This consumer still
+makes no metadata upload requests.
 
 For an existing task whose assignment should survive cutover, add an explicit
 binding before selecting shared:
@@ -281,7 +287,8 @@ reads. They report selection, neutral owner/consumer IDs, connection, last
 revision/receipt time, evidence age, read capability, fixed error codes, and the
 count and source identities of sessions skipped from undeclared sources.
 They do not poll, migrate state, refresh Codex metadata, launch workers, or command
-lights. Tokens, token paths, local titles and private roots are excluded. The
+lights. Shared labels, titles and project names are included. Tokens and token paths
+are excluded; inspection does not refresh or export local metadata. The
 future integration-settings API can consume this projection. No new dashboard
 or wall-map controls are introduced here.
 

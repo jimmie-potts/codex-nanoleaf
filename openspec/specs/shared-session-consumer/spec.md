@@ -38,7 +38,7 @@ The CLI SHALL provide hook removal and registration commands that take a Codex h
 - **THEN** it reports failure and leaves the original file byte-for-byte unchanged
 
 ### Requirement: Validated bounded shared input
-The consumer SHALL request snapshot 1.1, require a non-negative safe integer generation no greater than its revision for every session, and validate the versioned snapshot contract and expected owner over authenticated configured numeric-loopback HTTP with bounded time, size and concurrency, no redirects and no proxy use. Source readiness declarations SHALL distinguish operator assertions from verified feed evidence. No provider reducer SHALL be copied to Python. A session whose provider, client, host and source are not declared in the configuration SHALL be skipped rather than rejecting the snapshot: it SHALL receive no Line, wave, comet or acknowledgment and SHALL take no part in parent and subagent grouping, while declared sessions keep updating. This covers #29 shared-contract, privacy and transport criteria and #111 undeclared sources.
+The consumer SHALL request snapshot 1.2 and accept valid generation-bearing snapshots 1.1 or 1.2, require a non-negative safe integer generation no greater than its revision for every session, and validate the versioned snapshot contract and expected owner over authenticated configured numeric-loopback HTTP with bounded time, size and concurrency, no redirects and no proxy use. Source readiness declarations SHALL distinguish operator assertions from verified feed evidence. No provider reducer SHALL be copied to Python. A session whose provider, client, host and source are not declared in the configuration SHALL be skipped rather than rejecting the snapshot: it SHALL receive no Line, wave, comet or acknowledgment and SHALL take no part in parent and subagent grouping, while declared sessions keep updating. This covers #29 shared-contract, privacy and transport criteria and #111 undeclared sources.
 
 #### Scenario: Invalid or unavailable host
 - **WHEN** authentication fails, input exceeds bounds, a version/owner/schema is invalid, or a revision regresses
@@ -123,11 +123,11 @@ Disconnected or uncertain shared sessions SHALL keep their last colors steady wi
 - **THEN** the task keeps its retained status steadily
 
 ### Requirement: Pure sanitized inspection and private ownership
-Inspection SHALL report source selection, owner, consumer health and sanitized identity/project mapping without starting a worker, changing state, contacting a device or returning credentials/private metadata. Inspection SHALL also report how many sessions the last projection skipped and their distinct source identities. One installation-local Python worker SHALL remain the sole device writer; SQLite SHALL remain private to its operating system. This covers #29 additional health and runtime criteria and #111 skipped-source visibility.
+Inspection SHALL report source selection, owner, consumer health and sanitized identity/project mapping and allowlisted shared labels, titles and project names without starting a worker, changing state, contacting a device or returning credentials or token paths. Inspection SHALL also report how many sessions the last projection skipped and their distinct source identities. One installation-local Python worker SHALL remain the sole device writer; SQLite SHALL remain private to its operating system. This covers #29 additional health and runtime criteria and #111 skipped-source visibility.
 
 #### Scenario: Inspect integration state
 - **WHEN** a caller reads shared status
-- **THEN** it receives selected source, neutral identities, connection, last revision/update, evidence age, uncertainty and fixed errors without mutations or credential/path disclosure
+- **THEN** it receives selected source, neutral identities, connection, last revision/update, evidence age, uncertainty and fixed errors without mutations or credential or token-path disclosure
 
 #### Scenario: Inspect skipped sources
 - **WHEN** the last projection skipped sessions from undeclared sources

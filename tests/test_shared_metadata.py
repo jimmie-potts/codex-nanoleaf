@@ -46,7 +46,57 @@ class SharedMetadataTest(unittest.TestCase):
         # Manual preference wins in the allocation layer.
         with contextlib.closing(database.connect_state(self.path)) as db:
             self.assertEqual(wall.task_projects(db)[self.key],'project')
-        self.assertNotIn('Real task title',json.dumps(self.s.inspect(self.path)))
+
+    def test_shared_title_and_project_precede_local_metadata(self):
+        self.value['snapshot']['apiVersion']='1.2'
+        self.session.update(title={'value':'Shared task title','source':'provider'},
+                            project='Shared project',projectId='hub')
+        self.select(self.value)
+        self.assertEqual(self.detail(),('Shared task title','shared-project-hub','project'))
+        self.assertEqual(self.rows("SELECT name FROM projects WHERE id='shared-project-hub'"),[('Shared project',)])
+        view=self.s.inspect(self.path)
+        self.assertEqual(view['sessions'][0]['title'],self.session['title'])
+        self.assertEqual(view['sessions'][0]['project'],'Shared project')
+        self.assertNotIn('tokenFile',json.dumps(view))
+        self.assertNotIn(str(self.path),json.dumps(view))
+        import wall_server
+        app=wall_server.App(self.path,{'line_groups':[[100,101]],'line_positions':[[0,0]]},launch=lambda _:None)
+        self.assertEqual(app.state()['tasks'][0]['title'],'Shared task title')
+        self.session['label']='User label'
+        shared_source.accept(self.path,self.value)
+        self.assertEqual(self.detail()[0],'User label')
+
+    def test_shared_claude_metadata_needs_no_local_reader(self):
+        self.value['snapshot']['apiVersion']='1.2'
+        self.session['identity'].update(provider='claude',client='code')
+        self.session.update(read='unknown',title={'value':'Claude shared title','source':'user'},project='Shared workspace')
+        self.key=self.s.identity_key(self.session['identity'])
+        self.config['qualifiedSources']=[{k:self.session['identity'][k] for k in self.s.SOURCE}]
+        self.config['bindings']=[]
+        shared_source.configure(self.path,self.config)
+        self.select(self.value)
+        title,project,manual=self.detail()
+        self.assertEqual(title,'Claude shared title')
+        self.assertTrue(project.startswith('shared-project-name:'))
+        self.assertEqual(self.rows('SELECT name FROM projects WHERE id="'+project+'"'),[('Shared workspace',)])
+        self.assertIsNone(manual)
+        del self.session['title'];del self.session['project']
+        shared_source.accept(self.path,self.value)
+        self.assertTrue(self.detail()[0].startswith('Claude '))
+        self.assertIsNone(self.detail()[1])
+
+    def test_shared_metadata_updates_preserve_effects_and_project_preferences(self):
+        self.value['snapshot']['apiVersion']='1.2'
+        self.session.update(title={'value':'Initial title','source':'provider'},projectId='hub',project='Initial project')
+        self.select(self.value)
+        before=self.rows('SELECT * FROM sessions'),self.rows('SELECT * FROM activity')
+        with contextlib.closing(database.connect_state(self.path)) as db,db:
+            db.execute("UPDATE projects SET color='#abcdef',roots='[\"/local\"]' WHERE id='shared-project-hub'")
+        self.session['title']['value']='Updated title';self.session['project']='Renamed project'
+        shared_source.accept(self.path,self.value)
+        self.assertEqual(self.detail(),('Updated title','shared-project-hub','project'))
+        self.assertEqual(self.rows("SELECT name,color,roots FROM projects WHERE id='shared-project-hub'"),[('Renamed project','#abcdef','["/local"]')])
+        self.assertEqual(before,(self.rows('SELECT * FROM sessions'),self.rows('SELECT * FROM activity')))
 
     def test_enriched_project_controls_line_allocation(self):
         self.session['activity']='active'
