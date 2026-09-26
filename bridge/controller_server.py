@@ -123,7 +123,6 @@ class App:
         return integration_api.animations(self,token,device,**checks)
 
     def integration_geometry(self,token,device,**checks):
-        import integration_api
         return integration_api.geometry_view(self,token,device,**checks)
 
     def integration_admit(self,token,request,body_bytes=None,deadline=None,**checks):
