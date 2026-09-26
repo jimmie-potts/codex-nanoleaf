@@ -1,6 +1,7 @@
 module.exports=async function(page,port,root){
 const path=require("node:path");const errors=[];page.on("pageerror",e=>errors.push(e.message));
 await page.goto('http://127.0.0.1:'+port);await page.waitForSelector('.wall-line');if(await page.locator('.wall-line').count()!==15)throw Error('Expected 15 Lines');
+const bunnyLink=page.getByRole('link',{name:'B.U.N.N.Y.'});if(await bunnyLink.getAttribute('href')!=='http://127.0.0.1:8788/'||await bunnyLink.getAttribute('target')!=='_blank')throw Error('Expected the B.U.N.N.Y. header link to open the Hub dashboard in a new tab');
 await require('./prism_checks.cjs')(page);
 await page.evaluate(async()=>{await action('/api/assign',{lines:Object.fromEntries(state.lines.map(l=>[l.id,{project:null,signature:0}]))});await action('/api/settings',{style:'classic',coverage:'whole',rotation:0,flip_x:0,flip_y:0});await action('/api/mode',{mode:'work'})});
 await require('./wall_options.cjs').open(page);await page.locator('#project').click();await page.waitForFunction(()=>document.querySelector('#project').classList.contains('active'));
