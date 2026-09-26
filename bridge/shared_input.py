@@ -2,7 +2,7 @@
 from pathlib import Path
 import sys
 
-PACKAGE = Path(__file__).resolve().parent / 'vendor/agent-state-1.0.0/package'
+PACKAGE = Path(__file__).resolve().parent / 'vendor/agent-state-3.3.0/package'
 
 
 def validate_snapshot(value):
@@ -11,26 +11,12 @@ def validate_snapshot(value):
     if location not in sys.path:
         sys.path.insert(0, location)
     from agent_state import validate_snapshot as validate
-    if type(value) is not dict or value.get('apiVersion') != '1.1':
-        return validate(value)
-    revision=value.get('revision');sessions=value.get('sessions')
-    if (type(revision) is not int or not 0 <= revision <= 9007199254740991
-            or type(sessions) is not list or len(sessions)>128):
-        return {'ok':False,'code':'invalid-snapshot'}
-    generations=[];legacy=[]
-    for session in sessions:
-        if (type(session) is not dict or type(session.get('generation')) is not int
-                or not 0 <= session['generation'] <= revision):
+    checked = validate(value)
+    # The consumer requires generations even though the general owner validator
+    # permits their omission for compatibility with earlier snapshots.
+    if checked['ok'] and checked['value']['apiVersion'] in ('1.1','1.2'):
+        if any(type(session.get('generation')) is not int for session in checked['value']['sessions']):
             return {'ok':False,'code':'invalid-snapshot'}
-        generations.append(session['generation'])
-        legacy.append({key:item for key,item in session.items() if key!='generation'})
-    # All other fields have the closed 1.0 shape. Its pinned validator returns
-    # a detached copy; only the independently checked generation is restored.
-    checked=validate(dict(value,apiVersion='1.0',sessions=legacy))
-    if checked['ok']:
-        checked['value']['apiVersion']='1.1'
-        for session,generation in zip(checked['value']['sessions'],generations):
-            session['generation']=generation
     return checked
 
 import contextlib
@@ -204,7 +190,7 @@ def check_envelope(value, config, minimum_revision=0):
             or type(value['nextRequestId']) is not str or not 1 <= len(value['nextRequestId']) <= 100):
         raise FeedError('invalid-feed')
     checked = validate_snapshot(value['snapshot'])
-    if not checked['ok'] or checked['value']['apiVersion']!='1.1' or checked['value']['revision'] < minimum_revision:
+    if not checked['ok'] or checked['value']['apiVersion'] not in ('1.1','1.2') or checked['value']['revision'] < minimum_revision:
         raise FeedError('invalid-feed')
     return dict(value, snapshot=checked['value'])
 
@@ -223,7 +209,7 @@ def declared(snapshot, config):
 
 def fetch_snapshot(config, minimum_revision=0):
     config = validate_config(config)
-    return check_envelope(request(config, '/sessions?snapshotVersion=1.1'), config, minimum_revision)
+    return check_envelope(request(config, '/sessions?snapshotVersion=1.2'), config, minimum_revision)
 
 import devices
 import project_map as wall
@@ -506,14 +492,18 @@ def project_envelope(db, envelope, config, instant, resync=False, targets=(DEFAU
                             and not db.execute('SELECT 1 FROM shared_evictions WHERE session=? AND device=?', (key,device)).fetchone()):
                         db.execute('INSERT OR IGNORE INTO comets (session,turn,queued,source,started,device) VALUES (?,?,?,NULL,NULL,?)', (key,turn,instant,device))
         project = 'shared-project-' + session['projectId'] if session.get('projectId') else None
+        if not project and session.get('project'):
+            project = 'shared-project-name:' + hashlib.sha256(session['project'].encode()).hexdigest()
         if project:
-            db.execute('INSERT OR IGNORE INTO projects VALUES (?,?,?,?)', (project,session['projectId'],wall.default_color(project),'[]'))
+            name = session.get('project') or session['projectId']
+            db.execute('INSERT INTO projects VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name',
+                       (project,name,wall.default_color(project),'[]'))
         existing = db.execute('SELECT title,cwd,project,manual_project,turn,started FROM task_info WHERE session=?', (key,)).fetchone()
         identity=session['identity']
         local_title,local_project=('',None)
         if metadata and identity['provider']=='codex':
             local_title,local_project=metadata.lookup(db,identity['sessionId'])
-        title=session.get('label') or local_title or wall.fallback_title(identity['provider'],identity['sessionId'])
+        title=session.get('label') or session.get('title',{}).get('value') or local_title or wall.fallback_title(identity['provider'],identity['sessionId'])
         manual = existing[3] if existing else None
         started = existing[5] if existing and existing[4] == turn else (instant if not task_resync and turn else None)
         details=(title,'',project or local_project,manual,turn,started)
@@ -551,7 +541,7 @@ def inspect(directory, now=time.time):
                 for session in snap['sessions']:
                     age=session['observationAgeMs']+max(0,elapsed)*1000
                     view['sessions'].append({'id':identity_key(session['identity']),'identity':session['identity'],
-                        'projectId':session.get('projectId'),'read':session['read'],'activity':session['activity'],
+                        'projectId':session.get('projectId'),'label':session.get('label'),'title':session.get('title'),'project':session.get('project'),'read':session['read'],'activity':session['activity'],
                         'attention':session['attention'],'notices':session['notices'],'unavailable':session['unavailable'],
                         'observationAgeMs':age,
                         'freshness':'uncertain' if disconnected or snap['collector'] != 'running' or session['freshness']=='uncertain' or age>=300000 else 'current'})

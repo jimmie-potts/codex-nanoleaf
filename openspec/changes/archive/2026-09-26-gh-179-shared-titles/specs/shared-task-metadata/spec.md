@@ -1,10 +1,4 @@
-# Shared task metadata
-
-## Purpose
-
-Keep shared Codex tasks recognizable and correctly assigned to local projects using shared titles and projects with local fallbacks, without changing shared lifecycle authority.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Local Codex presentation enrichment
 The consumer SHALL enrich currently presented shared sessions whose provider is `codex` using their raw session identity and the configured local Codex metadata. Titles SHALL use a hub label, then the shared title value, then local Codex title, then fallback. Shared title and project fields SHALL apply to every declared provider. Projects SHALL use a manual override, then hub project, then the existing local assignment and workspace-root matching rules. Other providers SHALL NOT receive Codex metadata. The existing local Codex readers SHALL remain read-only fallbacks until shared coverage is verified. Tokens and credential paths SHALL remain excluded. This implements #75 and #179.
@@ -28,21 +22,3 @@ The consumer SHALL enrich currently presented shared sessions whose provider is 
 - **WHEN** a declared Claude session has shared title and project fields
 - **THEN** the wall uses them without reading a Claude transcript or inheriting Codex metadata
 - **AND** absent shared metadata retains the provider fallback
-
-### Requirement: Distinct fallback names
-A task without an available title SHALL display its provider name and the last eight hexadecimal characters of its raw session ID, such as `Codex 5b1e07c2` or `Claude 4227761b`. Legacy Codex tasks SHALL use the same fallback rule. IDs with fewer than eight hexadecimal characters SHALL use their available hexadecimal suffix, or the raw ID suffix when none exist.
-
-#### Scenario: Nearby UUIDs without titles
-- **WHEN** two tasks have UUIDs with the same timestamp prefix and different final eight hexadecimal characters
-- **THEN** the map displays distinct provider-prefixed fallback titles in shared and legacy modes
-
-### Requirement: Metadata does not own lifecycle
-Metadata lookup SHALL enrich only tasks presented by the current shared snapshot. It SHALL NOT create, restore, renew or retain a retired shared task. Source switching and restart SHALL preserve manual preferences and use the selected source's presentation rules.
-
-#### Scenario: Retired task remains in local metadata
-- **WHEN** the owner removes a task while its local title and project remain available
-- **THEN** polling and map reads do not recreate the task or reserve its Line
-
-#### Scenario: Restart and rollback
-- **WHEN** the consumer restarts in shared mode or switches back to legacy
-- **THEN** metadata remains available under the selected source and manual preferences survive the existing explicit identity bindings

@@ -218,12 +218,14 @@ tasks without an attributed project read "No project", and the
 override for machine clients. The status-first default screen is recorded in
 [ADR 0013](../docs/decisions/0013-wall-map-status-first.md).
 
-Shared Codex tasks use local titles and projects from the same configured metadata
-reader. A hub label takes precedence over the local title. Project allocation uses
-a manual override first, then the hub project, then the local Codex assignment or
-workspace-root match. Other providers do not inherit Codex metadata. Lookup only
-enriches tasks still present in the shared feed and never restores retired tasks.
-Local metadata stays on this installation.
+Shared tasks use the hub label first, then its snapshot 1.2 title, then the
+existing local Codex title and provider fallback. Shared project names apply to
+Codex and Claude tasks. Project allocation uses a manual override first, then
+the shared project, then local Codex assignment or workspace-root matching.
+Other providers do not inherit Codex metadata. The existing local reader remains
+available until shared coverage is verified; no Claude transcript reader is added.
+Lookup only enriches tasks still present in the shared feed and never restores
+retired tasks. Tokens and credential paths remain excluded from shared views.
 
 When a title is unavailable, both input modes show the provider and the last eight
 hexadecimal characters of the raw session ID, such as **Codex 5b1e07c2** or
