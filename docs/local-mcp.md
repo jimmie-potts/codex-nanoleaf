@@ -1,6 +1,6 @@
 # Local Codex controls
 
-The optional MCP host exposes `nanoleaf_status`, `nanoleaf_mode_set`, `nanoleaf_scenes_list`, `nanoleaf_scene_activate`, `nanoleaf_animations_list` and `nanoleaf_animation_play` through the protected local controller. Modes are Work, Quiet and Free. Their existing brightness and scene policies remain unchanged. The [local MCP specification](../openspec/specs/local-mcp-bindings/spec.md) owns behavior; [issue #33](https://github.com/jimmie-potts/codex-nanoleaf/issues/33) owns source delivery, [issue #91](https://github.com/jimmie-potts/codex-nanoleaf/issues/91) owns the scene tools, [issue #92](https://github.com/jimmie-potts/codex-nanoleaf/issues/92) owns the animation tools, [issue #113](https://github.com/jimmie-potts/codex-nanoleaf/issues/113) owns the optional [Panels tools](#control-the-panels) and [ADR 0006](decisions/0006-local-mcp-hosting.md) records hosting.
+The optional MCP host exposes `nanoleaf_status`, `nanoleaf_mode_set`, `nanoleaf_scenes_list`, `nanoleaf_scene_activate`, `nanoleaf_animations_list`, `nanoleaf_animation_play` and `nanoleaf_scene_restore` through the protected local controller. Modes are Work, Quiet and Free. Their existing brightness and scene policies remain unchanged. The [local MCP specification](../openspec/specs/local-mcp-bindings/spec.md) owns behavior; [issue #33](https://github.com/jimmie-potts/codex-nanoleaf/issues/33) owns source delivery, [issue #91](https://github.com/jimmie-potts/codex-nanoleaf/issues/91) owns the scene tools, [issue #92](https://github.com/jimmie-potts/codex-nanoleaf/issues/92) owns the animation tools, [issue #113](https://github.com/jimmie-potts/codex-nanoleaf/issues/113) owns the optional [Panels tools](#control-the-panels) and [ADR 0006](decisions/0006-local-mcp-hosting.md) records hosting.
 
 Source delivery does not install, provision credentials, launch Codex or touch lights. [Issue #55](https://github.com/jimmie-potts/codex-nanoleaf/issues/55) owns separately authorized installation, client permission checks and physical acceptance. The commands below are instructions for that handoff.
 
@@ -76,6 +76,24 @@ around the saved Line-centroid. All patterns accept `faster`, one step above
 forwards the selected values unchanged.
 
 The receipt comes from the extension. `queued` or `sent` does not establish visible light output; `uncertain` may have reached the device and is never retried. A mode command before the worker plays it cancels a queued animation.
+
+## Stop an animation and restore the scene
+
+`nanoleaf_scene_restore` needs control scope and restores the Lines' remembered
+scene with one existing `scene.activate` command. Take `requestId`,
+`expectedConfigurationRevision` and `expectedGeneration` from `nanoleaf_status`;
+the animation listing uses a different request sequence. The tool reads
+`rememberedSceneId` from animation options and passes the caller's v1 identity
+unchanged to scene activation. Its discovery read also requires the upstream
+credential's read scope.
+
+In Work or Quiet it returns `unsupported-capability` with a message to switch to
+Free. It never switches mode itself. A null remembered ID gives the same typed
+failure with no dispatch. Credentials are checked again before activation;
+controller revision, generation and scene checks still apply if state changes
+between discovery and dispatch. Existing receipts and uncertainty are preserved,
+without retries. The saved scene and brightness remain under the worker's
+existing policy; this tool sends no brightness command.
 
 ## Control the Panels
 
