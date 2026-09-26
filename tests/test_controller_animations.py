@@ -64,7 +64,7 @@ class AdmissionTest(AnimationTest):
         for mode in ('work', 'quiet'):
             self.mode(mode)
             before = self.options()['nextRequestId']
-            _, result = self.play()
+            _, result = self.play(dict(WAVE, direction='clockwise', speed='faster'))
             self.assertEqual(result, (422, {'failure': {'code': 'unsupported-capability'}}))
             self.assertEqual(self.options()['nextRequestId'], before)
             self.assertEqual(self.options()['mode'], mode.capitalize())
@@ -102,6 +102,20 @@ class AdmissionTest(AnimationTest):
         view = self.app.integration_snapshot(self.token, 'device')
         self.assertEqual(view['pending'], [req])
 
+    def test_rotation_and_faster_use_the_existing_worker_receipt(self):
+        self.free()
+        for direction in ('clockwise', 'counterclockwise'):
+            for pattern in ('wave', 'gradient'):
+                with self.subTest(direction=direction, pattern=pattern):
+                    command = dict(WAVE, pattern=pattern, direction=direction, speed='faster')
+                    req, (code, receipt) = self.play(command)
+                    self.assertEqual((code, receipt['outcome']), (202, 'queued'))
+                    self.run_worker()
+                    self.assertEqual(self.puts(), [('/effects', self.expected(command))])
+                    self.assertEqual(self.receipt(req)['outcome'], 'sent')
+                    self.assertEqual(self.receipt(req)['physicalOutcome'], 'unknown')
+                    self.device.calls.clear()
+
     def test_options_route_is_pure_and_the_snapshot_shape_is_unchanged(self):
         reader = server.issue(self.directory, 'reader', ['read'])
         before = (self.directory / 'status.sqlite').read_bytes()
@@ -110,8 +124,8 @@ class AdmissionTest(AnimationTest):
         self.assertEqual(view['patterns'], [{'id': 'wave', 'spatial': True}, {'id': 'gradient', 'spatial': True},
                                             {'id': 'pulse', 'spatial': False}, {'id': 'breathe', 'spatial': False},
                                             {'id': 'sparkle', 'spatial': False}])
-        self.assertEqual(view['speeds'], ['slow', 'medium', 'fast'])
-        self.assertEqual(view['directions'], ['left', 'right', 'up', 'down', 'outward', 'inward'])
+        self.assertEqual(view['speeds'], ['slow', 'medium', 'fast', 'faster'])
+        self.assertEqual(view['directions'], ['left', 'right', 'up', 'down', 'outward', 'inward', 'clockwise', 'counterclockwise'])
         self.assertEqual(view['defaults'], {'speed': 'medium', 'direction': 'right', 'loop': True})
         self.assertEqual(view['limits'], {'minColors': 1, 'maxColors': 8, 'maxFramesPerZone': 20, 'maxEffectBytes': 8192})
         snapshot = self.app.integration_snapshot(reader, 'device')

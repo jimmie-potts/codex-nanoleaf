@@ -70,6 +70,11 @@ Read status first. Mode calls require its `nextRequestId`, `configurationRevisio
 
 `nanoleaf_animation_play` needs the control scope. It takes `requestId` (the listing's `nextRequestId`), `expectedRevision` (the listing's `revision`), `pattern` and 1 to 8 `#rrggbb` `colors`, plus optional `speed`, `loop` and, for `wave` and `gradient` only, `direction`. It sends one `animation.play` extension command with those values unchanged and adds no defaults of its own. The tool never switches mode. In Work or Quiet the controller rejects the command as `unsupported-capability` before any write, and the tool's failure carries a message saying to switch to Free with `nanoleaf_mode_set` and list the options again. To play "a slow blue-green ocean wave", call `nanoleaf_mode_set` with Free, call `nanoleaf_animations_list`, then play `wave` with `["#0044aa", "#00aa66"]` at `slow`.
 
+Both spatial patterns also accept `clockwise` and `counterclockwise`, rotating
+around the saved Line-centroid. All patterns accept `faster`, one step above
+`fast`. Discover the available values with `nanoleaf_animations_list`; the tool
+forwards the selected values unchanged.
+
 The receipt comes from the extension. `queued` or `sent` does not establish visible light output; `uncertain` may have reached the device and is never retried. A mode command before the worker plays it cancels a queued animation.
 
 ## Control the Panels

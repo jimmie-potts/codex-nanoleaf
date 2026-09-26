@@ -9,8 +9,8 @@ import re
 
 # Spatial patterns take a direction; the others light every Line together or per Line.
 PATTERNS = {'wave': True, 'gradient': True, 'pulse': False, 'breathe': False, 'sparkle': False}
-SPEEDS = {'slow': 8, 'medium': 4, 'fast': 2}  # Deciseconds per keyframe.
-DIRECTIONS = ('left', 'right', 'up', 'down', 'outward', 'inward')
+SPEEDS = {'slow': 8, 'medium': 4, 'fast': 2, 'faster': 1}  # Deciseconds per keyframe.
+DIRECTIONS = ('left', 'right', 'up', 'down', 'outward', 'inward', 'clockwise', 'counterclockwise')
 DEFAULTS = {'speed': 'medium', 'direction': 'right', 'loop': True}
 MIN_COLORS, MAX_COLORS = 1, 8
 # The envelope already verified on the Lines: the middle-Line comet preview sends
@@ -89,7 +89,13 @@ def blend(colors, position):
 
 
 def phases(positions, direction):
-    """Each Line's place along the direction, from 0 at the start to 1 at the far end."""
+    """Each Line's phase: a normalized linear span or a fraction of a full turn."""
+    if direction in ('clockwise', 'counterclockwise'):
+        cx = sum(x for x, _ in positions) / len(positions)
+        cy = sum(y for _, y in positions) / len(positions)
+        sign = -1 if direction == 'clockwise' else 1
+        # Positive Y is up, like AXES. Preserve the full circle even on sparse walls.
+        return [(sign * math.atan2(y - cy, x - cx) / math.tau) % 1.0 for x, y in positions]
     if direction in ('outward', 'inward'):
         cx = sum(x for x, _ in positions) / len(positions)
         cy = sum(y for _, y in positions) / len(positions)
@@ -103,18 +109,19 @@ def phases(positions, direction):
     return [(value - low) / span if span > 1e-9 else 0.0 for value in values]
 
 
-def wave(index, colors, step, phase):
-    # A crest per color travels along the direction, over three quarters of a cycle.
+def wave(index, colors, step, phase, circular=False):
+    # Linear sweeps cover three quarters of a cycle; rotations cover the full circle.
+    spread = 1.0 if circular else 0.75
     frames = []
     for k in range(KEYFRAMES):
-        color, within = blend(colors, k / KEYFRAMES - 0.75 * phase[index])
+        color, within = blend(colors, k / KEYFRAMES - spread * phase[index])
         frames.append((*scale(color, 0.15 + 0.85 * (0.5 + 0.5 * math.cos(2 * math.pi * within))), step))
     return frames
 
 
-def gradient(index, colors, step, phase):
+def gradient(index, colors, step, phase, circular=False):
     # The first color starts the direction and the last ends it; the band drifts along it.
-    spread = (len(colors) - 1) / len(colors)
+    spread = 1.0 if circular else (len(colors) - 1) / len(colors)
     return [(*blend(colors, spread * phase[index] - k / KEYFRAMES)[0], step) for k in range(KEYFRAMES)]
 
 
@@ -146,8 +153,10 @@ def render(command, groups, positions):
         phase = phases(positions, options['direction'])
     colors = [rgb(color) for color in command['colors']]
     zones = []
+    circular = ({'circular': True} if PATTERNS[pattern]
+                and options['direction'] in ('clockwise', 'counterclockwise') else {})
     for index, zone_ids in enumerate(groups):
-        frames = RENDERERS[pattern](index, colors, SPEEDS[options['speed']], phase)
+        frames = RENDERERS[pattern](index, colors, SPEEDS[options['speed']], phase, **circular)
         if len(frames) > MAX_FRAMES:
             raise Rejected('capacity')
         # Both zones of a Line share its frames.
