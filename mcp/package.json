@@ -14,7 +14,7 @@
     "verify": "node scripts/verify.mjs"
   },
   "dependencies": {
-    "@jimmie-potts/device-mcp": "file:../vendor/jimmie-potts-device-mcp-1.0.0.tgz",
+    "@jimmie-potts/device-mcp": "file:../vendor/jimmie-potts-device-mcp-1.0.1.tgz",
     "@jimmie-potts/device-contracts": "file:../bridge/vendor/device-contracts-1.0.0/jimmie-potts-device-contracts-1.0.0.tgz"
   },
   "devDependencies": {
