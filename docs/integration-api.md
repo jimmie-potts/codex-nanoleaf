@@ -18,6 +18,7 @@ controller listener serves both APIs on the same authenticated loopback endpoint
 | `project.color` | Opaque project ID, `#RRGGBB` saved color | Machine `control` |
 | `animation.play` | Pattern, 1 to 8 colors, speed, direction, loop; Free only | Machine `control`; see [requested animations](#requested-animations) |
 | Animation options | Patterns, speeds, directions, defaults, limits | Machine `read`, `GET /animations` |
+| Element geometry | Any configured device, the Lines or the Panels | Machine `read`, `GET /geometry`; see [element geometry](#element-geometry) |
 | Cancel a configuration edit or queued animation | Its original request ticket | Owning machine principal with `control` |
 | Power, brightness, saved-scene activation | Shared v1 `power.set`, `brightness.set`, `scene.activate` | Machine `control`, unchanged `/controller/v1/commands`; see [general controls](controller-api.md#general-controls) |
 | Locate, preview, source switching, orientation, new devices or combined layouts | Unsupported by this extension | No operation |
@@ -34,6 +35,7 @@ extension is read-only ([#113](https://github.com/jimmie-potts/codex-nanoleaf/is
   `unsupported-capability` before any reservation.
 - Receipt and cancel return `request-expired`, and `GET /animations` returns
   `unsupported-capability`.
+- `GET /geometry` answers for that device as it does for the Lines.
 
 The four configuration edits preserve the selected Work/Quiet/Free mode. They are
 available in all three modes, using the existing wall application operations.
@@ -58,6 +60,7 @@ All paths below begin with `/controller/integration/v1`. Every call requires
 | `GET /snapshot?deviceId=<configured-id>` | Sanitized snapshot and current extension request ticket |
 | `POST /commands` | Admission receipt |
 | `GET /animations?deviceId=<configured-id>` | Animation options, mode, revision and current request ticket |
+| `GET /geometry?deviceId=<configured-id>` | That device's saved element geometry |
 | `GET /receipt?deviceId=<id>&epoch=<epoch>&sequence=<sequence>` | Original principal's retained receipt, without effects |
 | `POST /cancel` | Cancel queued work, or return an already completed receipt |
 
@@ -153,7 +156,8 @@ HTTP failures retain controller codes: 400 invalid, 401 unauthenticated, 403
 forbidden, 409 conflict/order, 410 expired, 422 unsupported, 429 capacity, 503
 launch/service failure. Reads return capacity instead of silently truncating an
 editable identity map. Limits are 1,000 projects/tasks/reservations, 300 configured
-Lines, one queued edit, 256 retained completed receipts and 65,536 request bytes.
+Lines, one queued edit, 256 retained completed receipts, 65,536 request bytes and
+a 1 MiB saved `layout.json`, which every extension route reads under the same bound.
 The existing controller thread, socket, transaction-deadline and body limits apply.
 
 ## Requested animations
@@ -219,6 +223,43 @@ from `GET /animations` instead. It returns `patterns` (each `{id, spatial}`),
 `maxFramesPerZone` and `maxEffectBytes`), plus `mode`, `revision` and
 `nextRequestId` for the next request. It is a pure read like the snapshot.
 The [local MCP tools](local-mcp.md#play-animations) use this route.
+
+## Element geometry
+
+[Issue #169](https://github.com/jimmie-potts/codex-nanoleaf/issues/169) lets the
+hub draw the real shape of the Lines and the Panels. `GET /geometry` returns one
+configured device's saved layout:
+
+```json
+{"apiVersion": "nanoleaf.integration/1.0", "identity": {"controllerId": "local-controller", "deviceId": "wall", "sourceId": "source", "controllerEpoch": "..."},
+ "kind": "lines",
+ "elements": [{"id": "101:102", "number": 1, "zones": [102, 101], "points": [[0, 0], [50, 0], [100, 0]]}],
+ "connectors": {"nodes": [{"id": "7", "x": 0, "y": 0}, {"id": "8", "x": 100, "y": 0}], "lines": [{"id": "101:102", "a": "7", "b": "8"}]}}
+```
+
+- `elements` lists the saved elements in order. Each has the stable element ID
+  that `elements.assign` uses, its number, its zone IDs in saved order (a Line's
+  two zones, or a triangle's one panel ID) and `points`.
+- `points` are the display coordinates the wall map draws: three points along a
+  Line, or a triangle's three vertices. The controller's global orientation and
+  Y inversion are already applied; the map's Rotate and Flip view options are
+  not. A layout saved without drawable geometry, such as one from before the
+  Linux installer saved it, has `points: null` on every element.
+- `connectors` is the Lines' connector graph: each connector's display position
+  and the two connectors (`a`, `b`) of each Line, in element order. It is null
+  for the Panels and when the saved layout lacks connector geometry.
+- A configured device without a saved layout entry returns `kind: null`, no
+  elements and null connectors. An unknown device fails as the snapshot does.
+  An invalid saved layout returns `unsupported-capability`; one over 1 MiB
+  returns `capacity`.
+
+The route is a pure read. It reads the saved `layout.json` and one SQLite read
+transaction, never discovers geometry, contacts a device or reads the wall map's
+drawing cache, and carries no address, credential or path. The 1.0 snapshot keeps
+its exact shape. The [TypeScript consumer](../contracts/integration-v1/consumer.ts)
+validates the response exactly with `validateGeometry`. The hub reads it through
+its own `GET /api/controllers/v1/:id/integration/geometry` route; the wall map
+keeps drawing from its own files.
 
 ## Runtime, versioning and rollback
 

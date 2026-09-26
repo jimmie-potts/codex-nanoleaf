@@ -60,6 +60,47 @@ export function validateRequest(v: unknown): v is Request {
   }
 }
 
+/** Read-only element geometry from `GET /geometry`, in the wall map's display coordinates. */
+export type Point = [number, number];
+export type Geometry = {apiVersion: typeof apiVersion;
+  identity: {controllerId: string; deviceId: string; sourceId: string; controllerEpoch: string};
+  kind: 'lines' | 'panels' | null;
+  elements: {id: string; number: number; zones: number[]; points: Point[] | null}[];
+  connectors: {nodes: {id: string; x: number; y: number}[]; lines: {id: string; a: string; b: string}[]} | null};
+
+const neutral = (v: unknown) => match(v, /^[A-Za-z0-9_.-]{1,128}$/);
+const point = (v: unknown) => Array.isArray(v) && v.length === 2 && v.every(n => typeof n === 'number' && Number.isFinite(n));
+const zone = (v: unknown) => Number.isInteger(v) && (v as number) >= 0 && (v as number) <= 65535;
+
+export function validateGeometry(v: unknown): v is Geometry {
+  if (!object(v) || !exact(v, ['apiVersion','identity','kind','elements','connectors']) || v.apiVersion !== apiVersion
+      || !object(v.identity) || !exact(v.identity, ['controllerId','deviceId','sourceId','controllerEpoch'])
+      || !Object.values(v.identity).every(neutral) || ![null,'lines','panels'].includes(v.kind)
+      || !Array.isArray(v.elements) || v.elements.length > 300) return false;
+  // Lines have two zones per element and Panels one; a device without a saved layout has neither.
+  const perElement = v.kind === 'lines' ? 2 : 1, drawn = v.elements[0]?.points !== null, seen = new Set();
+  if (v.kind === null && (v.elements.length > 0 || v.connectors !== null)) return false;
+  const elements = v.elements.every((e: unknown, index: number) => {
+    if (!object(e) || !exact(e, ['id','number','zones','points']) || e.number !== index + 1
+        || !Array.isArray(e.zones) || e.zones.length !== perElement || !e.zones.every(zone) || new Set(e.zones).size !== perElement
+        || e.id !== [...e.zones].sort((a, b) => a - b).join(':') || seen.has(e.id)
+        || (e.points === null) === drawn || e.points !== null && !(Array.isArray(e.points) && e.points.length === 3 && e.points.every(point))) return false;
+    seen.add(e.id); return true;
+  });
+  if (!elements) return false;
+  if (v.connectors === null) return true;
+  const c = v.connectors;
+  if (v.kind !== 'lines' || !object(c) || !exact(c, ['nodes','lines']) || !Array.isArray(c.nodes) || c.nodes.length < 1 || c.nodes.length > 600
+      || !Array.isArray(c.lines) || c.lines.length !== v.elements.length) return false;
+  const nodes = new Set();
+  for (const n of c.nodes) {
+    if (!object(n) || !exact(n, ['id','x','y']) || !match(n.id, /^[0-9]{1,5}$/) || nodes.has(n.id) || !point([n.x, n.y])) return false;
+    nodes.add(n.id);
+  }
+  return c.lines.every((l: unknown, index: number) => object(l) && exact(l, ['id','a','b']) && l.id === v.elements[index].id
+    && nodes.has(l.a) && nodes.has(l.b) && l.a !== l.b);
+}
+
 export function animationResult(receipt: AnimationReceipt): 'pending' | 'sent' | 'uncertain' | 'refresh' | 'stopped' {
   // Sent is transport evidence only. Uncertain may have reached the device and is
   // never retried automatically; look up the original ticket instead.
