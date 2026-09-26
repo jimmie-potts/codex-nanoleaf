@@ -127,6 +127,8 @@
   .brand { display: flex; align-items: baseline; gap: 9px; flex: none; white-space: nowrap; }
   .brand-mark { font: 700 13px/1.2 var(--brand-font); text-transform: var(--brand-transform); letter-spacing: var(--brand-tracking); color: var(--brand-color); }
   .brand-sub { color: var(--muted); font-size: 12px; }
+  .hub-link { color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .hub-link:hover { color: var(--text); }
   .controls { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; flex: none; }
   .control { display: flex; align-items: center; gap: 9px; }
   .group { display: inline-flex; }
@@ -411,6 +413,7 @@ body[data-mode="quiet"] #wall.prism-scene, body[data-mode="free"] #wall.prism-sc
 <body><div class="app">
 <header>
   <div class="brand"><span class="brand-mark">Codex × Nanoleaf</span><span class="brand-sub">Wall map</span></div>
+  <a class="hub-link" href="http://127.0.0.1:8788/" target="_blank" rel="noopener noreferrer">B.U.N.N.Y.</a>
   <div class="controls">
     <div class="control" role="group" aria-labelledby="modeLabel"><span id="modeLabel" class="label">Mode</span><div class="group"><button type="button" id="work">Work</button><button type="button" id="quiet">Quiet</button><button type="button" id="free">Free</button></div></div>
   </div>
