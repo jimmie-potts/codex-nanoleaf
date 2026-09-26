@@ -120,6 +120,14 @@ class GeometryTest(PanelsControllerTest):
             self.app.integration_geometry(self.token, 'wall')
         self.assertEqual(failure.exception.code, 'capacity')
 
+    def test_every_extension_route_reads_a_layout_over_64_kib(self):
+        # A larger saved layout stays readable by the snapshot and animation routes, not only geometry.
+        path = self.directory / 'layout.json'
+        path.write_bytes(path.read_bytes() + b' ' * (integration_api.MAX_BODY + 1))
+        self.assertEqual(len(self.app.integration_snapshot(self.token, 'wall')['elements']), 15)
+        self.assertIn('patterns', self.app.integration_animations(self.token, 'wall'))
+        self.assertEqual(len(self.pure('wall')['elements']), 15)
+
     def test_typescript_consumer_accepts_the_actual_route_outputs(self):
         views = [self.app.integration_geometry(self.token, device) for device in ('wall', 'panels')]
         devices.save_layout(self.directory / 'layout.json', {'wall': self.lines})

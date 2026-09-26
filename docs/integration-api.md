@@ -156,7 +156,8 @@ HTTP failures retain controller codes: 400 invalid, 401 unauthenticated, 403
 forbidden, 409 conflict/order, 410 expired, 422 unsupported, 429 capacity, 503
 launch/service failure. Reads return capacity instead of silently truncating an
 editable identity map. Limits are 1,000 projects/tasks/reservations, 300 configured
-Lines, one queued edit, 256 retained completed receipts and 65,536 request bytes.
+Lines, one queued edit, 256 retained completed receipts, 65,536 request bytes and
+a 1 MiB saved `layout.json`, which every extension route reads under the same bound.
 The existing controller thread, socket, transaction-deadline and body limits apply.
 
 ## Requested animations

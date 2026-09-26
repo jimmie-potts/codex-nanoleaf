@@ -18,7 +18,7 @@ MAX_ITEMS = 1000
 MAX_RECEIPTS = 256
 MAX_BODY = 65536
 MAX_SEQUENCE = 9007199254740991
-# Two devices of 300 elements with their saved geometry caches stay well inside this.
+# The saved layout of every device; two of 300 elements with their geometry caches stay well inside this.
 MAX_LAYOUT_BYTES = 1048576
 OPERATIONS = ('settings.set', 'elements.assign', 'task.assign', 'project.color')
 # Advertised by its own read route so the 1.0 snapshot keeps its exact shape.
@@ -42,7 +42,7 @@ def geometry(directory):
     """Saved Lines zone pairs and positions; positions are None until every Line has one."""
     # Read only the saved physical mapping, never load_config's geometry discovery.
     raw = (directory / 'layout.json').read_bytes()
-    if len(raw) > MAX_BODY:
+    if len(raw) > MAX_LAYOUT_BYTES:
         raise Failure('capacity')
     try:
         entry = devices.layout_devices(json.loads(raw)).get(devices.DEFAULT)
