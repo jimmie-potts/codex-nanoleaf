@@ -1,9 +1,4 @@
-# wall-verification-runs Specification
-
-## Purpose
-Lets an agent start the actual wall server over named synthetic state as a disposable, leased run of the shared app verification core, drive task transitions and the page, keep assertion-backed proof and hand over a preview, while a process boundary refuses and records every device, service and process request. A run proves no physical output.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Named synthetic scenarios
 
