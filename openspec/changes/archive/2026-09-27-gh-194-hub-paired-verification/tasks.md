@@ -18,6 +18,6 @@
 
 ## 4. Dependencies, documentation and delivery
 
-- [ ] 4.1 Vendor the released app-verify 1.1.0 archive, and install the controller dependencies in the browser CI job. Evidence: `npm ci` from the lockfile and the checksum file; CI's browser job.
+- [x] 4.1 Vendor the released app-verify 1.1.0 archive, and install the controller dependencies in the browser CI job. Evidence: the `app-verify-v1.1.0` release asset (from merged Hub main `917d06f`, PR #554), SHA-256 `1a0447ec6324f815bc89c3f671207ef452cde120c329b5318fd68711e06a3281`, verified against its sidecar, with its source receipt; `npm ci` from the updated lockfile installs 1.1.0. CI's browser job is recorded in the PR.
 - [x] 4.2 Document the pairing convention, order, checks, route and deferrals in the development guide, with cross-links from the shared-input and controller guides. Evidence: the guide's Hub-paired runs section and feature-map rows.
-- [ ] 4.3 Run the Python suite on 3.12 and 3.14, the browser, verification, lifecycle and workflow checks, make the delivery evidence run at the final head, and record the results in the PR.
+- [x] 4.3 Run the Python suite on 3.12 and 3.14, the browser, verification, lifecycle and workflow checks, make the delivery evidence run at the final head, and record the results in the PR. Evidence: every command exited 0 against the vendored 1.1.0 core (668 Python tests on each version, 43 verification tests, 10 lifecycle tests with `APP_VERIFY_REQUIRE_SYSTEMD=1`); the evidence run's revision, captures and checks are in the PR.
