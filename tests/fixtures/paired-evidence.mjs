@@ -14,6 +14,7 @@ import {spawn} from 'node:child_process';
 import {randomBytes} from 'node:crypto';
 import {existsSync} from 'node:fs';
 import {mkdir, readdir, readFile, stat, writeFile, appendFile} from 'node:fs/promises';
+import {homedir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {exercise} from './controller-caller.mjs';
@@ -58,14 +59,15 @@ await record('start.json', start);
 if (start.code !== 0) throw new Error(`start exited ${start.code}`);
 const {runId, url, proofDir} = start.result;
 await summary(`run ${runId} at ${url}: start exit ${start.code}, revision ${start.result.build.sourceRevision}, dirty ${start.result.build.dirty}`);
-for (const step of REFERENCE) await capture(runId, step);
-
-const runtimeDir = JSON.parse(await readFile(join(proofDir, 'receipt.json'), 'utf8')).owned.runtimeDir;
-const tokens = {feed: randomBytes(32).toString('base64url'), controller: randomBytes(32).toString('base64url')};
-await writeFile(join(runtimeDir, 'hub-feed-token'), tokens.feed, {mode: 0o600, flag: 'wx'});
-await writeFile(join(runtimeDir, 'hub-controller-token'), tokens.controller, {mode: 0o600, flag: 'wx'});
-const hub = await standInHub(tokens.feed, {log: join(out, 'stand-in-hub.jsonl')});
+// The core's runtime root; the run's directory is `<root>/<run id>/`.
+const runtimeDir = join(process.env.APP_VERIFY_STATE_ROOT ?? join(homedir(), '.local/state/app-verify'), runId);
+let hub;
 try {
+  for (const step of REFERENCE) await capture(runId, step);
+  const tokens = {feed: randomBytes(32).toString('base64url'), controller: randomBytes(32).toString('base64url')};
+  await writeFile(join(runtimeDir, 'hub-feed-token'), tokens.feed, {mode: 0o600, flag: 'wx'});
+  await writeFile(join(runtimeDir, 'hub-controller-token'), tokens.controller, {mode: 0o600, flag: 'wx'});
+  hub = await standInHub(tokens.feed, {log: join(out, 'stand-in-hub.jsonl')});
   const paired = await verify(['scenario', runId, 'hub-paired', '--input', `hub-feed=${hub.origin}`]);
   await record('scenario-hub-paired.json', paired);
   const controller = paired.result?.endpoints?.controller;
@@ -112,5 +114,5 @@ try {
   const stop = await verify(['stop', runId]);
   await record('stop.json', stop);
   await summary(`stop: exit ${stop.code}, ${stop.result?.state}, cleanup ${stop.result?.cleanup?.result}`);
-  await hub.close();
+  await hub?.close();
 }
