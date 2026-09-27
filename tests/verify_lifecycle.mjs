@@ -3,6 +3,9 @@
 // every checkout, so it never lists, touches or stops a real `wall` run, and it stops every run it
 // starts. Without a user manager the tests skip with the reason printed; APP_VERIFY_REQUIRE_SYSTEMD=1
 // turns that into a failure.
+//
+// #194: the hub-paired tests pair a run with a stand-in Hub feed served by this process, write the
+// credential files as the orchestrator does, and run the wall beneath tests/fixtures/backstop_demo.py.
 import assert from 'node:assert/strict';
 import {execFileSync, spawn, spawnSync} from 'node:child_process';
 import {createHash, randomBytes} from 'node:crypto';
@@ -13,6 +16,7 @@ import {join} from 'node:path';
 import {after, before, test} from 'node:test';
 import {validateReceipt} from '@jimmie-potts/app-verify';
 import plugin from '../scripts/verify/plugin.mjs';
+import {standInHub} from './fixtures/stand-in-hub.mjs';
 
 function supervisorSkipReason() {
   const result = spawnSync('systemctl', ['--user', 'is-system-running'], {encoding: 'utf8'});
@@ -98,6 +102,16 @@ const receiptOf = async runId => JSON.parse(await readFile(join(base, 'proof', r
 const unitLoaded = unit => execFileSync('systemctl', ['--user', 'show', unit, '-p', 'LoadState', '--value'], {encoding: 'utf8'}).trim() === 'loaded';
 const stateOf = async url => (await fetch(new URL('/api/state', url))).json();
 const doctor = async runId => (await cli(['doctor', runId])).result.runs[0];
+const BACKSTOP = join(plugin.root, 'tests/fixtures/backstop_demo.py');
+/** The orchestrator's step between start and the hub-paired reseed: both credential files, mode 0600, in the runtime directory. */
+async function writeCredentials(runId) {
+  const tokens = {feed: randomBytes(32).toString('base64url'), controller: randomBytes(32).toString('base64url')};
+  await writeFile(join(base, 'state', runId, 'hub-feed-token'), tokens.feed, {mode: 0o600});
+  await writeFile(join(base, 'state', runId, 'hub-controller-token'), tokens.controller, {mode: 0o600});
+  return tokens;
+}
+
+const devicesWith = async (endpoint, credential) => (await fetch(new URL('controller/v1/devices', endpoint), {headers: {authorization: `Bearer ${credential}`}})).status;
 
 function expectedDigest() {
   const files = plugin.build.artifact.files;
@@ -114,14 +128,16 @@ test('a run starts leased and identified, captures, freezes its proof, extends a
   const head = execFileSync('git', ['-C', plugin.root, 'rev-parse', 'HEAD'], {encoding: 'utf8'}).trim();
   const dirty = execFileSync('git', ['-C', plugin.root, 'status', '--porcelain', '--untracked-files=no'], {encoding: 'utf8'}).trim() !== '';
   assert.deepEqual([receipt.build.sourceRevision, receipt.build.dirty, receipt.build.artifactDigest], [head, dirty, expectedDigest()]);
-  assert.deepEqual(receipt.checks.map(check => [check.id, check.outcome]), [['readiness', 'passed'], ['device-boundary', 'passed'], ['windows-loopback', 'skipped']]);
+  assert.deepEqual(receipt.checks.map(check => [check.id, check.outcome]), [['readiness', 'passed'], ['device-boundary', 'passed'], ['paired-feed', 'skipped'], ['windows-loopback', 'skipped']]);
+  assert.deepEqual(receipt.inputs, {}, 'a standalone run records no input');
   assert.deepEqual(receipt.components, plugin.components);
   assert.equal(url, `http://127.0.0.1:${port}/`);
   assert.equal(JSON.stringify(receipt).includes((await (await fetch(url)).text()).split("const token='")[1].slice(0, 64)), false, 'the page token is in no receipt');
 
   let row = await doctor(runId);
   assert.deepEqual([row.state, row.health.outcome, row.artifact, row.listener.outcome], ['running', 'passed', 'matches', 'matches']);
-  assert.deepEqual(row.checks, [{id: 'device-boundary', outcome: 'passed'}], 'doctor re-runs the read-only boundary check');
+  assert.deepEqual(row.checks, [{id: 'device-boundary', outcome: 'passed'}, {id: 'paired-feed', outcome: 'skipped', reason: 'reference is not paired with a Hub'}],
+    'doctor re-runs the read-only boundary checks');
   assert.equal(existsSync(join(base, 'state', runId, 'home')), true, 'the wall runs with the core\'s private HOME');
 
   const passed = await cli(['capture', runId, 'task-completes']);
@@ -260,6 +276,70 @@ test('an expired run keeps its frozen proof and restarts as a new run that names
   started.delete(runId);
   assert.equal((await cli(['stop', restart.result.runId])).code, 0);
   started.delete(restart.result.runId);
+});
+
+test('a run paired with a stand-in Hub serves its controller, follows the feed, captures and keeps the endpoint after a standalone reseed', {skip}, async () => {
+  const entry = await wrapper('paired', `createPlugin({app: ${JSON.stringify(app)}, demo: ${JSON.stringify(BACKSTOP)}})`);
+  const start = await cli(['start', '--lease', '10'], {entry});
+  assert.equal(start.code, 0, start.stderr);
+  const {runId, url} = start.result;
+  assert.deepEqual(start.result.inputs, {}, 'a standalone start records no input');
+  const tokens = await writeCredentials(runId);
+  const hub = await standInHub(tokens.feed);
+  try {
+    const paired = await cli(['scenario', runId, 'hub-paired', '--input', `hub-feed=${hub.origin}`], {entry});
+    assert.equal(paired.code, 0, paired.stderr);
+    const controller = paired.result.endpoints.controller;
+    assert.match(controller, /^http:\/\/127\.0\.0\.1:\d+\/$/);
+    assert.deepEqual([paired.result.url, paired.result.inputs], [url, {'hub-feed': hub.origin}]);
+    assert.equal(await devicesWith(controller, tokens.controller), 200, "the Hub's credential reaches the real controller API");
+    let row;
+    for (let waited = 0; waited < 15000; waited += 500) {
+      row = await doctor(runId);
+      if (row.checks.find(check => check.id === 'paired-feed')?.outcome === 'passed') break;
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+    assert.deepEqual(row.checks, [{id: 'device-boundary', outcome: 'passed'}, {id: 'paired-feed', outcome: 'passed'}]);
+    assert.deepEqual([row.state, row.listener.outcome, row.listener.endpoints.controller.outcome], ['running', 'matches', 'matches']);
+    const capture = await cli(['capture', runId, 'hub-lifecycle-painted'], {entry});
+    assert.deepEqual([capture.code, capture.result.outcome], [0, 'passed'], capture.stderr);
+    const receipt = await receiptOf(runId);
+    assert.deepEqual([receipt.inputs, receipt.owned.endpoints], [{'hub-feed': hub.origin}, {controller}]);
+    // A fresh step reseeds hub-paired from the recorded input and keeps the endpoint.
+    assert.equal(await devicesWith(controller, tokens.controller), 200);
+    const standalone = await cli(['scenario', runId, 'reference'], {entry});
+    assert.equal(standalone.code, 0, standalone.stderr);
+    assert.deepEqual(standalone.result.endpoints, {controller}, 'every later scenario announces the controller on its port');
+    assert.equal(await devicesWith(controller, tokens.controller), 401, 'a standalone scenario accepts no Hub credential');
+    row = await doctor(runId);
+    assert.deepEqual(row.checks, [{id: 'device-boundary', outcome: 'passed'}, {id: 'paired-feed', outcome: 'skipped', reason: 'reference is not paired with a Hub'}]);
+    assert.equal(existsSync(join(base, 'state', runId, 'backstop.jsonl')), false, 'nothing reached the test backstop');
+    const proof = join(base, 'proof', runId);
+    const files = [join(proof, 'receipt.json'), join(proof, 'events.jsonl'), ...(await readdir(proof, {recursive: true})).map(name => join(proof, name))];
+    for (const file of files) {
+      const text = await readFile(file, 'utf8').catch(() => '');
+      for (const secret of Object.values(tokens)) assert.equal(text.includes(secret), false, `a credential leaked into ${file}`);
+    }
+  } finally {
+    await hub.close();
+  }
+  const stop = await cli(['stop', runId], {entry});
+  assert.deepEqual([stop.code, stop.result.cleanup.result], [0, 'clean']);
+  started.delete(runId);
+});
+
+test('a hub-paired reseed without the credential files fails with a fixed line and stops only that run', {skip}, async () => {
+  const entry = await wrapper('paired', `createPlugin({app: ${JSON.stringify(app)}, demo: ${JSON.stringify(BACKSTOP)}})`);
+  const start = await cli(['start', '--lease', '10'], {entry});
+  assert.equal(start.code, 0, start.stderr);
+  const paired = await cli(['scenario', start.result.runId, 'hub-paired', '--input', 'hub-feed=http://127.0.0.1:45001/'], {entry});
+  assert.equal(paired.code, 1);
+  assert.equal(paired.result.cause, 'reset-failed');
+  assert.match(paired.result.detail, /^seed-failed: demo\.py seed failed: hub-paired needs a private hub-feed-token file in the run directory/);
+  assert.equal(paired.result.detail.includes(base), false, 'no path in the recorded detail');
+  const refused = await cli(['scenario', start.result.runId, 'hub-paired'], {entry});
+  assert.equal(refused.code, 1, 'the stopped run cannot be reseeded');
+  started.delete(start.result.runId);
 });
 
 test('restart names its predecessor and says whether the candidate is the same', {skip}, async () => {

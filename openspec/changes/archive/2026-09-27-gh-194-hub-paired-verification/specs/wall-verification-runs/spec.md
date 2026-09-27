@@ -1,9 +1,46 @@
-# wall-verification-runs Specification
+## ADDED Requirements
 
-## Purpose
-Lets an agent start the actual wall server over named synthetic state as a disposable, leased run of the shared app verification core, drive task transitions and the page, keep assertion-backed proof and hand over a preview, while a process boundary refuses and records every device, service and process request. A hub-paired run also follows a paired Hub run's feed and serves the controller API that Hub calls, and its boundary allows only that Hub's loopback port. A run proves no physical output.
+### Requirement: Hub-paired runs
 
-## Requirements
+The `hub-paired` scenario SHALL make a run a consumer of a paired Hub run. It SHALL require the `hub-feed` run input, the Hub run's origin `http://127.0.0.1:<port>/`, and SHALL refuse any other form or an installed service's port (8788, 8765, 8787, 8791, 41230, 41231). It SHALL read two credential files from the run's runtime directory, `hub-feed-token` and `hub-controller-token`. Each SHALL be a private regular file owned by the user, not a symlink, holding one 43-character base64url token. A missing or unusable file SHALL fail the seed with a fixed line naming the file, without a path or value, and write nothing. The seed SHALL leave no local tasks or synthetic projects. It SHALL give the controller the identity `wall-controller`, device `wall`, source `wall`, and accept the Hub's controller token as principal `hub` with read and control scopes, stored only as its digest. It SHALL select shared input following `<hub-feed>api/monitor/v1` with owner `verify-owner`, consumer `nanoleaf` and the one qualified source `{codex, cli, verify-host, verify-source}`, reading the feed token from its file. `serve` SHALL then run the real controller API listener, announced as the `controller` endpoint `http://127.0.0.1:<port>/`; for port 0 it SHALL take a port no installed service uses. If that listener stops after it was announced, the run SHALL print the fixed line `controller listener stopped` and exit with status 1. It SHALL also run a worker stand-in that, about once per second and whenever the map or controller wakes it, polls the feed through the real shared-input Poller, applies the integration settings queue, pending edits and allocation, and never renders or sends. Once a run has announced the controller endpoint, every later scenario SHALL announce it again on the same port; a standalone scenario SHALL accept no Hub credential there. Every run SHALL serve a read-only `GET /verify/state` on its map origin, under the map's Host check and without a credential. It SHALL report the scenario, the feed's source, connection, applied revision, receipt time, fixed error code and the owner of the last accepted snapshot, null before the first and never the configured owner in its place, and counts of the Lines' integration settings requests that were applied, are queued or failed. It SHALL never report a token or a token path. A `hub-paired` run SHALL serve the page at `/` with its header B.U.N.N.Y. link leading to the `hub-feed` origin instead of the installed Hub, changing nothing else in the page. It SHALL answer 503 instead when the page does not hold the installed link exactly once. Every other scenario SHALL serve the page unchanged apart from its edit token. (Issue #194: the Hub's controller calls reach the wall's real controller API, and the wall paints Hub-fed lifecycle state. Hub #495: no preview link leads to an installed service.)
+
+#### Scenario: Paired seed
+- **WHEN** `hub-paired` is seeded with a paired Hub origin and both credential files
+- **THEN** the controller identity is `wall-controller`/`wall`/`wall`, principal `hub` is stored by its token's digest, shared input follows the Hub feed with owner `verify-owner`, and no file in the state directory holds either token
+
+#### Scenario: Unusable credentials or origin
+- **WHEN** a credential file is missing, readable by others, a symlink or malformed, or `hub-feed` is not exactly a loopback origin or names an installed port
+- **THEN** the seed fails with a fixed line, and the state directory stays empty
+
+#### Scenario: The Hub's controller calls
+- **WHEN** a caller presents the Hub's controller token to the announced controller endpoint
+- **THEN** `/controller/v1/devices` lists the `wall-controller` identity, an integration settings command is admitted and the stand-in applies it, and a request without a credential or with the feed token is unauthenticated
+
+#### Scenario: Hub-fed lifecycle state
+- **WHEN** the paired Hub serves sessions from the qualified source and from another source
+- **THEN** the map lists each qualified session with the status, title and evidence the feed gives, paints its Line in that status's color, and shows nothing from the other source
+
+#### Scenario: A Hub that refuses at first
+- **WHEN** the Hub rejects the feed credential after the seed and accepts it later
+- **THEN** the run keeps serving with the feed `unavailable`, error `feed-rejected` and no owner, then becomes current at the Hub's revision, with owner `verify-owner`, without a restart
+
+#### Scenario: A controller listener that stops
+- **WHEN** a paired run's controller listener stops after it was announced
+- **THEN** the run prints `controller listener stopped` and exits with status 1
+
+#### Scenario: A Hub that goes away
+- **WHEN** the Hub stops answering after the wall accepted its snapshot
+- **THEN** the feed reads `stale` with `feed-unavailable` and every Hub-fed task reports uncertain evidence
+
+#### Scenario: The page's link to the Hub
+- **WHEN** a `hub-paired` run and a standalone run serve the map page
+- **THEN** the paired page equals `bridge/wall.html`, with its token and with the B.U.N.N.Y. link's target replaced by the `hub-feed` origin, and names no installed port; the standalone page equals `bridge/wall.html` with its token; and a page without exactly one installed link is refused
+
+#### Scenario: Relaunch keeps the controller port
+- **WHEN** a paired run is reseeded to a standalone scenario, or to hub-paired again, on its recorded ports
+- **THEN** the controller answers on the same port, refusing the Hub's token in the standalone scenario and accepting it in hub-paired
+
+## MODIFIED Requirements
 
 ### Requirement: Named synthetic scenarios
 
@@ -236,43 +273,3 @@ The plug-in SHALL label the wall server, page, state store, hook handler, alloca
 #### Scenario: A paired reseed without credential files
 - **WHEN** a run is reseeded `hub-paired` before the credential files exist
 - **THEN** the reseed fails naming the missing file without a path, and the core stops only that run
-
-### Requirement: Hub-paired runs
-
-The `hub-paired` scenario SHALL make a run a consumer of a paired Hub run. It SHALL require the `hub-feed` run input, the Hub run's origin `http://127.0.0.1:<port>/`, and SHALL refuse any other form or an installed service's port (8788, 8765, 8787, 8791, 41230, 41231). It SHALL read two credential files from the run's runtime directory, `hub-feed-token` and `hub-controller-token`. Each SHALL be a private regular file owned by the user, not a symlink, holding one 43-character base64url token. A missing or unusable file SHALL fail the seed with a fixed line naming the file, without a path or value, and write nothing. The seed SHALL leave no local tasks or synthetic projects. It SHALL give the controller the identity `wall-controller`, device `wall`, source `wall`, and accept the Hub's controller token as principal `hub` with read and control scopes, stored only as its digest. It SHALL select shared input following `<hub-feed>api/monitor/v1` with owner `verify-owner`, consumer `nanoleaf` and the one qualified source `{codex, cli, verify-host, verify-source}`, reading the feed token from its file. `serve` SHALL then run the real controller API listener, announced as the `controller` endpoint `http://127.0.0.1:<port>/`; for port 0 it SHALL take a port no installed service uses. If that listener stops after it was announced, the run SHALL print the fixed line `controller listener stopped` and exit with status 1. It SHALL also run a worker stand-in that, about once per second and whenever the map or controller wakes it, polls the feed through the real shared-input Poller, applies the integration settings queue, pending edits and allocation, and never renders or sends. Once a run has announced the controller endpoint, every later scenario SHALL announce it again on the same port; a standalone scenario SHALL accept no Hub credential there. Every run SHALL serve a read-only `GET /verify/state` on its map origin, under the map's Host check and without a credential. It SHALL report the scenario, the feed's source, connection, applied revision, receipt time, fixed error code and the owner of the last accepted snapshot, null before the first and never the configured owner in its place, and counts of the Lines' integration settings requests that were applied, are queued or failed. It SHALL never report a token or a token path. A `hub-paired` run SHALL serve the page at `/` with its header B.U.N.N.Y. link leading to the `hub-feed` origin instead of the installed Hub, changing nothing else in the page. It SHALL answer 503 instead when the page does not hold the installed link exactly once. Every other scenario SHALL serve the page unchanged apart from its edit token. (Issue #194: the Hub's controller calls reach the wall's real controller API, and the wall paints Hub-fed lifecycle state. Hub #495: no preview link leads to an installed service.)
-
-#### Scenario: Paired seed
-- **WHEN** `hub-paired` is seeded with a paired Hub origin and both credential files
-- **THEN** the controller identity is `wall-controller`/`wall`/`wall`, principal `hub` is stored by its token's digest, shared input follows the Hub feed with owner `verify-owner`, and no file in the state directory holds either token
-
-#### Scenario: Unusable credentials or origin
-- **WHEN** a credential file is missing, readable by others, a symlink or malformed, or `hub-feed` is not exactly a loopback origin or names an installed port
-- **THEN** the seed fails with a fixed line, and the state directory stays empty
-
-#### Scenario: The Hub's controller calls
-- **WHEN** a caller presents the Hub's controller token to the announced controller endpoint
-- **THEN** `/controller/v1/devices` lists the `wall-controller` identity, an integration settings command is admitted and the stand-in applies it, and a request without a credential or with the feed token is unauthenticated
-
-#### Scenario: Hub-fed lifecycle state
-- **WHEN** the paired Hub serves sessions from the qualified source and from another source
-- **THEN** the map lists each qualified session with the status, title and evidence the feed gives, paints its Line in that status's color, and shows nothing from the other source
-
-#### Scenario: A Hub that refuses at first
-- **WHEN** the Hub rejects the feed credential after the seed and accepts it later
-- **THEN** the run keeps serving with the feed `unavailable`, error `feed-rejected` and no owner, then becomes current at the Hub's revision, with owner `verify-owner`, without a restart
-
-#### Scenario: A controller listener that stops
-- **WHEN** a paired run's controller listener stops after it was announced
-- **THEN** the run prints `controller listener stopped` and exits with status 1
-
-#### Scenario: A Hub that goes away
-- **WHEN** the Hub stops answering after the wall accepted its snapshot
-- **THEN** the feed reads `stale` with `feed-unavailable` and every Hub-fed task reports uncertain evidence
-
-#### Scenario: The page's link to the Hub
-- **WHEN** a `hub-paired` run and a standalone run serve the map page
-- **THEN** the paired page equals `bridge/wall.html`, with its token and with the B.U.N.N.Y. link's target replaced by the `hub-feed` origin, and names no installed port; the standalone page equals `bridge/wall.html` with its token; and a page without exactly one installed link is refused
-
-#### Scenario: Relaunch keeps the controller port
-- **WHEN** a paired run is reseeded to a standalone scenario, or to hub-paired again, on its recorded ports
-- **THEN** the controller answers on the same port, refusing the Hub's token in the standalone scenario and accepting it in hub-paired

@@ -20,7 +20,7 @@
   },
   "devDependencies": {
     "@fission-ai/openspec": "1.12.0",
-    "@jimmie-potts/app-verify": "file:vendor/jimmie-potts-app-verify-1.0.0.tgz",
+    "@jimmie-potts/app-verify": "file:vendor/jimmie-potts-app-verify-1.1.0.tgz",
     "playwright": "1.63.0"
   }
 }

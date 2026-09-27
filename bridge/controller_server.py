@@ -19,6 +19,8 @@ import modes
 import store
 
 ID=re.compile(r'[A-Za-z0-9_.-]{1,128}\Z')
+# The form issue() mints: 32 random bytes as URL-safe base64 without padding.
+TOKEN=re.compile(r'[A-Za-z0-9_-]{43}\Z')
 
 
 class ListenerUnavailable(Exception):
@@ -51,8 +53,18 @@ def configure(directory,controller_id,device_id,source_id):
 
 
 def issue(directory,principal,scopes):
-    if not isinstance(principal,str) or not ID.fullmatch(principal) or not scopes or set(scopes)-{'read','control'}:raise ValueError('Invalid principal or scopes.')
     token=secrets.token_urlsafe(32)
+    register(directory,principal,scopes,token)
+    return token
+
+
+def register(directory,principal,scopes,token):
+    """Accept a credential for principal, replacing its previous one; only the token's digest is stored.
+
+    issue() mints the token. A disposable verification run registers one its caller generated (#194).
+    """
+    if not isinstance(principal,str) or not ID.fullmatch(principal) or not scopes or set(scopes)-{'read','control'}:raise ValueError('Invalid principal or scopes.')
+    if not isinstance(token,str) or not TOKEN.fullmatch(token):raise ValueError('Invalid credential.')
     with contextlib.closing(database.connect_state(directory)) as db,db:
         db.execute('BEGIN IMMEDIATE')
         if not state.present(db):raise ValueError('Configure the controller first.')
@@ -61,7 +73,6 @@ def issue(directory,principal,scopes):
         cancel(db,principal)
         db.execute('INSERT OR REPLACE INTO controller_credentials VALUES (?,?,?,1)',(principal,hashlib.sha256(token.encode()).hexdigest(),state.encoded(scopes)))
         integration_api.recover(db,principal=principal,cancel=True)
-    return token
 
 
 def revoke(directory,principal):
@@ -347,7 +358,8 @@ def make_server(app,port=0):
     return Server()
 
 
-def serve(directory,port=0,launch=None):
+def serve(directory,port=0,launch=None,ready=None):
+    """Serve until disabled or interrupted; ready, when given, receives the bound port once the listener is bound."""
     with contextlib.closing(sqlite3.connect(directory/'controller-lock.sqlite',timeout=0)) as guard:
         try:guard.execute('BEGIN EXCLUSIVE')
         except sqlite3.OperationalError as error:
@@ -365,6 +377,7 @@ def serve(directory,port=0,launch=None):
                 raise ListenerUnavailable(f'Port {port} is already in use. Stop its owner or choose another controller port.') from None
             raise ListenerUnavailable(f'Cannot bind the controller to 127.0.0.1:{port}.') from None
         jsonfile.write_json(directory/'controller-server.json',dict(apiVersion='1.0',port=server.server_port))
+        if ready:ready(server.server_port)
         import threading
         stopping=threading.Event()
         def maintain():

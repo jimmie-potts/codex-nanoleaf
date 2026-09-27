@@ -11,15 +11,89 @@
 // Steps named `control-*` are negative controls: a known-wrong transition or presentation that the
 // same assertions must reject. Their capture outcome is `failed` at the assertion named in
 // NEGATIVE_CONTROLS; a passing control means the assertions cannot see that defect.
+//
+// hub-paired steps (#194) compare the wall with the paired Hub run's own feed, read with the wall's
+// feed credential from the runtime directory, and accept during the step only the wall's
+// connections to that Hub's port.
+import {createHash} from 'node:crypto';
 import {execFile} from 'node:child_process';
-import {readFile} from 'node:fs/promises';
-import {join} from 'node:path';
+import {constants} from 'node:fs';
+import {open, readFile} from 'node:fs/promises';
+import {join, relative} from 'node:path';
 import {promisify} from 'node:util';
 
 const run = promisify(execFile);
 export const BOUNDARY_LOG = 'device-boundary.jsonl';
+/** Ports of the installed services; a run never answers on one, and a paired Hub never names one. */
+export const INSTALLED_PORTS = new Set([8788, 8765, 8787, 8791, 41230, 41231]);
+/**
+ * The pairing convention of Hub #495's integrated preview. The credential files hold one
+ * 43-character base64url token each and are never printed, recorded or attached.
+ */
+export const PAIRED = Object.freeze({
+  scenario: 'hub-paired', feedToken: 'hub-feed-token', controllerToken: 'hub-controller-token', owner: 'verify-owner', consumer: 'nanoleaf',
+  source: Object.freeze({provider: 'codex', client: 'cli', hostId: 'verify-host', sourceId: 'verify-source'}),
+});
 
-/** The run's boundary log: one refused attempt per line. */
+/** The port of a paired Hub run's origin, exactly `http://127.0.0.1:<port>/` and not an installed service's, or undefined. */
+export function pairedPort(hubFeed) {
+  const found = typeof hubFeed === 'string' ? /^http:\/\/127\.0\.0\.1:([1-9][0-9]{0,4})\/$/.exec(hubFeed) : null;
+  const port = found ? Number(found[1]) : undefined;
+  return port !== undefined && port <= 65535 && !INSTALLED_PORTS.has(port) ? port : undefined;
+}
+
+/** A connection the paired boundary allowed to the paired Hub's port: the only entry a hub-paired run may record. */
+export const isPairedConnect = (entry, port) => port !== undefined && entry.kind === 'socket.connect' && entry.outcome === 'allowed' && entry.target === `127.0.0.1:${port}`;
+
+/**
+ * One credential file from the runtime directory, read as the wall reads it: a regular file owned by
+ * this user, with no group or other access, never through a symlink, holding one 43-character
+ * base64url token. The error never holds the value or a path.
+ */
+async function pairedToken(runtimeDir, name) {
+  const refused = new Error(`hub-paired needs a private ${name} file in the run directory`);
+  if (!runtimeDir) throw refused;
+  let handle;
+  try {
+    handle = await open(join(runtimeDir, name), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  } catch {
+    throw refused;
+  }
+  try {
+    const info = await handle.stat();
+    if (!info.isFile() || info.size > 128 || (info.mode & 0o077) !== 0 || info.uid !== process.getuid()) throw refused;
+    const token = (await handle.readFile('utf8')).trim();
+    if (!/^[A-Za-z0-9_-]{43}$/.test(token)) throw refused;
+    return token;
+  } finally {
+    await handle.close();
+  }
+}
+
+/** The paired Hub run's monitor feed, as the wall reads it: the same route, credential and header. */
+export async function readHubFeed({inputs, runtimeDir, signal}) {
+  const port = pairedPort(inputs?.['hub-feed']);
+  if (port === undefined) throw new Error('hub-paired has no paired Hub origin');
+  const token = await pairedToken(runtimeDir, PAIRED.feedToken);
+  let response;
+  try {
+    response = await fetch(`http://127.0.0.1:${port}/api/monitor/v1/sessions?snapshotVersion=1.2`,
+      {headers: {authorization: `Bearer ${token}`, 'x-pixoo-request': '1'}, redirect: 'error', signal});
+  } catch {
+    throw new Error('the paired Hub feed did not answer');
+  }
+  if (!response.ok) throw new Error(`the paired Hub feed answered ${response.status}`);
+  return response.json();
+}
+
+/** The run's own read-only verification route (`GET /verify/state`): feed freshness and applied integration settings. */
+export async function wallState(url, signal) {
+  const response = await fetch(new URL('verify/state', url), {signal});
+  if (!response.ok) throw new Error(`the wall's verification state answered ${response.status}`);
+  return response.json();
+}
+
+/** The run's boundary log: one refused attempt, or one allowed paired connection, per line. */
 export async function boundaryEntries(dataDir) {
   try {
     return (await readFile(join(dataDir, BOUNDARY_LOG), 'utf8')).split('\n').filter(Boolean).map(line => JSON.parse(line));
@@ -112,7 +186,7 @@ function palette(page) {
 
 /** Apply a named transition through the actual hook handler. */
 async function drive(t, options, transition) {
-  const {stdout} = await run(options.python, [join(options.root, 'scripts/demo.py'), 'drive', '--state-dir', t.dataDir, transition],
+  const {stdout} = await run(options.python, [options.demo ?? join(options.root, 'scripts/demo.py'), 'drive', '--state-dir', t.dataDir, transition],
     {cwd: options.root, signal: t.signal});
   t.note(`drove ${transition}: ${stdout.trim()}`);
 }
@@ -138,11 +212,21 @@ export function layoutReadProblem(entries) {
   return null;
 }
 
+/** What a step accepts from the boundary log: no entry at all unless a policy names what it tolerates. */
+const NOTHING = {name: 'no device attempt was recorded during the step'};
+const LAYOUT_READS_ONLY = {name: "the only device attempts during the step are the map's bounded layout reads", tolerate: () => isLayoutRead,
+  label: 'Other device attempts during the step', since: entries => same(layoutReadProblem(entries), null, 'Layout reads since the seed')};
+const PAIRED_FEED_ONLY = {name: 'only the paired Hub feed was contacted during the step', label: 'Device attempts or other connections during the step',
+  tolerate: t => {
+    const port = pairedPort(t.inputs?.['hub-feed']);
+    return entry => isPairedConnect(entry, port);
+  }};
+
 /**
  * Record what leaves the page and the run during a step. `close` asserts that nothing did, apart
- * from attempts that `tolerate` accepts; `attach` writes the step's boundary record into its capture.
+ * from the log entries the policy tolerates; `attach` writes the step's boundary record into its capture.
  */
-async function watchBoundary(t, tolerate) {
+async function watchBoundary(t, policy = NOTHING) {
   const origin = new URL(t.url).origin;
   const foreign = [];
   t.page.on('request', request => {
@@ -151,7 +235,7 @@ async function watchBoundary(t, tolerate) {
   });
   const before = (await boundaryEntries(t.dataDir)).length;
   const during = async () => (await boundaryEntries(t.dataDir)).slice(before);
-  const describe = entry => [entry.kind, entry.method, entry.target].filter(Boolean).join(' ');
+  const describe = entry => [entry.kind, entry.method, entry.target, entry.outcome === 'allowed' ? 'allowed' : undefined].filter(Boolean).join(' ');
   return {
     async close() {
       // End visually settled, so the core's after.png shows the final state rather than a CSS transition.
@@ -159,14 +243,11 @@ async function watchBoundary(t, tolerate) {
         null, {timeout: 3000}).catch(() => t.note('CSS transitions were still running at the end of the step'));
       await t.expect('the page contacted only its own run', () => same([...new Set(foreign)], [], 'Requests left the run origin'));
       const entries = await during();
-      if (tolerate) {
-        await t.expect("the only device attempts during the step are the map's bounded layout reads", async () => {
-          same(entries.filter(entry => !tolerate(entry)).map(describe), [], 'Other device attempts during the step');
-          same(layoutReadProblem(await boundaryEntries(t.dataDir)), null, 'Layout reads since the seed');
-        });
-      } else {
-        await t.expect('no device attempt was recorded during the step', () => same(entries.map(describe), [], 'Device attempts during the step'));
-      }
+      const tolerated = policy.tolerate?.(t) ?? (() => false);
+      await t.expect(policy.name, async () => {
+        same(entries.filter(entry => !tolerated(entry)).map(describe), [], policy.label ?? 'Device attempts during the step');
+        if (policy.since) policy.since(await boundaryEntries(t.dataDir));
+      });
     },
     async attach() {
       await t.attach('device-boundary.json', `${JSON.stringify({recordedBeforeStep: before, duringStep: await during()}, null, 2)}\n`);
@@ -178,9 +259,9 @@ async function watchBoundary(t, tolerate) {
  * A step between the boundary watch and its closing assertions. The step's boundary record goes
  * into its capture even when an earlier assertion failed.
  */
-function bounded(run, tolerate) {
+function bounded(run, policy) {
   return async t => {
-    const boundary = await watchBoundary(t, tolerate);
+    const boundary = await watchBoundary(t, policy);
     try {
       await run(t);
       await boundary.close();
@@ -241,6 +322,102 @@ function transition(options, {transition: name, task, from, to, alerts: expected
   });
 }
 
+/** The wall's task key for a shared session: `shared-` and the SHA-256 of its identity fields, as bridge/shared_input.py keys it. */
+export function sessionKey(identity) {
+  const fields = ['provider', 'client', 'hostId', 'sourceId', 'sessionId'].map(name => identity[name]);
+  return 'shared-' + createHash('sha256').update(JSON.stringify(fields)).digest('hex');
+}
+
+const fromPairedSource = session => Object.entries(PAIRED.source).every(([name, value]) => session.identity[name] === value);
+const sameIdentity = (a, b) => ['provider', 'client', 'hostId', 'sourceId', 'sessionId'].every(name => a[name] === b[name]);
+
+/**
+ * What the wall must show for the Hub's snapshot, written from docs/shared-input.md rather than
+ * from the wall's code: each top-level session from the paired source is one task. A direct
+ * subagent's attention and the owner's count of fresh active subagents raise it; a turn-ended
+ * notice this consumer has not acknowledged makes an otherwise idle task unread. Its title is the
+ * Hub's label, then its title. Its evidence is current when the collector runs and the session is
+ * current. Deeper subagent chains and orphans (a known parent missing from the snapshot, which the
+ * wall shows only for its alerts) are not modelled; the integrated preview's Hub seeds neither.
+ */
+export function pairedExpectations(snapshot) {
+  const sessions = snapshot.sessions.filter(fromPairedSource);
+  return Object.fromEntries(sessions.filter(session => session.parent.status !== 'known').map(session => {
+    const children = sessions.filter(child => child.parent.status === 'known' && sameIdentity(child.parent.identity, session.identity));
+    const kinds = new Set([session, ...children].flatMap(item => item.attention.map(attention => attention.kind)));
+    const status = kinds.has('approval') || kinds.has('input') ? 'blocked' : kinds.has('question') ? 'question'
+      : session.activity === 'active' || session.children.active > 0 ? 'working'
+        : session.read !== 'read' && session.notices.some(notice => !notice.acknowledgedBy.includes(PAIRED.consumer)) ? 'unread' : 'idle';
+    const evidence = snapshot.collector === 'running' && session.freshness === 'current' ? 'current' : 'uncertain';
+    return [sessionKey(session.identity), {status, title: session.label ?? session.title?.value ?? null, evidence}];
+  }));
+}
+
+/**
+ * Wait until the wall's feed is current at the revision the Hub serves; return the Hub's envelope at
+ * that revision. A failed read of either side is retried within the window, which ends with the last reason.
+ */
+async function pairedSnapshot(t) {
+  let seen = 'no read yet';
+  for (let waited = 0; waited < 15000; waited += 250) {
+    try {
+      const [wall, hub] = [(await wallState(t.url, t.signal)).feed, await readHubFeed(t)];
+      if (wall.connection === 'current' && wall.revision === hub.snapshot.revision) return hub;
+      seen = `the wall is ${wall.connection}${wall.error ? ` (${wall.error})` : ''} at revision ${wall.revision}; the Hub serves ${hub.snapshot.revision}`;
+    } catch (error) {
+      seen = error.message;
+    }
+    await new Promise(resolve => setTimeout(resolve, 250));
+  }
+  throw new Error(`The wall did not reach the Hub's revision: ${seen}`);
+}
+
+/**
+ * The Hub's lifecycle state painted on the wall. `transition` first drives one of the paired
+ * run's known-wrong writers, for a negative control.
+ */
+function pairedLifecycle(options, {transition} = {}) {
+  return bounded(async t => {
+    if (transition) await drive(t, options, transition);
+    const hub = await pairedSnapshot(t);
+    const expected = pairedExpectations(hub.snapshot);
+    await t.expect('the paired Hub serves at least one session from the paired source', () => check(Object.keys(expected).length > 0, 'No session from the paired source'));
+    await openWall(t);
+    const [listed, paint, colors] = [await t.page.evaluate(() => Object.fromEntries(state.tasks.map(task => [task.id, {
+      listed: document.querySelector(`#taskList .task[data-task="${CSS.escape(task.id)}"] .badge`)?.dataset.status ?? null,
+      title: task.title, line: task.line, evidence: task.statusEvidence ?? null,
+    }]))), await painted(t.page), await palette(t.page)];
+    await t.expect('each Hub-fed task is placed on a Line', () =>
+      same(Object.keys(expected).filter(id => !listed[id]?.line), [], 'Hub-fed tasks without a Line'));
+    await t.expect('the task list shows each Hub session with its lifecycle status', () =>
+      same(Object.fromEntries(Object.entries(listed).map(([id, task]) => [id, task.listed])),
+        Object.fromEntries(Object.entries(expected).map(([id, task]) => [id, task.status])), 'Listed statuses'));
+    await t.expect("each Hub-fed task shows the Hub's label or title", () => {
+      for (const [id, task] of Object.entries(expected)) if (task.title !== null) same(listed[id]?.title, task.title, `${id} title`);
+    });
+    await t.expect('each Hub-fed task reports the evidence the Hub gives', () =>
+      same(Object.fromEntries(Object.entries(listed).map(([id, task]) => [id, task.evidence])),
+        Object.fromEntries(Object.entries(expected).map(([id, task]) => [id, task.evidence])), 'Status evidence'));
+    await t.expect("each Hub-fed task paints its Line in its status's color", () => {
+      for (const id of Object.keys(expected)) {
+        const task = listed[id];
+        const color = colors[task.listed === 'idle' ? 'base' : task.listed];
+        same(paint[task.line], [color, color], `${id} Line`);
+      }
+    });
+    await t.expect('the B.U.N.N.Y. link leads to the paired Hub run', async () => {
+      const links = await t.page.locator('a.hub-link').evaluateAll(nodes => nodes.map(node => [node.textContent, node.getAttribute('href'), node.getAttribute('target')]));
+      same(links, [['B.U.N.N.Y.', t.inputs['hub-feed'], '_blank']], 'Header Hub link');
+    });
+    await t.expect("the wall stayed current at the Hub's revision", async () => {
+      const [wall, now] = [(await wallState(t.url, t.signal)).feed, await readHubFeed(t)];
+      same({source: wall.source, connection: wall.connection, ownerId: wall.ownerId, revision: wall.revision, hub: now.snapshot.revision},
+        {source: 'shared', connection: 'current', ownerId: PAIRED.owner, revision: hub.snapshot.revision, hub: hub.snapshot.revision}, 'Paired feed');
+    });
+    await t.screenshot('hub-fed');
+  }, PAIRED_FEED_ONLY);
+}
+
 const COMPLETION = {task: 'task-0', from: 'working', to: 'unread', alerts: ['1 blocked', '1 question'],
   alertsName: 'the blocked and question alerts are unchanged', screenshot: 'completed'};
 const APPROVAL = {task: 'task-1', from: 'blocked', to: 'working', alerts: ['1 question'],
@@ -251,9 +428,18 @@ export function strictSteps(steps) {
   return Object.fromEntries(Object.entries(steps).map(([name, step]) => [name, {...step, run: strictChecks(step.run)}]));
 }
 
-/** Capture steps, with `python` the interpreter that runs `scripts/demo.py` and `root` the checkout. */
+/**
+ * Capture steps, with `python` the interpreter that runs the demo, `root` the checkout and `demo` the
+ * entry point that seeds, serves and drives it. Each capture's log names that entry, so a capture
+ * made beneath the test backstop says so.
+ */
 export function captureSteps(options) {
-  return strictSteps(definitions(options));
+  const entry = relative(options.root, options.demo ?? join(options.root, 'scripts/demo.py'));
+  return Object.fromEntries(Object.entries(strictSteps(definitions(options))).map(([name, step]) =>
+    [name, {...step, run: t => {
+      t.note(`demo entry: ${entry}`);
+      return step.run(t);
+    }}]));
 }
 
 function definitions(options) {
@@ -450,7 +636,13 @@ function definitions(options) {
           same(entries.map(entry => [entry.kind, entry.method, entry.target, entry.outcome]).slice(0, 1),
             [['light-request', 'GET', '192.0.2.1', 'refused']], 'First boundary entry');
         });
-      }, isLayoutRead),
+      }, LAYOUT_READS_ONLY),
+    },
+    'hub-lifecycle-painted': {
+      description: "The wall follows the paired Hub run's feed: each session from the paired source is listed with its lifecycle status and paints its Line in that status's color",
+      scenario: 'hub-paired',
+      fresh: true,
+      run: pairedLifecycle(options),
     },
     'control-stale-completion': {
       description: 'Negative control: a Stop for an earlier turn leaves task-0 working, which task-completes must reject',
@@ -476,6 +668,18 @@ function definitions(options) {
       fresh: true,
       run: transition(options, {...APPROVAL, transition: 'defect-approve-other-tool'}),
     },
+    'control-paired-installed-port': {
+      description: "Negative control: the paired stand-in polls the installed Hub's port, which the boundary refuses and hub-lifecycle-painted must reject",
+      scenario: 'hub-paired',
+      fresh: true,
+      run: pairedLifecycle(options, {transition: 'defect-poll-installed-hub'}),
+    },
+    'control-paired-light-request': {
+      description: 'Negative control: the paired stand-in also tries to send the effect to each device, which the boundary refuses and hub-lifecycle-painted must reject',
+      scenario: 'hub-paired',
+      fresh: true,
+      run: pairedLifecycle(options, {transition: 'defect-paired-light-request'}),
+    },
   };
 }
 
@@ -485,4 +689,6 @@ export const NEGATIVE_CONTROLS = {
   'control-unread-painted-working': "task-0's Line is painted in the unread color",
   'control-stale-red': 'task-1 reads working in the task list',
   'control-device-attempt': 'no device attempt was recorded during the step',
+  'control-paired-installed-port': 'only the paired Hub feed was contacted during the step',
+  'control-paired-light-request': 'only the paired Hub feed was contacted during the step',
 };

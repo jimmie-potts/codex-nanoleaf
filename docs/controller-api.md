@@ -12,7 +12,7 @@ The [protected controller specification](../openspec/specs/protected-controller-
 
 Hooks, map and worker startup use the standard library. The listener lazily imports the unchanged shared Python consumer and needs the pinned packages in `requirements-controller.txt`, which the Linux installer provisions in the installation's virtual environment. A disabled machine API does not require those packages.
 
-These are operator commands for the separately authorized Linux installation. Source checkout tests do not run them against personal state. Use the installed launcher:
+These are operator commands for the separately authorized Linux installation. Source checkout tests do not run them against personal state. A verification run's `hub-paired` scenario serves this listener over its own synthetic state and accepts a run-generated Hub credential; see [Hub-paired runs](development.md#hub-paired-runs). Use the installed launcher:
 
 ```bash
 nanoleaf controller-configure --controller-id local-controller --device-id wall --source-id local-source

@@ -1,0 +1,315 @@
+{
+  "description": "#194: the stand-in Hub monitor feed of the hub-paired tests. Five sessions from the paired source cover every status the wall shows, including a turn-ended notice already acknowledged for consumer nanoleaf; one session from an undeclared source must be skipped. `expected` is each paired session's wall status and title, written out independently of the wall's code.",
+  "envelope": {
+    "apiVersion": "1.0",
+    "ownerId": "verify-owner",
+    "connection": "current",
+    "snapshot": {
+      "apiVersion": "1.2",
+      "revision": 7,
+      "asOfMs": 1790000000000,
+      "collector": "running",
+      "lossCount": 0,
+      "sessions": [
+        {
+          "identity": {
+            "provider": "codex",
+            "client": "cli",
+            "hostId": "verify-host",
+            "sourceId": "verify-source",
+            "sessionId": "hub-working"
+          },
+          "turn": {
+            "status": "known",
+            "id": "turn-1"
+          },
+          "parent": {
+            "status": "top-level"
+          },
+          "activity": "active",
+          "attention": [],
+          "notices": [],
+          "read": "unknown",
+          "unavailable": [],
+          "ordering": {
+            "status": "unknown"
+          },
+          "lastEvidenceAtMs": 1790000000000,
+          "observedAtMs": 1790000000000,
+          "observationAgeMs": 0,
+          "freshness": "current",
+          "restartUncertain": false,
+          "children": {
+            "active": 0,
+            "uncertain": 0
+          },
+          "generation": 0,
+          "label": "Build the integration",
+          "labelOrigin": "user",
+          "project": "device-hub"
+        },
+        {
+          "identity": {
+            "provider": "codex",
+            "client": "cli",
+            "hostId": "verify-host",
+            "sourceId": "verify-source",
+            "sessionId": "hub-approval"
+          },
+          "turn": {
+            "status": "known",
+            "id": "turn-1"
+          },
+          "parent": {
+            "status": "top-level"
+          },
+          "activity": "active",
+          "attention": [
+            {
+              "id": {
+                "status": "known",
+                "id": "approval-1"
+              },
+              "kind": "approval",
+              "turn": {
+                "status": "known",
+                "id": "turn-1"
+              }
+            }
+          ],
+          "notices": [],
+          "read": "unknown",
+          "unavailable": [],
+          "ordering": {
+            "status": "unknown"
+          },
+          "lastEvidenceAtMs": 1790000000000,
+          "observedAtMs": 1790000000000,
+          "observationAgeMs": 0,
+          "freshness": "current",
+          "restartUncertain": false,
+          "children": {
+            "active": 0,
+            "uncertain": 0
+          },
+          "generation": 0,
+          "title": {
+            "value": "Approve the migration",
+            "source": "provider"
+          },
+          "project": "device-hub"
+        },
+        {
+          "identity": {
+            "provider": "codex",
+            "client": "cli",
+            "hostId": "verify-host",
+            "sourceId": "verify-source",
+            "sessionId": "hub-question"
+          },
+          "turn": {
+            "status": "known",
+            "id": "turn-1"
+          },
+          "parent": {
+            "status": "top-level"
+          },
+          "activity": "idle",
+          "attention": [
+            {
+              "id": {
+                "status": "known",
+                "id": "question-1"
+              },
+              "kind": "question",
+              "turn": {
+                "status": "known",
+                "id": "turn-1"
+              }
+            }
+          ],
+          "notices": [],
+          "read": "unknown",
+          "unavailable": [],
+          "ordering": {
+            "status": "unknown"
+          },
+          "lastEvidenceAtMs": 1790000000000,
+          "observedAtMs": 1790000000000,
+          "observationAgeMs": 0,
+          "freshness": "current",
+          "restartUncertain": false,
+          "children": {
+            "active": 0,
+            "uncertain": 0
+          },
+          "generation": 0,
+          "title": {
+            "value": "Choose the rollout window",
+            "source": "provider"
+          }
+        },
+        {
+          "identity": {
+            "provider": "codex",
+            "client": "cli",
+            "hostId": "verify-host",
+            "sourceId": "verify-source",
+            "sessionId": "hub-finished"
+          },
+          "turn": {
+            "status": "known",
+            "id": "turn-1"
+          },
+          "parent": {
+            "status": "top-level"
+          },
+          "activity": "idle",
+          "attention": [],
+          "notices": [
+            {
+              "id": "c89af8cefa3a46d32f86a21ae05b403f711ab25cebe1a2005d109e8623943e46",
+              "kind": "turn-ended",
+              "turn": {
+                "status": "known",
+                "id": "turn-1"
+              },
+              "acknowledgedBy": []
+            }
+          ],
+          "read": "unknown",
+          "unavailable": [],
+          "ordering": {
+            "status": "unknown"
+          },
+          "lastEvidenceAtMs": 1790000000000,
+          "observedAtMs": 1790000000000,
+          "observationAgeMs": 0,
+          "freshness": "current",
+          "restartUncertain": false,
+          "children": {
+            "active": 0,
+            "uncertain": 0
+          },
+          "generation": 0,
+          "title": {
+            "value": "Summarize the release notes",
+            "source": "provider"
+          }
+        },
+        {
+          "identity": {
+            "provider": "codex",
+            "client": "cli",
+            "hostId": "verify-host",
+            "sourceId": "verify-source",
+            "sessionId": "hub-acknowledged"
+          },
+          "turn": {
+            "status": "known",
+            "id": "turn-1"
+          },
+          "parent": {
+            "status": "top-level"
+          },
+          "activity": "idle",
+          "attention": [],
+          "notices": [
+            {
+              "id": "7f8e560b5fd2765fd8b936c1fe302ffd757b4be095970c121641cf39981d9762",
+              "kind": "turn-ended",
+              "turn": {
+                "status": "known",
+                "id": "turn-1"
+              },
+              "acknowledgedBy": [
+                "nanoleaf"
+              ]
+            }
+          ],
+          "read": "unknown",
+          "unavailable": [],
+          "ordering": {
+            "status": "unknown"
+          },
+          "lastEvidenceAtMs": 1790000000000,
+          "observedAtMs": 1790000000000,
+          "observationAgeMs": 0,
+          "freshness": "current",
+          "restartUncertain": false,
+          "children": {
+            "active": 0,
+            "uncertain": 0
+          },
+          "generation": 0,
+          "title": {
+            "value": "Tidy the changelog",
+            "source": "provider"
+          }
+        },
+        {
+          "identity": {
+            "provider": "codex",
+            "client": "desktop",
+            "hostId": "other-host",
+            "sourceId": "other-source",
+            "sessionId": "hub-undeclared"
+          },
+          "turn": {
+            "status": "known",
+            "id": "turn-1"
+          },
+          "parent": {
+            "status": "top-level"
+          },
+          "activity": "active",
+          "attention": [],
+          "notices": [],
+          "read": "unknown",
+          "unavailable": [],
+          "ordering": {
+            "status": "unknown"
+          },
+          "lastEvidenceAtMs": 1790000000000,
+          "observedAtMs": 1790000000000,
+          "observationAgeMs": 0,
+          "freshness": "current",
+          "restartUncertain": false,
+          "children": {
+            "active": 0,
+            "uncertain": 0
+          },
+          "generation": 0,
+          "title": {
+            "value": "An undeclared source",
+            "source": "provider"
+          }
+        }
+      ]
+    },
+    "admissionRejected": 0,
+    "nextRequestId": "verify-owner:1"
+  },
+  "expected": {
+    "hub-working": [
+      "working",
+      "Build the integration"
+    ],
+    "hub-approval": [
+      "blocked",
+      "Approve the migration"
+    ],
+    "hub-question": [
+      "question",
+      "Choose the rollout window"
+    ],
+    "hub-finished": [
+      "unread",
+      "Summarize the release notes"
+    ],
+    "hub-acknowledged": [
+      "idle",
+      "Tidy the changelog"
+    ]
+  }
+}

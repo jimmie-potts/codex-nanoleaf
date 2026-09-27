@@ -295,7 +295,9 @@ or wall-map controls are introduced here.
 ## Verification
 
 Run `python3 scripts/check.py`, `npm run test:browser`, `npm run check:workflow`
-and `npm run test:workflow`. Shared tests include the released fixture corpus,
+and `npm run test:workflow`. A verification run's `hub-paired` scenario follows a
+paired Hub run's feed through this consumer; see
+[Hub-paired runs](development.md#hub-paired-runs). Shared tests include the released fixture corpus,
 archive byte checks, actual released-owner new-turn behavior, synthetic HTTP,
 cutover/rollback, stale rendering, private inspection and retained forwarding.
 

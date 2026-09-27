@@ -1,0 +1,94 @@
+{
+  "artifact": "@jimmie-potts/app-verify",
+  "version": "1.1.0",
+  "sourceRevision": "917d06f75bfe91dd161024a51c0582b5b7ceccde",
+  "reviewedHead": "213fe4168bb4be7374d3407ced8231fffe18910e",
+  "reviewBase": "0d9757d52395d0c64e9cae000e0bd271489253e9",
+  "filename": "jimmie-potts-app-verify-1.1.0.tgz",
+  "sha256": "1a0447ec6324f815bc89c3f671207ef452cde120c329b5318fd68711e06a3281",
+  "sourceTree": "bf24b510f0a8e389b4836c540e1c09c0a9b21fad",
+  "pr": "https://github.com/jimmie-potts/agent-device-hub/pull/554",
+  "issue": "https://github.com/jimmie-potts/agent-device-hub/issues/495",
+  "uiApproval": null,
+  "reviews": {
+    "Standards": "satisfied; final 3 on 213fe41, https://github.com/jimmie-potts/agent-device-hub/pull/554#issuecomment-5857897153",
+    "Specification": "satisfied; final 3 on 213fe41, same report"
+  },
+  "node": "24.21.0",
+  "packageChecks": [
+    {
+      "command": [
+        "npm",
+        "ci"
+      ],
+      "exitCode": 0
+    },
+    {
+      "command": [
+        "npm",
+        "run",
+        "test:app-verify:package"
+      ],
+      "exitCode": 0,
+      "result": "68 passed, 0 skipped (isolated consumer, systemd host)"
+    }
+  ],
+  "mainCiChecks": [
+    {
+      "id": 108664973992,
+      "name": "Work guide / Work guide build and browser checks",
+      "head": "917d06f75bfe91dd161024a51c0582b5b7ceccde",
+      "conclusion": "success",
+      "app": "depot-code-access",
+      "details_url": "https://depot.dev/orgs/0kwdkp3sc9/workflows/npcblb9099?job=m44ns6tpv7&repo=jimmie-potts%2Fagent-device-hub"
+    },
+    {
+      "id": 108664972044,
+      "name": "Checks / Dashboard browser and contracts on ubuntu-latest",
+      "head": "917d06f75bfe91dd161024a51c0582b5b7ceccde",
+      "conclusion": "success",
+      "app": "depot-code-access",
+      "details_url": "https://depot.dev/orgs/0kwdkp3sc9/workflows/bj1k49t9tp?job=fpxc42tr3l&repo=jimmie-potts%2Fagent-device-hub"
+    },
+    {
+      "id": 108664970305,
+      "name": "Checks / MCP on ubuntu-latest",
+      "head": "917d06f75bfe91dd161024a51c0582b5b7ceccde",
+      "conclusion": "success",
+      "app": "depot-code-access",
+      "details_url": "https://depot.dev/orgs/0kwdkp3sc9/workflows/bj1k49t9tp?job=88fbj40l2f&repo=jimmie-potts%2Fagent-device-hub"
+    },
+    {
+      "id": 108664968387,
+      "name": "Checks / Contracts and state Python 3.14 on ubuntu-latest",
+      "head": "917d06f75bfe91dd161024a51c0582b5b7ceccde",
+      "conclusion": "success",
+      "app": "depot-code-access",
+      "details_url": "https://depot.dev/orgs/0kwdkp3sc9/workflows/bj1k49t9tp?job=kj2r44vr2v&repo=jimmie-potts%2Fagent-device-hub"
+    },
+    {
+      "id": 108664966839,
+      "name": "Checks / Contracts and state Python 3.12 on ubuntu-latest",
+      "head": "917d06f75bfe91dd161024a51c0582b5b7ceccde",
+      "conclusion": "success",
+      "app": "depot-code-access",
+      "details_url": "https://depot.dev/orgs/0kwdkp3sc9/workflows/bj1k49t9tp?job=lr3dm8v1bt&repo=jimmie-potts%2Fagent-device-hub"
+    },
+    {
+      "id": 108664965370,
+      "name": "Checks / App verification on ubuntu-latest",
+      "head": "917d06f75bfe91dd161024a51c0582b5b7ceccde",
+      "conclusion": "success",
+      "app": "depot-code-access",
+      "details_url": "https://depot.dev/orgs/0kwdkp3sc9/workflows/bj1k49t9tp?job=d3qnq7p204&repo=jimmie-potts%2Fagent-device-hub"
+    },
+    {
+      "id": 108664963445,
+      "name": "Checks / Workflow checks on ubuntu-latest",
+      "head": "917d06f75bfe91dd161024a51c0582b5b7ceccde",
+      "conclusion": "success",
+      "app": "depot-code-access",
+      "details_url": "https://depot.dev/orgs/0kwdkp3sc9/workflows/bj1k49t9tp?job=fpxl143gnf&repo=jimmie-potts%2Fagent-device-hub"
+    }
+  ]
+}
