@@ -169,8 +169,9 @@ class StateOwnershipTest(Directories):
                 if arguments[0] == 'seed':
                     nested.mkdir()
                 result = command(*arguments, env={'HOME': str(home)})
-                self.assertNotEqual(result.returncode, 0, result.stdout)
-                self.assertIn("Refusing the state directory: it is the installation's own state.", result.stderr)
+                self.assertEqual(result.returncode, 2, result.stdout)
+                self.assertIn("demo.py: error: Refusing the state directory: it is the installation's own state.", result.stderr)
+                self.assertNotIn('Traceback', result.stderr)
         self.assertEqual(dump(installed), before, 'the installation state is unchanged')
         self.assertEqual(sorted(path.name for path in installed.iterdir()), sorted([path.name for path in seeded.iterdir()] + ['nested']))
         self.assertEqual(list(nested.iterdir()), [])

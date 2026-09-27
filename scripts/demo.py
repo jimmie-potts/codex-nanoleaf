@@ -197,12 +197,18 @@ def install_boundary(log):
     return boundary
 
 
-def owned_state(directory):
-    """The resolved directory, when `seed` marked it and it is not the installation's own state."""
+def outside_installation(directory):
+    """The resolved directory, when it is neither the installation's state directory nor inside it."""
     directory = Path(directory).resolve()
     installed = configuration.data_dir().resolve()
     if directory == installed or installed in directory.parents:
         raise ValueError("Refusing the state directory: it is the installation's own state.")
+    return directory
+
+
+def owned_state(directory):
+    """The resolved directory, when `seed` marked it and it is not the installation's own state."""
+    directory = outside_installation(directory)
     if not (directory / MARKER).is_file():
         raise ValueError(f'Refusing the state directory: it has no {MARKER} from demo.py seed.')
     return directory
@@ -242,9 +248,7 @@ def seed(directory, scenario='reference', now=time.time):
     directory = Path(directory)
     if scenario not in SCENARIOS:
         raise ValueError(f'Unknown scenario {scenario!r}. Choose one of: {", ".join(SCENARIOS)}.')
-    installed = configuration.data_dir().resolve()
-    if directory.resolve() == installed or installed in directory.resolve().parents:
-        raise ValueError("Refusing the state directory: it is the installation's own state.")
+    outside_installation(directory)
     if any(directory.iterdir()):
         raise ValueError('Seed an empty state directory. A run resets its state by emptying it first.')
     definition = SCENARIOS[scenario]
@@ -347,11 +351,10 @@ def main(argv=None):
             serve(directory, boundary, args.port)
         return
     directory = args.state_dir.resolve()
-    if args.command in ('serve', 'drive'):
-        try:
-            owned_state(directory)
-        except ValueError as error:
-            parser.error(str(error))
+    try:
+        (outside_installation if args.command == 'seed' else owned_state)(directory)
+    except ValueError as error:
+        parser.error(str(error))
     boundary = install_boundary(directory / BOUNDARY_LOG)
     if args.command == 'seed':
         seed(directory, args.scenario)

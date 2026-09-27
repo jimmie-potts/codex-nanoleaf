@@ -177,6 +177,21 @@ test('a wall that attempts a device request during start fails its boundary chec
   started.delete(start.result.runId);
 });
 
+test('a failed seed names its cause with a fixed line and no command or checkout path', {skip}, async () => {
+  const fake = join(base, 'fake-python3');
+  await writeFile(fake, `#!/bin/sh\nprintf 'Traceback (most recent call last):\\n  File "%s", line 1\\n' "$0" >&2\nprintf "ModuleNotFoundError: No module named 'wall_server'\\n" >&2\nexit 1\n`, {mode: 0o755});
+  const entry = await wrapper('failing-seed', `createPlugin({app: ${JSON.stringify(app)}, python: ${JSON.stringify(fake)}})`);
+  const start = await cli(['start', '--lease', '10'], {entry});
+  assert.equal(start.code, 1);
+  assert.deepEqual([start.result.state, start.result.cause, start.result.detail, start.result.cleanup.result],
+    ['failed', 'seed-failed', 'demo.py seed failed: Python module wall_server is missing', 'clean']);
+  const proof = join(base, 'proof', start.result.runId);
+  for (const text of [JSON.stringify(start.result), await readFile(join(proof, 'receipt.json'), 'utf8'), await readFile(join(proof, 'events.jsonl'), 'utf8')]) {
+    for (const path of [fake, plugin.root, 'Command failed']) assert.equal(text.includes(path), false, `${path} leaked`);
+  }
+  started.delete(start.result.runId);
+});
+
 test('a wall that exits before it is ready fails the start and leaves no unit, timer or runtime directory', {skip}, async () => {
   const entry = await wrapper('broken-launch', `{...p, launch: context => p.launch({...context, dataDir: context.dataDir + '/missing'})}`);
   const start = await cli(['start', '--lease', '10'], {entry});

@@ -117,8 +117,26 @@ async function drive(t, options, transition) {
   t.note(`drove ${transition}: ${stdout.trim()}`);
 }
 
-/** The map's own bounded layout read of the Lines: the only device attempt a run can expect. */
-export const isLayoutRead = entry => entry.kind === 'light-request' && entry.method === 'GET' && entry.target === '192.0.2.1';
+/** The map's own layout read of the Lines: a GET of the whole layout, the only device attempt a run can expect. */
+export const isLayoutRead = entry => entry.kind === 'light-request' && entry.method === 'GET' && entry.target === '192.0.2.1' && entry.endpoint === '';
+
+/**
+ * The map reads its layout at most three times: at startup, then twice more, each on the first poll
+ * 10 s or more after its previous read. The recorded times trail the map's decisions by the few
+ * milliseconds each read takes to start, so consecutive reads must be at least 9.9 s apart.
+ */
+export const LAYOUT_READS = {most: 3, apartMs: 9900};
+
+/** Why a run's layout reads exceed the map's bound, or null when they stay within it. */
+export function layoutReadProblem(entries) {
+  const reads = entries.filter(isLayoutRead);
+  if (reads.length > LAYOUT_READS.most) return `${reads.length} layout reads, more than the map's ${LAYOUT_READS.most}`;
+  for (let index = 1; index < reads.length; index++) {
+    const apart = Date.parse(reads[index].at) - Date.parse(reads[index - 1].at);
+    if (!(apart >= LAYOUT_READS.apartMs)) return `layout read ${index + 1} came ${apart} ms after the previous one`;
+  }
+  return null;
+}
 
 /**
  * Record what leaves the page and the run during a step. `close` asserts that nothing did, apart
@@ -142,8 +160,10 @@ async function watchBoundary(t, tolerate) {
       await t.expect('the page contacted only its own run', () => same([...new Set(foreign)], [], 'Requests left the run origin'));
       const entries = await during();
       if (tolerate) {
-        await t.expect("the only device attempts during the step are the map's layout reads", () =>
-          same(entries.filter(entry => !tolerate(entry)).map(describe), [], 'Other device attempts during the step'));
+        await t.expect("the only device attempts during the step are the map's bounded layout reads", async () => {
+          same(entries.filter(entry => !tolerate(entry)).map(describe), [], 'Other device attempts during the step');
+          same(layoutReadProblem(await boundaryEntries(t.dataDir)), null, 'Layout reads since the seed');
+        });
       } else {
         await t.expect('no device attempt was recorded during the step', () => same(entries.map(describe), [], 'Device attempts during the step'));
       }

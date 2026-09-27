@@ -16,13 +16,13 @@ import readline from 'node:readline';
 import {describe, test} from 'node:test';
 import {promisify} from 'node:util';
 import {runCaptureStep} from '@jimmie-potts/app-verify';
-import plugin, {deviceBoundary, failureCause, readyLine} from '../scripts/verify/plugin.mjs';
+import plugin, {createPlugin, deviceBoundary, failureCause, readyLine} from '../scripts/verify/plugin.mjs';
 import {NEGATIVE_CONTROLS, strict, strictSteps} from '../scripts/verify/steps.mjs';
 
 const results = join(plugin.root, 'test-results/verify');
 
 /** Seed, launch and wait for readiness the way the core's `start` does, with the process as a plain child. */
-async function startRun(scenario) {
+async function startRun(scenario, {serve} = {}) {
   const runtimeDir = await mkdtemp(join(tmpdir(), 'wall-verify-'));
   const dataDir = join(runtimeDir, 'data');
   await mkdir(dataDir);
@@ -30,6 +30,8 @@ async function startRun(scenario) {
   const paths = {runId: `wall-test-${randomBytes(3).toString('hex')}`, root: plugin.root, runtimeDir, dataDir, scenario};
   await plugin.scenarios[scenario].seed(paths);
   const spec = await plugin.launch({...paths, port: 0, node: process.execPath});
+  // A test can serve through another entry point that takes demo.py's arguments.
+  if (serve) spec.argv = spec.argv.map(argument => argument.endsWith('scripts/demo.py') ? serve : argument);
   const child = spawn(spec.argv[0], spec.argv.slice(1), {cwd: spec.cwd ?? plugin.root, stdio: ['ignore', 'pipe', 'pipe'],
     env: {...process.env, ...spec.env, TMPDIR: join(runtimeDir, 'tmp')}});
   let errors = '';
@@ -110,11 +112,17 @@ describe('plug-in surface', () => {
   });
 
   test("the boundary check allows only the map's layout read, and only in layout-unavailable", async () => {
-    const layoutRead = {kind: 'light-request', target: '192.0.2.1', method: 'GET', endpoint: '', outcome: 'refused'};
+    const read = seconds => ({at: new Date(Date.UTC(2026, 8, 27, 12, 0, 0) + seconds * 1000).toISOString(),
+      kind: 'light-request', target: '192.0.2.1', method: 'GET', endpoint: '', outcome: 'refused'});
+    const layoutRead = read(0);
     const cases = [
       ['reference', [], {outcome: 'passed'}],
       ['reference', [layoutRead], {outcome: 'failed', reason: '1 device attempt(s) recorded since the last seed'}],
-      ['layout-unavailable', [layoutRead, layoutRead], {outcome: 'passed'}],
+      ['layout-unavailable', [read(0), read(10.1), read(20.2)], {outcome: 'passed'}],
+      ['layout-unavailable', [read(0), read(10.1), read(20.2), read(30.3)], {outcome: 'failed', reason: "4 layout reads, more than the map's 3"}],
+      ['layout-unavailable', [read(0), read(3)], {outcome: 'failed', reason: 'layout read 2 came 3000 ms after the previous one'}],
+      ['layout-unavailable', [layoutRead, {...layoutRead, endpoint: '/state'}],
+        {outcome: 'failed', reason: "1 device attempt(s) other than the map's layout read recorded since the last seed"}],
       ['layout-unavailable', [], {outcome: 'failed', reason: 'the startup layout read was not attempted and refused'}],
       ['layout-unavailable', [layoutRead, {kind: 'process', target: 'python3', outcome: 'refused'}],
         {outcome: 'failed', reason: "1 device attempt(s) other than the map's layout read recorded since the last seed"}],
@@ -131,6 +139,21 @@ describe('plug-in surface', () => {
       } finally {
         await rm(dataDir, {recursive: true, force: true});
       }
+    }
+  });
+
+  test('a failed seed is named by a fixed line, without the command or any path', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'wall-seed-'));
+    try {
+      const fake = join(directory, 'python3');
+      await writeFile(fake, `#!/bin/sh\nprintf 'Traceback (most recent call last):\\n  File "%s", line 1\\n' "$0" >&2\nprintf "ModuleNotFoundError: No module named 'wall_server'\\n" >&2\nexit 1\n`, {mode: 0o755});
+      const context = {dataDir: join(directory, 'data'), scenario: 'reference'};
+      await assert.rejects(createPlugin({python: fake}).scenarios.reference.seed(context),
+        error => error.message === 'demo.py seed failed: Python module wall_server is missing');
+      await assert.rejects(createPlugin({python: join(directory, 'missing', 'python3')}).scenarios.reference.seed(context),
+        error => error.message === 'demo.py seed failed: the Python interpreter was not found');
+    } finally {
+      await rm(directory, {recursive: true, force: true});
     }
   });
 
@@ -231,6 +254,26 @@ describe("the map's own layout retry", () => {
       const record = JSON.parse(await readFile(result.attachments.find(path => path.endsWith('/device-boundary.json')), 'utf8'));
       assert.ok(record.duringStep.length >= 1, 'the retry happened during the step');
       assert.ok(record.duringStep.every(entry => entry.kind === 'light-request' && entry.method === 'GET' && entry.target === '192.0.2.1'));
+    } finally {
+      await run.stop();
+    }
+  });
+});
+
+describe('a map that reads its layout on every poll', () => {
+  test('fails device-read-refused and the boundary check', async () => {
+    const run = await startRun('layout-unavailable', {serve: join(plugin.root, 'tests/fixtures/eager_layout_map.py')});
+    const outputDir = join(results, 'device-read-refused-eager-map');
+    await rm(outputDir, {recursive: true, force: true});
+    try {
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      const {runId, runtimeDir, dataDir, url, scenario} = run.context;
+      const result = await runCaptureStep(plugin, 'device-read-refused', {url, outputDir, scenario, dataDir, runtimeDir, runId});
+      assert.equal(result.outcome, 'failed');
+      assert.deepEqual(result.assertions.filter(item => item.outcome === 'failed').map(item => item.name),
+        ["the only device attempts during the step are the map's bounded layout reads"], JSON.stringify(result, null, 2));
+      assert.match(result.reason, /Layout reads since the seed: expected null, saw "(layout read 2 came \d+ ms after the previous one|\d+ layout reads, more than the map's 3)"/);
+      assert.equal((await deviceBoundary({dataDir, scenario})).outcome, 'failed');
     } finally {
       await run.stop();
     }

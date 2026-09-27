@@ -10,7 +10,7 @@ import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {promisify} from 'node:util';
 import {definePlugin} from '@jimmie-potts/app-verify';
-import {boundaryEntries, captureSteps, isLayoutRead} from './steps.mjs';
+import {boundaryEntries, captureSteps, isLayoutRead, layoutReadProblem} from './steps.mjs';
 
 const run = promisify(execFile);
 /** Ports of the installed services; a run never answers on one. */
@@ -65,34 +65,56 @@ export async function probe({url, port, dataDir, signal}) {
 /**
  * The boundary check, at start and in `doctor`. The log starts empty at each seed and holds only
  * refusals, because the boundary records an attempt as it refuses it. A run records no attempt,
- * except that layout-unavailable must record the map's layout read of the Lines, and only that.
+ * except that layout-unavailable must record the map's layout reads of the Lines, only those, and
+ * no more or more often than the map makes them.
  */
 export async function deviceBoundary({dataDir, scenario}) {
   const entries = await boundaryEntries(dataDir);
   if (scenario === 'layout-unavailable') {
     const other = entries.filter(entry => !isLayoutRead(entry));
     if (other.length) return {outcome: 'failed', reason: `${other.length} device attempt(s) other than the map's layout read recorded since the last seed`};
-    return entries.length ? {outcome: 'passed'} : {outcome: 'failed', reason: 'the startup layout read was not attempted and refused'};
+    if (!entries.length) return {outcome: 'failed', reason: 'the startup layout read was not attempted and refused'};
+    const problem = layoutReadProblem(entries);
+    return problem ? {outcome: 'failed', reason: problem} : {outcome: 'passed'};
   }
   return entries.length ? {outcome: 'failed', reason: `${entries.length} device attempt(s) recorded since the last seed`} : {outcome: 'passed'};
 }
 
 /**
- * Name a failed start from the wall server's stderr: a stable line for its known failures, or the
- * Python exception type alone. It never returns an exception message, which can hold a path.
+ * The cause of a failed demo.py command, read from its stderr: a fixed phrase for its known failures,
+ * or the Python exception type alone. It never returns an exception message, which can hold a path.
  */
-export function failureCause(stderrTail) {
-  const lines = stderrTail.split('\n').map(line => line.trim()).filter(Boolean);
+export function demoCause(stderrTail) {
+  const lines = String(stderrTail ?? '').split('\n').map(line => line.trim()).filter(Boolean);
   const last = lines.at(-1) ?? '';
-  if (/^OSError: \[Errno 98\] Address already in use$/.test(last)) return 'wall-start-failed: port already in use';
-  if (/^FileNotFoundError: \[Errno 2\] No such file or directory: '[^']*\/config\.json'$/.test(last)) return 'wall-start-failed: the state directory is not seeded (config.json missing)';
+  if (/^OSError: \[Errno 98\] Address already in use$/.test(last)) return 'port already in use';
+  if (/^FileNotFoundError: \[Errno 2\] No such file or directory: '[^']*\/config\.json'$/.test(last)) return 'the state directory is not seeded (config.json missing)';
   const module = /^ModuleNotFoundError: No module named '([A-Za-z0-9_.]{1,60})'$/.exec(last);
-  if (module) return `wall-start-failed: Python module ${module[1]} is missing`;
-  if (/^demo\.py: error: Refusing the state directory: it is the installation's own state\.$/.test(last)) return 'wall-start-failed: refused the installation state directory';
-  if (/^demo\.py: error: Refusing the state directory: it has no demo-run\.json from demo\.py seed\.$/.test(last)) return 'wall-start-failed: the state directory was not seeded by demo.py';
-  if (/^demo\.py(?: [a-z]+)?: error: /.test(last)) return 'wall-start-failed: demo.py rejected its arguments';
+  if (module) return `Python module ${module[1]} is missing`;
+  if (/^demo\.py: error: Refusing the state directory: it is the installation's own state\.$/.test(last)) return 'refused the installation state directory';
+  if (/^demo\.py: error: Refusing the state directory: it has no demo-run\.json from demo\.py seed\.$/.test(last)) return 'the state directory was not seeded by demo.py';
+  if (/^demo\.py(?: [a-z]+)?: error: /.test(last)) return 'demo.py rejected its arguments';
   const type = /^([A-Za-z_][A-Za-z0-9_.]{0,80}(?:Error|Exception|Exit|Interrupt))(?::|$)/.exec(last);
-  return type ? `wall-start-failed: ${type[1]}` : undefined;
+  return type ? type[1] : undefined;
+}
+
+/** Name a failed start from the wall server's stderr, for the core's `failure.detail`. */
+export function failureCause(stderrTail) {
+  const cause = demoCause(stderrTail);
+  return cause ? `wall-start-failed: ${cause}` : undefined;
+}
+
+/**
+ * Run `demo.py seed`. A failure becomes one fixed line, never execFile's message, which names the
+ * interpreter, the checkout and the state directory.
+ */
+export async function seedWith(python, root, {dataDir, scenario}) {
+  try {
+    await run(python, [join(root, 'scripts/demo.py'), 'seed', '--state-dir', dataDir, '--scenario', scenario], {cwd: root});
+  } catch (error) {
+    if (error.code === 'ENOENT') throw new Error('demo.py seed failed: the Python interpreter was not found');
+    throw new Error(`demo.py seed failed: ${demoCause(error.stderr) ?? `exit status ${Number.isInteger(error.code) ? error.code : 'unknown'}`}`);
+  }
 }
 
 /**
@@ -102,9 +124,7 @@ export function failureCause(stderrTail) {
  */
 export function createPlugin({root = fileURLToPath(new URL('../..', import.meta.url)), python = process.env.PYTHON || 'python3', app = 'wall'} = {}) {
   const demo = join(root, 'scripts/demo.py');
-  const seed = async ({dataDir, scenario}) => {
-    await run(python, [demo, 'seed', '--state-dir', dataDir, '--scenario', scenario], {cwd: root});
-  };
+  const seed = context => seedWith(python, root, context);
   return definePlugin({
     app,
     repository: 'jimmie-potts/codex-nanoleaf',
