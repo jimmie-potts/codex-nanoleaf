@@ -8,7 +8,7 @@
 - Every demo entry point installs a process boundary that refuses and records outbound sockets, datagram sends, new processes and light requests. A refusal looks like an unreachable device to the wall server.
 - Named scenarios (`reference`, `empty`, `layout-unavailable`) and named task transitions, applied through the actual hook handler, including known-wrong defect transitions.
 - A wall plug-in (`scripts/verify/`) with readiness, components, a start-time boundary check and capture steps whose assertions read painted and listed observations, with negative controls that must fail.
-- Pending the core release: the `npm run verify --` wrapper and the vendored core archive.
+- The `npm run verify --` wrapper over the vendored core archive, with supervised lifecycle checks against real transient user units that skip where no user manager exists.
 
 ## Capabilities
 

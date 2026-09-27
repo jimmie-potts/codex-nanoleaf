@@ -5,9 +5,10 @@
 - [x] 1.3 Pass `npm run test:verify`: every reference capture step passes with a screenshot and finalized video, and every negative control fails at its named assertion.
 - [x] 1.4 Document the commands, boundary, feature map, negative controls and unsupported cases in the development guide.
 
-## 2. Shared core adoption (after the Hub core release)
+## 2. Shared core adoption
 
-- [ ] 2.1 Vendor the released core archive with its checksum and add the `npm run verify --` wrapper around the plug-in; `npm ci` resolves it offline.
-- [ ] 2.2 Run `start`, `doctor`, `capture`, `handoff --reset`, `extend`, `stop` and `restart` against real transient units on this host, including two concurrent runs, a failed start and an expired lease, and record the receipts and proof paths in the PR.
-- [ ] 2.3 Capture a reference step and a negative control through the core and confirm `passed` and `failed` outcomes and the frozen `verified/SHA256SUMS`.
-- [ ] 2.4 Synchronize and archive this change, run the workflow checks, and publish the PR.
+- [x] 2.1 Wrap the plug-in with `definePlugin`, add the `npm run verify --` wrapper, use the multi-file artifact and fresh steps, and run the capture checks through the core's `runCaptureStep`.
+- [x] 2.2 Pass `npm run test:verify:lifecycle` against real transient units: receipt and identity, doctor, capture, handoff, extend, stop, concurrent runs, a device attempt during start, an early exit, an interrupted start, expiry and restart; confirm it skips with a printed reason without a user manager.
+- [x] 2.3 Run the operations with the default roots on this host, capture every step, and record a proof directory, a receipt and doctor output as local evidence.
+- [ ] 2.4 Replace the pre-release core archive with the released tarball and its checksum, then rerun the checks.
+- [ ] 2.5 Synchronize and archive this change, run the workflow checks, and publish the PR.

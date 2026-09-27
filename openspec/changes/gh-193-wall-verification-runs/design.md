@@ -18,6 +18,12 @@ Run the actual wall server, page, state store, hook handler and allocation over 
 
 **Assertions on painted and listed output.** Steps read the Prism SVG fills, the task list badges, the readout and the renderer snapshot. A presentation negative control serves the page with one exact source replacement; the step first asserts that the replacement happened once, so a stale mutation fails loudly rather than passing.
 
+**Every step is fresh.** Steps assert absolute observations, so each declares `fresh` and the core reseeds its scenario and relaunches the wall on the same port before it runs. A fresh step after handoff therefore resets the preview.
+
+**Reduced motion.** The core's capture context prefers reduced motion, which stops Prism's animation frames. `lighting-modes` opts out to check the animation, then switches back to check that reduced motion holds Work still.
+
+**Supervised checks gated on a user manager.** `tests/verify_lifecycle.mjs` runs the real core against real transient units with a unique app name and private roots under the user cache. It skips with the reason printed without a user manager, as the core's own tests do. `tests/verify_checks.mjs` needs no systemd: it launches the demo directly and drives each step through the core's `runCaptureStep`.
+
 ## Risks / Trade-offs
 
 - An audit hook cannot be removed: tests install it only in child processes.

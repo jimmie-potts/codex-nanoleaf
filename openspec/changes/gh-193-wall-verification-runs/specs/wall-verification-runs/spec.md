@@ -58,11 +58,19 @@ Every demo entry point SHALL, before running bridge code, refuse outbound socket
 
 ### Requirement: Assertion-backed capture steps
 
-The wall plug-in SHALL define capture steps for the Lines wall, a task completion, an approval, the Project layout configuration, the lighting modes and assembly replay, the Light Panels and the refused device read. Each step SHALL record named assertions on the page's painted colors, listed statuses, alerts or renderer state, and SHALL assert that the page requested only its run origin and that the run recorded no device attempt, except the refused-read step, which requires its attempt to be refused. (Issue #193: presentation, configuration and animation states; screenshot and video.)
+The wall plug-in SHALL define capture steps for the Lines wall, a task completion, an approval, an approval request, a resumed task, the Project layout configuration, the lighting modes with assembly replay and reduced motion, the Light Panels and the refused device read. Each step SHALL record named assertions on the page's painted colors, listed statuses, alerts or renderer state, and SHALL assert that the page requested only its run origin and that the run recorded no device attempt, except the refused-read step, which requires its attempt to be refused. Every step SHALL be fresh, so the core reseeds its scenario and relaunches the wall on the same port before it runs. (Issue #193: presentation, configuration and animation states; screenshot and video.)
 
 #### Scenario: Reference steps
-- **WHEN** each reference step runs on a freshly seeded run
+- **WHEN** each reference step runs through the core's capture driver
 - **THEN** every assertion passes and a screenshot and a finalized video exist
+
+#### Scenario: Transition keeps its Line
+- **WHEN** a transition step drives `complete`, `approve`, `request-approval` or `resume`
+- **THEN** the task is listed in its new status on the same Line, that Line is painted in the new status color, every other Line keeps its colors and the alerts match the new state
+
+#### Scenario: Reduced motion
+- **WHEN** the lighting-modes step switches the page to reduced motion in Work
+- **THEN** the light phase holds still and Replay does not animate
 
 ### Requirement: Negative controls fail
 
@@ -87,3 +95,23 @@ The plug-in SHALL label the wall server, page, state store, hook handler and all
 #### Scenario: Another map on the port
 - **WHEN** the run's receipt names an instance that `/health` does not report
 - **THEN** the probe fails with the reason that health names another map instance
+
+### Requirement: Supervised runs through the shared core
+
+`npm run verify -- <operation>` SHALL run the shared core's operations with the wall plug-in, named `wall`, whose default scenario is `reference`. The receipt SHALL name the checkout's revision and dirty flag and a digest of the page and its three Prism assets. A run SHALL start only after its ready line, its probe and its device-boundary check pass. The repository SHALL check the supervised lifecycle against real transient user units where a user manager exists, and SHALL skip with the reason printed where none exists. (Issue #193: two runs share nothing; failed starts and expired leases clean only owned resources; a handoff is reproducible after expiry without modifying retained proof.)
+
+#### Scenario: Run, proof and cleanup
+- **WHEN** a run starts, captures, hands off with a reset, captures again, extends and stops
+- **THEN** the receipt validates, doctor reads it running with a passing probe and a matching artifact, the verified set keeps its checksums through the later capture and the extension, and stop removes the unit, lease timer and runtime directory
+
+#### Scenario: A start that attempts a device request
+- **WHEN** the served state makes the wall ask a device for its layout during a `reference` start
+- **THEN** the device-boundary check fails the start and the start leaves no unit, timer or runtime directory
+
+#### Scenario: Failed, interrupted and expired runs
+- **WHEN** the wall exits before readiness, a start is killed after seeding, or a lease expires after handoff
+- **THEN** doctor lists the run as failed, starting or expired, stop removes only what that run created, and frozen proof still verifies
+
+#### Scenario: Concurrent runs and restart
+- **WHEN** two runs serve at once and one is reseeded, or a run is restarted
+- **THEN** the other run keeps its state and process, and the restarted run names its predecessor and whether the candidate is the same

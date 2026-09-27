@@ -4,7 +4,8 @@
 // `t.expect`. Observations come from what the page painted and listed, not from screenshots.
 // Transitions are applied through the actual hook handler (`scripts/demo.py drive`). Every step
 // also asserts that the run recorded no device attempt and that the page contacted only its own
-// origin. Steps change the run's state, so run each on a freshly seeded run.
+// origin. Every step asserts absolute observations, so each is `fresh`: the core reseeds its
+// scenario and relaunches the wall on the same port before the step runs.
 //
 // Steps named `control-*` are negative controls: a known-wrong transition or presentation that the
 // same assertions must reject. Their capture outcome is `failed` at the assertion named in
@@ -188,6 +189,7 @@ export function captureSteps(options) {
     'wall-ready': {
       description: 'The Lines wall draws 15 Lines and lists the five reference tasks, their alerts and both devices',
       scenario: 'reference',
+      fresh: true,
       run: async t => {
         const boundary = await watchBoundary(t);
         await openWall(t);
@@ -212,28 +214,33 @@ export function captureSteps(options) {
     'task-completes': {
       description: 'task-0 finishes its turn through the hook handler; its Line turns unread and keeps its place',
       scenario: 'reference',
+      fresh: true,
       run: transition(options, {...COMPLETION, transition: 'complete'}),
     },
     'approval-clears-red': {
       description: 'task-1 receives its shell approval; the red alert clears and its Line turns working',
       scenario: 'reference',
+      fresh: true,
       run: transition(options, {...APPROVAL, transition: 'approve'}),
     },
     'approval-requested': {
       description: 'task-4 asks for a shell approval; its Line turns blocked and a second red alert appears',
       scenario: 'reference',
+      fresh: true,
       run: transition(options, {transition: 'request-approval', task: 'task-4', from: 'working', to: 'blocked',
         alerts: ['2 blocked', '1 question'], alertsName: 'a second red alert appears'}),
     },
     'task-resumes': {
       description: 'task-3 starts a new turn; its unread Line turns working and the alerts stay',
       scenario: 'reference',
+      fresh: true,
       run: transition(options, {transition: 'resume', task: 'task-3', from: 'unread', to: 'working',
         alerts: ['1 blocked', '1 question'], alertsName: 'the blocked and question alerts are unchanged'}),
     },
     'project-layout': {
       description: 'Switch to Project layout and reserve two free Lines for Notification Service from the page',
       scenario: 'reference',
+      fresh: true,
       run: async t => {
         const boundary = await watchBoundary(t);
         await openWall(t);
@@ -267,6 +274,7 @@ export function captureSteps(options) {
     'lighting-modes': {
       description: 'Work animates the active Lines, Quiet holds them steady, Free releases them, Replay reassembles the wall, and reduced motion holds it still',
       scenario: 'reference',
+      fresh: true,
       run: async t => {
         const boundary = await watchBoundary(t);
         // The capture context prefers reduced motion; this step checks the animation itself, so it opts out first.
@@ -330,6 +338,7 @@ export function captureSteps(options) {
     'panels-view': {
       description: 'Choose Light Panels: tasks sit on triangles in their status colors, and Quiet there leaves the Lines in Work',
       scenario: 'reference',
+      fresh: true,
       run: async t => {
         const boundary = await watchBoundary(t);
         await openWall(t);
@@ -366,6 +375,7 @@ export function captureSteps(options) {
     'device-read-refused': {
       description: 'With no saved drawing geometry the map asks the Lines for their layout; the boundary refuses and records it',
       scenario: 'layout-unavailable',
+      fresh: true,
       run: async t => {
         const boundary = await watchBoundary(t);
         await t.page.goto(t.url);
@@ -383,16 +393,19 @@ export function captureSteps(options) {
     'control-stale-completion': {
       description: 'Negative control: a Stop for an earlier turn leaves task-0 working, which task-completes must reject',
       scenario: 'reference',
+      fresh: true,
       run: transition(options, {...COMPLETION, transition: 'defect-complete-stale-turn'}),
     },
     'control-unread-painted-working': {
       description: 'Negative control: a page that paints unread Lines in the working color, which task-completes must reject',
       scenario: 'reference',
+      fresh: true,
       run: transition(options, {...COMPLETION, transition: 'complete', pageDefect: UNREAD_PAINTED_WORKING}),
     },
     'control-stale-red': {
       description: 'Negative control: an approval for another tool leaves task-1 red, which approval-clears-red must reject',
       scenario: 'reference',
+      fresh: true,
       run: transition(options, {...APPROVAL, transition: 'defect-approve-other-tool'}),
     },
   };

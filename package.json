@@ -7,6 +7,7 @@
     "test:browser": "node scripts/test-browser.cjs",
     "verify": "node scripts/verify.mjs",
     "test:verify": "node --test --test-concurrency=1 tests/verify_checks.mjs",
+    "test:verify:lifecycle": "node --test --test-concurrency=1 tests/verify_lifecycle.mjs",
     "openspec": "node scripts/openspec.cjs",
     "check:workflow": "node scripts/check-workflow.cjs",
     "test:workflow": "node --test tests/workflow_checks.cjs",

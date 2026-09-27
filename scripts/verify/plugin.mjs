@@ -76,15 +76,16 @@ export async function deviceBoundary({dataDir, scenario}) {
 
 /**
  * The plug-in for one checkout. `python` must be Python 3.12 or later; a bare name is resolved on
- * the adapter's PATH, because the unit does not inherit the caller's shell.
+ * the adapter's PATH, because the unit does not inherit the caller's shell. Tests pass their own
+ * `app` so their units and run ids never mix with real `wall` runs.
  */
-export function createPlugin({root = fileURLToPath(new URL('../..', import.meta.url)), python = process.env.PYTHON || 'python3'} = {}) {
+export function createPlugin({root = fileURLToPath(new URL('../..', import.meta.url)), python = process.env.PYTHON || 'python3', app = 'wall'} = {}) {
   const demo = join(root, 'scripts/demo.py');
   const seed = async ({dataDir, scenario}) => {
     await run(python, [demo, 'seed', '--state-dir', dataDir, '--scenario', scenario], {cwd: root});
   };
   return definePlugin({
-    app: 'wall',
+    app,
     repository: 'jimmie-potts/codex-nanoleaf',
     command: 'npm run verify --',
     root,
@@ -92,7 +93,8 @@ export function createPlugin({root = fileURLToPath(new URL('../..', import.meta.
     scenarios: Object.fromEntries(Object.entries(SCENARIOS).map(([name, description]) => [name, {description, seed}])),
     build: {
       version: JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version,
-      artifact: {file: 'bridge/wall.html'},
+      // The page and the three Prism assets it loads; the page is read from disk on every request.
+      artifact: {files: ['bridge/wall.html', 'bridge/prism.js', 'bridge/prism-adapters.js', 'bridge/prism-labels.js']},
     },
     launch: ({dataDir, port}) => ({
       argv: [python, '-u', demo, 'serve', '--state-dir', dataDir, '--port', String(port)],

@@ -1,25 +1,25 @@
-// #193: the wall verification plug-in against real served runs, without the shared core's supervisor.
+// #193: the wall verification plug-in against real served runs, without the core's systemd supervisor.
 //
-// Each capture step runs on its own freshly seeded run of the actual wall server, in a fresh
-// Chromium context that prefers reduced motion and records video, with the same step context,
-// timeouts and pass rule as the core's `capture`. Hosted CI has no systemd user manager, so this
-// mirror stands in for the core's supervisor; the lifecycle itself is exercised locally.
-// Reference steps must pass; each negative control must fail at its named assertion, never by crashing.
+// Each run is seeded and launched here the way the core's `start` does it, with the demo as a plain
+// child process. Capture steps run through the core's own `runCaptureStep`, the same driver and pass
+// rule as `npm run verify -- capture`. Reference steps must pass with a screenshot and a finalized
+// video; each negative control must fail at its named assertion rather than crash. The supervised
+// lifecycle (units, lease, receipt, handoff) needs a systemd user manager and is exercised locally.
 import assert from 'node:assert/strict';
 import {execFile, spawn} from 'node:child_process';
 import {randomBytes} from 'node:crypto';
-import {mkdir, mkdtemp, readFile, rm, stat, writeFile} from 'node:fs/promises';
+import {existsSync} from 'node:fs';
+import {mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import readline from 'node:readline';
-import {after, before, describe, test} from 'node:test';
+import {describe, test} from 'node:test';
 import {promisify} from 'node:util';
-import {chromium} from 'playwright';
+import {runCaptureStep} from '@jimmie-potts/app-verify';
 import plugin, {readyLine} from '../scripts/verify/plugin.mjs';
 import {NEGATIVE_CONTROLS} from '../scripts/verify/steps.mjs';
 
 const results = join(plugin.root, 'test-results/verify');
-class StepEnded extends Error {}
 
 /** Seed, launch and wait for readiness the way the core's `start` does, with the process as a plain child. */
 async function startRun(scenario) {
@@ -58,58 +58,6 @@ async function startRun(scenario) {
   };
 }
 
-/** One capture: the step's assertions, an after screenshot and a finalized video. */
-async function capture(browser, run, name) {
-  const step = plugin.captureSteps[name];
-  const directory = join(results, name);
-  await rm(directory, {recursive: true, force: true});
-  await mkdir(directory, {recursive: true});
-  const viewport = step.viewport ?? {width: 1280, height: 800};
-  const context = await browser.newContext({viewport, reducedMotion: 'reduce', recordVideo: {dir: directory, size: viewport}});
-  const page = await context.newPage();
-  page.setDefaultTimeout(Math.min(step.timeoutMs ?? 30000, 15000));
-  const log = [];
-  let failure = null, crash = null;
-  const t = {
-    ...run.context, page, context,
-    async expect(assertion, check) {
-      try {
-        await check();
-        log.push({assertion, outcome: 'passed'});
-      } catch (error) {
-        log.push({assertion, outcome: 'failed', error: error.message});
-        failure = assertion;
-        throw new StepEnded(assertion);
-      }
-    },
-    note: message => log.push({note: message}),
-    screenshot: label => page.screenshot({path: join(directory, `${label}.png`), fullPage: true}),
-  };
-  let timer;
-  try {
-    await Promise.race([step.run(t), new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error('step timed out')), step.timeoutMs ?? 30000);
-    })]);
-  } catch (error) {
-    if (!(error instanceof StepEnded)) crash = error;
-  } finally {
-    clearTimeout(timer);
-  }
-  await page.screenshot({path: join(directory, 'after.png'), fullPage: true});
-  const video = page.video();
-  await context.close();
-  const videoBytes = (await stat(await video.path())).size;
-  await writeFile(join(directory, 'assertions.json'), `${JSON.stringify({step: name, failure, crash: crash?.message ?? null, log}, null, 2)}\n`);
-  const passed = !crash && !failure && log.some(entry => entry.outcome === 'passed') && videoBytes > 0;
-  return {outcome: passed ? 'passed' : 'failed', failure, crash, log, videoBytes};
-}
-
-let browser;
-before(async () => {
-  browser = await chromium.launch({headless: true, ...(process.env.NANOLEAF_BROWSER_EXECUTABLE ? {executablePath: process.env.NANOLEAF_BROWSER_EXECUTABLE} : {})});
-});
-after(async () => browser?.close());
-
 describe('plug-in surface', () => {
   test('the ready line must name a loopback origin', () => {
     assert.deepEqual(readyLine('{"url": "http://127.0.0.1:41705", "instance": "ab12"}'), {url: 'http://127.0.0.1:41705/'});
@@ -125,9 +73,17 @@ describe('plug-in surface', () => {
     assert.ok(plugin.scenarios[plugin.defaultScenario]);
   });
 
-  test('every capture step names a seeded scenario, and every control names a step', () => {
-    for (const [name, step] of Object.entries(plugin.captureSteps)) assert.ok(plugin.scenarios[step.scenario], name);
+  test('every capture step is fresh and names a seeded scenario, and every control names a step', () => {
+    for (const [name, step] of Object.entries(plugin.captureSteps)) {
+      assert.ok(plugin.scenarios[step.scenario], name);
+      assert.equal(step.fresh, true, `${name} asserts absolute observations, so it must start from a fresh seed`);
+    }
     for (const name of Object.keys(NEGATIVE_CONTROLS)) assert.ok(plugin.captureSteps[name], name);
+  });
+
+  test('the artifact names the served page and its assets', () => {
+    assert.deepEqual(plugin.build.artifact, {files: ['bridge/wall.html', 'bridge/prism.js', 'bridge/prism-adapters.js', 'bridge/prism-labels.js']});
+    for (const file of plugin.build.artifact.files) assert.ok(existsSync(join(plugin.root, file)), file);
   });
 
   test('the launch binds the requested port and carries no credential', async () => {
@@ -163,20 +119,24 @@ describe('served runs', () => {
   });
 });
 
-describe('capture steps', () => {
+describe('capture steps through the core driver', () => {
   for (const [name, step] of Object.entries(plugin.captureSteps)) {
     const control = NEGATIVE_CONTROLS[name];
     test(control ? `${name} fails at "${control}"` : `${name} passes`, async () => {
       const run = await startRun(step.scenario);
+      const outputDir = join(results, name);
+      await rm(outputDir, {recursive: true, force: true});
       try {
-        const result = await capture(browser, run, name);
-        assert.equal(result.crash, null, result.crash?.stack);
-        assert.ok(result.videoBytes > 0, 'the video was finalized');
+        const {runId, runtimeDir, dataDir, url, scenario} = run.context;
+        const result = await runCaptureStep(plugin, name, {url, outputDir, scenario, dataDir, runtimeDir, runId});
+        const failed = result.assertions.filter(assertion => assertion.outcome === 'failed').map(assertion => assertion.name);
         if (control) {
           assert.equal(result.outcome, 'failed');
-          assert.equal(result.failure, control, JSON.stringify(result.log, null, 2));
+          assert.deepEqual(failed, [control], JSON.stringify(result, null, 2));
+          assert.ok(result.reason.startsWith(`assertion failed: ${control}`), result.reason);
         } else {
-          assert.equal(result.outcome, 'passed', JSON.stringify(result.log, null, 2));
+          assert.equal(result.outcome, 'passed', JSON.stringify(result, null, 2));
+          assert.ok(result.screenshot && result.video, 'a screenshot and a finalized video exist');
         }
       } finally {
         await run.stop();

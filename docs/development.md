@@ -15,7 +15,24 @@ Exercise Linux installation and device enrollment with isolated state and fake d
 
 ## Verification runs
 
-A verification run serves the actual wall server over its own synthetic state so an agent can exercise a change, keep assertion-backed proof and hand over a disposable preview. The shared lifecycle core from the Hub ([app verification contract](https://github.com/jimmie-potts/agent-device-hub/blob/main/docs/app-verification.md)) owns the run's supervisor unit, lease, receipt, proof and preview card. This repository supplies the wall plug-in in `scripts/verify/`, built on these `scripts/demo.py` commands:
+A verification run serves the actual wall server over its own synthetic state. An agent can exercise a change, keep assertion-backed proof and hand over a disposable preview that expires. The shared lifecycle core `@jimmie-potts/app-verify`, vendored from the Hub under `vendor/`, implements the [app verification contract](https://github.com/jimmie-potts/agent-device-hub/blob/main/docs/app-verification.md): the transient systemd user unit and lease timer, receipt, `doctor`, frozen proof, capture harness and preview card. This repository supplies the wall plug-in in `scripts/verify/` and the wrapper `scripts/verify.mjs`.
+
+Run the operations from the checkout with Node 22 or later, Python 3.12 or later and a `systemd --user` manager:
+
+```bash
+npm run verify -- start [--scenario reference] [--lease 120]
+npm run verify -- capture <run-id> <step>
+npm run verify -- handoff <run-id> [--reset reference]
+npm run verify -- doctor [<run-id>]
+npm run verify -- scenario <run-id> <scenario>
+npm run verify -- extend <run-id> [--lease <minutes>]
+npm run verify -- stop <run-id>
+npm run verify -- restart <run-id>
+```
+
+Each operation prints one JSON result line on stdout and its progress and preview card on stderr; `npm run -s verify -- …` leaves out npm's own banner lines. Exit status 0 means verified, 1 a failed outcome, 2 a usage error and 3 an unavailable supervisor or browser. Run ids look like `wall-20260927T074637Z-3e5e41`. Proof goes to the canonical checkout's ignored `.local/evidence/verify/<run-id>/`, even from a linked worktree. Runtime state goes to `~/.local/state/app-verify/<run-id>/`, and `stop` deletes it. Stop every run you start, then confirm with `doctor`. The preview URL is `http://127.0.0.1:<port>/`. The wall accepts only the `127.0.0.1` host, never `localhost`. A dirty checkout runs but is labelled `dirty`; proof for a merge candidate must come from a clean run.
+
+The plug-in is built on these `scripts/demo.py` commands:
 
 | Command | Effect |
 | --- | --- |
@@ -26,10 +43,7 @@ A verification run serves the actual wall server over its own synthetic state so
 
 Every command first installs a process boundary. It refuses outbound socket connections, datagram sends and new processes, and it routes the wall server's light-request seam to a trap. Each refusal is appended to `<dir>/device-boundary.jsonl` with its kind, target and time, never a credential. The wall server sees a refused request as an unreachable device.
 
-Two checks prove the boundary and the steps:
-
-- `python3 scripts/check.py` makes real attempts through the Nanoleaf transport, the worker launcher, a loopback service and a geometry read that bypasses the seam. Each is refused. An unguarded control process does reach the loopback service, so the check can observe a leak.
-- `npm run test:verify` serves one run per capture step. Every reference step must pass and every negative control must fail at its named assertion. It writes screenshots, videos and assertion logs to ignored `test-results/verify/`.
+The plug-in's readiness probe matches `map-server.json` against `/health`, so another listener on the port cannot pass. Its start-time `device-boundary` check fails a run that recorded any device attempt during start, except `layout-unavailable`, which must record a refused one. The artifact digest covers `bridge/wall.html` and its three Prism assets.
 
 In a run, the wall server, map page, private SQLite state, hook handler and allocation are actual code. The light worker is a stand-in that applies edits and allocation and never renders or sends. The Lines (`192.0.2.1`) and Light Panels (`192.0.2.2`) are fixture layouts behind the boundary, and projects and tasks are synthetic. A run never reads Codex state, the installed runtime or its ports.
 
@@ -39,21 +53,23 @@ Scenarios:
 - `empty`: the same devices with no tasks.
 - `layout-unavailable`: the reference tasks without saved drawing geometry. The map's startup asks the Lines for their layout, and the boundary refuses it.
 
-Capture steps change the run's state, so run each step on a freshly seeded run.
+Every capture step is `fresh`: the core reseeds the step's scenario and relaunches the wall on the same port before the step runs, so each step's absolute observations start from known state. A fresh step after `handoff` also resets the preview. The capture browser prefers reduced motion; `lighting-modes` opts out to check the animation, then checks reduced motion itself.
 
 | Behavior | Page entry | Driver action | Scenario | Capture step and expected observation |
 | --- | --- | --- | --- | --- |
 | Lines wall and task list | Open the map | None | `reference` | `wall-ready`: 15 Lines; each task listed with its status; alerts `1 blocked` and `1 question`; Device offers Lines and Light Panels; each placed task's Line painted in its status color |
 | Task completion | None | `complete`: Stop for task-0 | `reference` | `task-completes`: task-0 listed unread on the same Line, which is painted in the unread color; other Lines and the alerts unchanged |
-| Approval clears red | None | `approve`: PostToolUse for task-1's shell wait | `reference` | `approval-clears-red`: task-1 listed working, the blocked alert gone, its Line painted in the working color |
+| Approval clears red | None | `approve`: PostToolUse for task-1's shell wait | `reference` | `approval-clears-red`: task-1 listed working on the same Line, painted in the working color; the blocked alert gone |
+| Approval requested | None | `request-approval`: PermissionRequest for task-4 | `reference` | `approval-requested`: task-4 listed blocked on the same Line, painted in the blocked color; alerts `2 blocked` and `1 question` |
+| Task resumes | None | `resume`: UserPromptSubmit for task-3's next turn | `reference` | `task-resumes`: task-3 listed working on the same Line, painted in the working color; alerts unchanged |
 | Project layout (configuration) | Options, Project; select two free Lines; Reserved for | None | `reference` | `project-layout`: Project style, both Lines reserved for Notification Service with no pending edit, each project half painted in the project color |
-| Lighting modes and animation | Work, Quiet, Free; Options, Replay | None | `reference` | `lighting-modes`: Work advances the light phase on active Lines, Quiet holds it, Free notes the release and disables Locate, Work resumes, Replay finishes, the Light Panels keep their own mode |
+| Lighting modes and animation | Work, Quiet, Free; Options, Replay | None | `reference` | `lighting-modes`: Work advances the light phase on active Lines, Quiet holds it, Free notes the release and disables Locate, Work resumes, Replay finishes; with reduced motion Work holds still and Replay does not animate; the Light Panels keep their own mode |
 | Light Panels | Device, Light Panels; Quiet | None | `reference` | `panels-view`: every triangle drawn, each placed task's triangle filled with its status color, Quiet on the Panels leaves the Lines in Work |
 | Device boundary | Open the map | None | `layout-unavailable` | `device-read-refused`: the map's layout-unavailable notice, and a refused `GET` light request to `192.0.2.1` in the boundary log |
 
-Every step also asserts that the page requested only its own run origin and that the run recorded no device attempt; `device-read-refused` instead requires its attempt to be refused. The `request-approval` and `resume` transitions are available for new steps.
+In each transition step, every other Line keeps its colors. Every step also asserts that the page requested only its own run origin and that the run recorded no device attempt; `device-read-refused` instead requires its attempt to be refused.
 
-Negative controls use the same assertions against a known-wrong result, and each must fail at the named assertion:
+Negative controls are ordinary capture steps that apply a known-wrong result to the same assertions. Each reports `failed` at the named assertion, and the checks below require that:
 
 | Control | Known-wrong result | Failing assertion |
 | --- | --- | --- |
@@ -61,15 +77,22 @@ Negative controls use the same assertions against a known-wrong result, and each
 | `control-unread-painted-working` | The page served with unread Lines painted in the working color | task-0's Line is painted in the unread color |
 | `control-stale-red` | PostToolUse for another tool, which leaves task-1's approval waiting | task-1 reads working in the task list |
 
+Checks:
+
+- `python3 scripts/check.py` makes real attempts through the Nanoleaf transport, the worker launcher, a loopback service and a geometry read that bypasses the seam. Each is refused. An unguarded control process does reach the loopback service, so the check can observe a leak. It also covers seeding, driving, serving, relaunch on the recorded port and two independent runs.
+- `npm run test:verify` needs no systemd. It launches each scenario directly and checks readiness, the probe and the boundary check. It then runs every capture step through the core's `runCaptureStep`. Reference steps must pass with a screenshot and a finalized video, and each control must fail at its named assertion. Output goes to ignored `test-results/verify/`.
+- `npm run test:verify:lifecycle` runs the supervised lifecycle with real transient user units, using a unique app name and private roots. It covers the receipt and build identity, doctor, fresh capture, handoff with frozen proof and a post-handoff capture, extend, stop, two concurrent runs, a start that attempts a device request, a start that exits early, an interrupted start, lease expiry and restart. Without a user manager it skips with the reason printed; `APP_VERIFY_REQUIRE_SYSTEMD=1` makes that a failure.
+
 Not covered by a run:
 
 - Physical color, brightness, frames and timing. The stand-in never renders, so a run proves no device output.
-- Completion comets, outward waves and Locate flashes. They are queued in state but never played; the map shows status colors. The animation preview is [#156](https://github.com/jimmie-potts/codex-nanoleaf/issues/156).
+- Completion comets, outward waves and Locate flashes. They are queued in state, but the stand-in never plays them; the map shows status colors. The animation preview is [#156](https://github.com/jimmie-potts/codex-nanoleaf/issues/156).
 - `GET /api/rendering` reports pending or unknown output, because no worker sends.
-- Scenes, native brightness overrides, requested animations, the controller API, MCP, shared input and the Codex metadata reader. None of them run.
+- Configuration through the page is limited to one representative action, the Project layout reservation. Configuration through the controller API, MCP or shared input is not exercised, and scenes, native brightness overrides, requested animations and the Codex metadata reader do not run.
 - Layout discovery and device enrollment.
 - The header's B.U.N.N.Y. link opens the installed Hub dashboard, outside the run.
 - A reseed relaunches the server with a new edit token. Reload a preview tab opened before the reseed before editing.
+- Windows browser access to a preview is qualified under Hub [#497](https://github.com/jimmie-potts/agent-device-hub/issues/497); `doctor` only checks HTTP reachability with Windows `curl.exe`.
 
 ## Hosted CI
 
@@ -79,7 +102,7 @@ Depot CI runs the workflow in `.depot/workflows/ci.yml` on pull requests and pus
 | --- | --- |
 | Workflow checks | `npm run check:workflow` and `npm run test:workflow` with Node 24 |
 | Python 3.12 and Python 3.14 | Controller dependencies and `python scripts/check.py` with Node 24 available |
-| Wall map browser checks | Prism tests, a clean Prism export, `npm run test:browser` and `npm run test:verify` in Chromium; screenshots, verification videos and assertion logs uploaded as the `prism-wall-review` artifact with a requested 14-day retention |
+| Wall map browser checks | Prism tests, a clean Prism export, `npm run test:browser`, `npm run test:verify` and `npm run test:verify:lifecycle` in Chromium; the lifecycle checks skip, printing the reason, when the runner has no systemd user manager. Screenshots, verification videos and assertion logs are uploaded as the `prism-wall-review` artifact with a requested 14-day retention |
 | MCP source checks | `npm run test:mcp` |
 
 `.github/workflows/ci.yml` stays in the repository as the migration source. It is disabled in GitHub Actions. Its runs, including earlier billing-blocked failures, are not evidence for a candidate.
