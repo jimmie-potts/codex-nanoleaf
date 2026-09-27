@@ -15,7 +15,7 @@ Exercise Linux installation and device enrollment with isolated state and fake d
 
 ## Verification runs
 
-A verification run serves the actual wall server over its own synthetic state. An agent can exercise a change, keep assertion-backed proof and hand over a disposable preview that expires. The shared lifecycle core `@jimmie-potts/app-verify`, vendored from the Hub under `vendor/`, implements the [app verification contract](https://github.com/jimmie-potts/agent-device-hub/blob/main/docs/app-verification.md): the transient systemd user unit and lease timer, receipt, `doctor`, frozen proof, capture harness and preview card. This repository supplies the wall plug-in in `scripts/verify/` and the wrapper `scripts/verify.mjs`.
+A verification run serves the actual wall server over its own synthetic state. An agent can exercise a change, keep assertion-backed proof and hand over a disposable preview that expires. The shared lifecycle core `@jimmie-potts/app-verify`, vendored from the Hub under `vendor/`, implements the [app verification contract](https://github.com/jimmie-potts/agent-device-hub/blob/main/docs/app-verification.md): the transient systemd user unit and lease timer, receipt, `doctor`, frozen proof, capture harness and preview card. This repository supplies the wall plug-in in `scripts/verify/` and the wrapper `scripts/verify.mjs`. The [wall verification runs specification](../openspec/specs/wall-verification-runs/spec.md) owns the plug-in's requirements.
 
 Run the operations from the checkout with Node 22 or later, Python 3.12 or later and a `systemd --user` manager:
 
