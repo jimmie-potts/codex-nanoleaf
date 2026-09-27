@@ -5,56 +5,143 @@
 // rule as `npm run verify -- capture`. Reference steps must pass with a screenshot and a finalized
 // video; each negative control must fail at its named assertion rather than crash. The supervised
 // lifecycle (units, lease, receipt, handoff) needs a systemd user manager and is exercised locally.
+//
+// #194: hub-paired runs pair with a stand-in Hub feed served here from
+// tests/fixtures/paired-hub-feed.json, and a stand-in controller caller presents the Hub's token to
+// the wall's real controller API. They run under tests/fixtures/backstop_demo.py, so a boundary
+// regression cannot reach an installed service, and each asserts that the backstop saw nothing.
 import assert from 'node:assert/strict';
 import {execFile, spawn} from 'node:child_process';
 import {randomBytes} from 'node:crypto';
 import {existsSync} from 'node:fs';
-import {mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
+import {chmod, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile} from 'node:fs/promises';
+import {createServer} from 'node:http';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import readline from 'node:readline';
 import {describe, test} from 'node:test';
 import {promisify} from 'node:util';
 import {runCaptureStep} from '@jimmie-potts/app-verify';
-import plugin, {createPlugin, deviceBoundary, failureCause, readyLine} from '../scripts/verify/plugin.mjs';
-import {NEGATIVE_CONTROLS, strict, strictSteps} from '../scripts/verify/steps.mjs';
+import plugin, {createPlugin, deviceBoundary, failureCause, INSTALLED_PORTS, pairedFeed, readyLine} from '../scripts/verify/plugin.mjs';
+import {NEGATIVE_CONTROLS, pairedExpectations, sessionKey, strict, strictSteps} from '../scripts/verify/steps.mjs';
 
 const results = join(plugin.root, 'test-results/verify');
+const BACKSTOP = join(plugin.root, 'tests/fixtures/backstop_demo.py');
+/** The plug-in hub-paired tests use: every seed, serve and drive runs beneath the test backstop. */
+const paired = createPlugin({demo: BACKSTOP});
+const FEED = JSON.parse(await readFile(join(plugin.root, 'tests/fixtures/paired-hub-feed.json'), 'utf8'));
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+const token = () => randomBytes(32).toString('base64url');
 
-/** Seed, launch and wait for readiness the way the core's `start` does, with the process as a plain child. */
-async function startRun(scenario, {serve} = {}) {
-  const runtimeDir = await mkdtemp(join(tmpdir(), 'wall-verify-'));
+/**
+ * The paired Hub run's monitor feed: the one route the wall reads, answering only the wall's feed
+ * credential and header. `status` makes it refuse or fail; `close` takes it away.
+ */
+async function standInHub(feedToken) {
+  const hub = {envelope: structuredClone(FEED.envelope), status: 200, requests: 0};
+  const server = createServer((request, response) => {
+    hub.requests++;
+    const ok = request.method === 'GET' && request.url === '/api/monitor/v1/sessions?snapshotVersion=1.2'
+      && request.headers.authorization === `Bearer ${feedToken}` && request.headers['x-pixoo-request'] === '1';
+    const status = ok ? hub.status : 401;
+    const body = JSON.stringify(status === 200 ? hub.envelope : {error: 'rejected'});
+    response.writeHead(status, {'content-type': 'application/json', 'content-length': Buffer.byteLength(body)});
+    response.end(body);
+  });
+  // The kernel could hand out an installed service's port while that service is down; the wall refuses one.
+  do {
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    if (INSTALLED_PORTS.has(server.address().port)) await new Promise(resolve => server.close(resolve));
+  } while (!server.listening);
+  hub.origin = `http://127.0.0.1:${server.address().port}/`;
+  hub.close = () => new Promise(resolve => {server.close(resolve); server.closeAllConnections()});
+  return hub;
+}
+
+/** Write the orchestrator's two credential files: one token each, mode 0600, no trailing newline. */
+async function writeCredentials(runtimeDir, tokens = {feed: token(), controller: token()}) {
+  await writeFile(join(runtimeDir, 'hub-feed-token'), tokens.feed, {mode: 0o600});
+  await writeFile(join(runtimeDir, 'hub-controller-token'), tokens.controller, {mode: 0o600});
+  return tokens;
+}
+
+/** The stand-in controller caller: one request to the wall's controller API, as the Hub makes it. */
+async function callController(endpoint, path, {credential, body} = {}) {
+  const response = await fetch(new URL(path, endpoint), {method: body ? 'POST' : 'GET',
+    headers: {...(credential ? {authorization: `Bearer ${credential}`} : {}), ...(body ? {'content-type': 'application/json'} : {})},
+    ...(body ? {body: JSON.stringify(body)} : {})});
+  return {status: response.status, body: await response.json()};
+}
+
+const wallState = async url => (await fetch(new URL('verify/state', url))).json();
+
+/** Poll until `condition(value)` holds for `read()`'s value, or fail after `ms`. */
+async function until(read, condition, ms = 15000) {
+  let value;
+  for (let waited = 0; waited <= ms; waited += 200) {
+    value = await read();
+    if (condition(value)) return value;
+    await sleep(200);
+  }
+  assert.fail(`the condition did not hold within ${ms} ms: ${JSON.stringify(value)}`);
+}
+
+/**
+ * Seed, launch and wait for readiness the way the core's `start` does, with the process as a plain
+ * child. hub-paired writes the credential files and starts a stand-in Hub unless one is given.
+ * `runtimeDir` and `endpointPorts` relaunch an existing run after a reseed, as the core does.
+ */
+async function startRun(scenario, {serve, hub, runtimeDir, port = 0, endpointPorts = {}, tokens} = {}) {
+  const pairing = scenario === 'hub-paired';
+  const used = pairing || endpointPorts.controller !== undefined ? paired : plugin;
+  const reused = runtimeDir !== undefined;
+  runtimeDir ??= await mkdtemp(join(tmpdir(), 'wall-verify-'));
   const dataDir = join(runtimeDir, 'data');
+  await rm(dataDir, {recursive: true, force: true});
   await mkdir(dataDir);
-  await mkdir(join(runtimeDir, 'tmp'));
-  const paths = {runId: `wall-test-${randomBytes(3).toString('hex')}`, root: plugin.root, runtimeDir, dataDir, scenario};
-  await plugin.scenarios[scenario].seed(paths);
-  const spec = await plugin.launch({...paths, port: 0, node: process.execPath});
+  await mkdir(join(runtimeDir, 'tmp'), {recursive: true});
+  let owned;
+  if (pairing) {
+    tokens ??= reused ? undefined : await writeCredentials(runtimeDir);
+    hub ??= owned = await standInHub(tokens.feed);
+  }
+  const inputs = pairing ? {'hub-feed': hub.origin} : {};
+  const paths = {runId: `wall-test-${randomBytes(3).toString('hex')}`, root: used.root, runtimeDir, dataDir, scenario, inputs};
+  await used.scenarios[scenario].seed(paths);
+  const spec = await used.launch({...paths, port, node: process.execPath, endpointPorts});
   // A test can serve through another entry point that takes demo.py's arguments.
   if (serve) spec.argv = spec.argv.map(argument => argument.endsWith('scripts/demo.py') ? serve : argument);
-  const child = spawn(spec.argv[0], spec.argv.slice(1), {cwd: spec.cwd ?? plugin.root, stdio: ['ignore', 'pipe', 'pipe'],
+  const child = spawn(spec.argv[0], spec.argv.slice(1), {cwd: spec.cwd ?? used.root, stdio: ['ignore', 'pipe', 'pipe'],
     env: {...process.env, ...spec.env, TMPDIR: join(runtimeDir, 'tmp')}});
   let errors = '';
   child.stderr.on('data', data => {errors += data});
-  const url = await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`No ready line: ${errors}`)), plugin.readiness.timeoutMs);
+  const ready = await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`No ready line: ${errors}`)), used.readiness.timeoutMs);
     child.once('exit', code => {clearTimeout(timer); reject(new Error(`Exited ${code}: ${errors}`))});
     readline.createInterface({input: child.stdout}).on('line', line => {
-      const ready = plugin.readiness.line(line);
-      if (ready) {clearTimeout(timer); resolve(ready.url)}
+      const announced = used.readiness.line(line);
+      if (announced) {clearTimeout(timer); resolve(announced)}
     });
   });
-  const context = {...paths, url, port: Number(new URL(url).port), signal: AbortSignal.timeout(60000)};
+  const context = {...paths, url: ready.url, port: Number(new URL(ready.url).port), endpoints: ready.endpoints ?? {}, signal: AbortSignal.timeout(60000)};
+  const halt = async () => {
+    if (child.exitCode === null && child.signalCode === null) {
+      const exited = new Promise(resolve => child.once('exit', resolve));
+      child.kill('SIGTERM');
+      await exited;
+    }
+  };
   return {
-    context,
-    probe: () => plugin.readiness.probe(context),
-    checks: () => Promise.all(plugin.checks.map(async check => ({id: check.id, ...await check.run(context)}))),
+    context, hub, tokens, plugin: used, errors: () => errors,
+    probe: () => used.readiness.probe(context),
+    checks: () => Promise.all(used.checks.map(async check => ({id: check.id, ...await check.run(context)}))),
+    /** Nothing reached the test backstop: the boundary refused everything it had to. */
+    backstop: async () => readFile(join(runtimeDir, 'backstop.jsonl'), 'utf8').catch(error => error.code === 'ENOENT' ? '' : Promise.reject(error)),
+    /** Stop the process but keep the runtime directory, for a relaunch. */
+    halt,
     async stop() {
-      if (child.exitCode === null && child.signalCode === null) {
-        const exited = new Promise(resolve => child.once('exit', resolve));
-        child.kill('SIGTERM');
-        await exited;
-      }
+      await halt();
+      await owned?.close();
       await rm(runtimeDir, {recursive: true, force: true});
     },
   };
@@ -64,9 +151,27 @@ describe('plug-in surface', () => {
   test('the ready line must name a loopback origin', () => {
     assert.deepEqual(readyLine('{"url": "http://127.0.0.1:41705", "instance": "ab12"}'), {url: 'http://127.0.0.1:41705/'});
     for (const line of ['', 'Serving', '{}', '{"url": "http://localhost:41705"}', '{"url": "http://0.0.0.0:41705"}',
-      '{"url": "https://127.0.0.1:41705"}', '{"url": "http://127.0.0.1"}', '{"url": "http://127.0.0.1:41705/x"}']) {
+      '{"url": "https://127.0.0.1:41705"}', '{"url": "http://127.0.0.1"}', '{"url": "http://127.0.0.1:41705/x"}',
+      '{"url": "http://u:p@127.0.0.1:41705"}', '{"url": "http://127.0.0.1:41705/?q=1"}']) {
       assert.equal(readyLine(line), undefined, line);
     }
+  });
+
+  test('the ready line may announce only the controller endpoint, exactly as a loopback origin', () => {
+    assert.deepEqual(readyLine('{"url": "http://127.0.0.1:41705", "endpoints": {"controller": "http://127.0.0.1:41706/"}}'),
+      {url: 'http://127.0.0.1:41705/', endpoints: {controller: 'http://127.0.0.1:41706/'}});
+    for (const endpoints of ['[]', 'null', '"x"', '{"hub": "http://127.0.0.1:41706/"}', '{"controller": "http://127.0.0.1:41706"}',
+      '{"controller": "http://127.0.0.1:41706/controller/v1"}', '{"controller": "http://localhost:41706/"}', '{"controller": 41706}']) {
+      assert.equal(readyLine(`{"url": "http://127.0.0.1:41705", "endpoints": ${endpoints}}`), undefined, endpoints);
+    }
+  });
+
+  test('hub-paired needs the hub-feed input, and no input is secret-like', () => {
+    assert.deepEqual(Object.keys(plugin.inputs), ['hub-feed']);
+    assert.equal(plugin.inputs['hub-feed'].required, undefined, 'the standalone scenarios run without it');
+    assert.deepEqual(plugin.scenarios['hub-paired'].requiredInputs, ['hub-feed']);
+    for (const name of ['reference', 'empty', 'layout-unavailable']) assert.equal(plugin.scenarios[name].requiredInputs, undefined, name);
+    for (const name of Object.keys(plugin.inputs)) assert.doesNotMatch(name, /token|secret|password|credential|key/i);
   });
 
   test('the scenarios are the ones demo.py seeds', async () => {
@@ -101,6 +206,16 @@ describe('plug-in surface', () => {
       [traceback("ValueError: The token must contain only letters and numbers: FakeDemoToken"), 'wall-start-failed: ValueError'],
       [traceback("FileNotFoundError: [Errno 2] No such file or directory: '/home/u/secret-name.json'"), 'wall-start-failed: FileNotFoundError'],
       [traceback('KeyboardInterrupt'), 'wall-start-failed: KeyboardInterrupt'],
+      [traceback('controller_server.ListenerUnavailable: Port 41706 is already in use. Stop its owner or choose another controller port.'),
+        'wall-start-failed: controller port already in use'],
+      [traceback('controller_server.ListenerUnavailable: Cannot bind the controller to 127.0.0.1:41706.'), 'wall-start-failed: controller listener unavailable'],
+      ['usage: demo.py [-h]\ndemo.py: error: hub-paired needs a private hub-feed-token file in the run directory.\n',
+        'wall-start-failed: hub-paired needs a private hub-feed-token file in the run directory'],
+      ['usage: demo.py [-h]\ndemo.py: error: hub-paired needs a private hub-controller-token file in the run directory.\n',
+        'wall-start-failed: hub-paired needs a private hub-controller-token file in the run directory'],
+      ["usage: demo.py [-h]\ndemo.py: error: hub-feed must be the paired Hub run's origin, http://127.0.0.1:<port>/.\n",
+        "wall-start-failed: hub-feed is not the paired Hub run's origin"],
+      ["usage: demo.py [-h]\ndemo.py: error: hub-feed names an installed service's port.\n", "wall-start-failed: hub-feed names an installed service's port"],
       ['listening\n', undefined],
       ['', undefined],
     ];
@@ -142,6 +257,74 @@ describe('plug-in surface', () => {
     }
   });
 
+  test('in hub-paired the boundary check allows only connections to the paired Hub port', async () => {
+    const at = '2026-09-27T12:00:00.000Z';
+    const allowed = port => ({at, kind: 'socket.connect', target: `127.0.0.1:${port}`, outcome: 'allowed'});
+    const other = "device attempt(s) or connection(s) other than the paired Hub feed recorded since the last seed";
+    const inputs = {'hub-feed': 'http://127.0.0.1:45001/'};
+    const cases = [
+      [inputs, [], {outcome: 'passed'}],
+      [inputs, [allowed(45001), allowed(45001)], {outcome: 'passed'}],
+      [inputs, [allowed(45001), allowed(45002)], {outcome: 'failed', reason: `1 ${other}`}],
+      [inputs, [allowed(45001), {...allowed(45001), outcome: 'refused'}], {outcome: 'failed', reason: `1 ${other}`}],
+      [inputs, [{at, kind: 'socket.connect', target: '127.0.0.1:8788', outcome: 'refused'}], {outcome: 'failed', reason: `1 ${other}`}],
+      [inputs, [{at, kind: 'light-request', target: '192.0.2.1', method: 'PUT', endpoint: '/effects', outcome: 'refused'}], {outcome: 'failed', reason: `1 ${other}`}],
+      [inputs, [{at, kind: 'socket.sendto', target: '127.0.0.1:45001', outcome: 'refused'}], {outcome: 'failed', reason: `1 ${other}`}],
+      [{'hub-feed': 'http://127.0.0.1:8788/'}, [allowed(8788)], {outcome: 'failed', reason: 'hub-paired has no paired Hub port'}],
+      [{}, [], {outcome: 'failed', reason: 'hub-paired has no paired Hub port'}],
+    ];
+    for (const [given, entries, expected] of cases) {
+      const dataDir = await mkdtemp(join(tmpdir(), 'wall-boundary-'));
+      try {
+        if (entries.length) await writeFile(join(dataDir, 'device-boundary.jsonl'), entries.map(entry => JSON.stringify(entry)).join('\n') + '\n');
+        assert.deepEqual(await deviceBoundary({dataDir, scenario: 'hub-paired', inputs: given}), expected, JSON.stringify([given, entries]));
+      } finally {
+        await rm(dataDir, {recursive: true, force: true});
+      }
+    }
+    // A connection allowed in hub-paired is still an attempt in every standalone scenario.
+    const dataDir = await mkdtemp(join(tmpdir(), 'wall-boundary-'));
+    try {
+      await writeFile(join(dataDir, 'device-boundary.jsonl'), JSON.stringify(allowed(45001)) + '\n');
+      assert.equal((await deviceBoundary({dataDir, scenario: 'reference', inputs})).outcome, 'failed');
+    } finally {
+      await rm(dataDir, {recursive: true, force: true});
+    }
+  });
+
+  test('a hub-paired seed without its credential files or a usable Hub origin fails with a fixed line and no path', async () => {
+    const runtimeDir = await mkdtemp(join(tmpdir(), 'wall-seed-'));
+    try {
+      const dataDir = join(runtimeDir, 'data');
+      await mkdir(dataDir);
+      const seed = hubFeed => plugin.scenarios['hub-paired'].seed({runtimeDir, dataDir, scenario: 'hub-paired', inputs: {'hub-feed': hubFeed}});
+      const refused = async (hubFeed, message) => {
+        await assert.rejects(seed(hubFeed), error => error.message === `demo.py seed failed: ${message}` && !error.message.includes(runtimeDir));
+        assert.deepEqual(await readdir(dataDir), [], 'a refused seed writes nothing');
+      };
+      await refused('http://127.0.0.1:45001/', 'hub-paired needs a private hub-feed-token file in the run directory');
+      await writeFile(join(runtimeDir, 'hub-feed-token'), token(), {mode: 0o600});
+      await refused('http://127.0.0.1:45001/', 'hub-paired needs a private hub-controller-token file in the run directory');
+      await writeFile(join(runtimeDir, 'hub-controller-token'), token(), {mode: 0o644});
+      await refused('http://127.0.0.1:45001/', 'hub-paired needs a private hub-controller-token file in the run directory');
+      await chmod(join(runtimeDir, 'hub-controller-token'), 0o600);
+      await writeFile(join(runtimeDir, 'hub-feed-token'), 'short', {mode: 0o600});
+      await refused('http://127.0.0.1:45001/', 'hub-paired needs a private hub-feed-token file in the run directory');
+      await rm(join(runtimeDir, 'hub-feed-token'));
+      await writeFile(join(runtimeDir, 'elsewhere'), token(), {mode: 0o600});
+      await symlink(join(runtimeDir, 'elsewhere'), join(runtimeDir, 'hub-feed-token'));
+      await refused('http://127.0.0.1:45001/', 'hub-paired needs a private hub-feed-token file in the run directory');
+      await rm(join(runtimeDir, 'hub-feed-token'));
+      await writeFile(join(runtimeDir, 'hub-feed-token'), token(), {mode: 0o600});
+      for (const origin of ['http://127.0.0.1:45001', 'http://localhost:45001/', 'http://127.0.0.1:45001/api/monitor/v1', 'https://127.0.0.1:45001/']) {
+        await refused(origin, "hub-feed is not the paired Hub run's origin");
+      }
+      await refused('http://127.0.0.1:8788/', "hub-feed names an installed service's port");
+    } finally {
+      await rm(runtimeDir, {recursive: true, force: true});
+    }
+  });
+
   test('a failed seed is named by a fixed line, without the command or any path', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'wall-seed-'));
     try {
@@ -158,9 +341,28 @@ describe('plug-in surface', () => {
   });
 
   test('the launch binds the requested port and carries no credential', async () => {
-    const spec = await plugin.launch({dataDir: '/run/data', port: 41705});
+    const spec = await plugin.launch({dataDir: '/run/data', port: 41705, scenario: 'reference', endpointPorts: {}});
     assert.deepEqual(spec.argv.slice(-4), ['--state-dir', '/run/data', '--port', '41705']);
     assert.ok(Object.keys(spec.env).every(key => key.startsWith('PYTHON')), JSON.stringify(spec.env));
+  });
+
+  test('hub-paired launches the controller listener, and every later scenario keeps it on its recorded port', async () => {
+    const launch = (scenario, endpointPorts) => plugin.launch({dataDir: '/run/data', port: 41705, scenario, endpointPorts, inputs: {'hub-feed': 'http://127.0.0.1:45001/'}});
+    assert.deepEqual((await launch('hub-paired', {})).argv.slice(-6), ['--state-dir', '/run/data', '--port', '41705', '--controller-port', '0']);
+    assert.deepEqual((await launch('hub-paired', {controller: 41706})).argv.slice(-2), ['--controller-port', '41706']);
+    assert.deepEqual((await launch('reference', {controller: 41706})).argv.slice(-2), ['--controller-port', '41706']);
+    const spec = await launch('hub-paired', {});
+    assert.equal(spec.argv.some(argument => argument.includes('hub-feed') || argument.includes('token')), false, 'no Hub origin or credential in the unit');
+  });
+
+  test('the Hub expectations come from the snapshot: statuses, titles, keys and the undeclared source left out', () => {
+    const expected = pairedExpectations(FEED.envelope.snapshot);
+    const bySession = Object.fromEntries(FEED.envelope.snapshot.sessions.map(session => [sessionKey(session.identity), session.identity.sessionId]));
+    assert.deepEqual(Object.fromEntries(Object.entries(expected).map(([key, task]) => [bySession[key], [task.status, task.title]])), FEED.expected);
+    assert.ok(Object.values(expected).every(task => task.evidence === 'current'));
+    // bridge/shared_input.py keys the same identity the same way.
+    assert.equal(sessionKey({provider: 'codex', client: 'cli', hostId: 'verify-host', sourceId: 'verify-source', sessionId: 'hub-working'}),
+      Object.keys(expected)[0]);
   });
 });
 
@@ -215,12 +417,14 @@ describe('check rule', () => {
 });
 
 describe('served runs', () => {
-  for (const scenario of Object.keys(plugin.scenarios)) {
-    test(`${scenario}: the map is ready and the device-boundary check passes`, async () => {
+  for (const scenario of Object.keys(plugin.scenarios).filter(name => name !== 'hub-paired')) {
+    test(`${scenario}: the map is ready, the device-boundary check passes and the paired-feed check is skipped`, async () => {
       const run = await startRun(scenario);
       try {
         assert.deepEqual(await run.probe(), {ok: true});
-        assert.deepEqual(await run.checks(), [{id: 'device-boundary', outcome: 'passed'}]);
+        assert.deepEqual(await run.checks(), [{id: 'device-boundary', outcome: 'passed'},
+          {id: 'paired-feed', outcome: 'skipped', reason: `${scenario} is not paired with a Hub`}]);
+        assert.deepEqual((await wallState(run.context.url)).feed.source, 'legacy');
       } finally {
         await run.stop();
       }
@@ -235,6 +439,130 @@ describe('served runs', () => {
       await writeFile(receipt, JSON.stringify({...saved, instance: 'another'}));
       assert.deepEqual(await run.probe(), {ok: false, reason: 'health names another map instance'});
     } finally {
+      await run.stop();
+    }
+  });
+});
+
+describe('hub-paired runs', () => {
+  test('the wall follows the stand-in Hub feed and both checks pass, with only the paired port contacted', async () => {
+    const run = await startRun('hub-paired');
+    try {
+      assert.deepEqual(await run.probe(), {ok: true});
+      const state = await until(() => wallState(run.context.url), value => value.feed.connection === 'current');
+      assert.deepEqual(state, {apiVersion: 'wall-verify/1', scenario: 'hub-paired',
+        feed: {source: 'shared', connection: 'current', revision: 7, receivedAt: state.feed.receivedAt, ownerId: 'verify-owner', error: null},
+        integration: {applied: 0, queued: 0, failed: 0}});
+      assert.deepEqual(await run.checks(), [{id: 'device-boundary', outcome: 'passed'}, {id: 'paired-feed', outcome: 'passed'}]);
+      const entries = (await readFile(join(run.context.dataDir, 'device-boundary.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
+      assert.ok(entries.length >= 1);
+      assert.deepEqual([...new Set(entries.map(entry => `${entry.kind} ${entry.target} ${entry.outcome}`))], [`socket.connect ${new URL(run.hub.origin).host} allowed`]);
+      assert.equal(await run.backstop(), '');
+      for (const secret of Object.values(run.tokens)) {
+        assert.equal(JSON.stringify(state).includes(secret), false);
+        assert.equal(run.errors().includes(secret), false, 'no credential on stderr');
+      }
+    } finally {
+      await run.stop();
+    }
+  });
+
+  test("the Hub's controller calls reach the wall's real controller API, and the writer applies its settings", async () => {
+    const run = await startRun('hub-paired');
+    try {
+      const endpoint = run.context.endpoints.controller;
+      const credential = run.tokens.controller;
+      assert.match(endpoint, /^http:\/\/127\.0\.0\.1:\d+\/$/);
+      assert.deepEqual((await callController(endpoint, 'controller/v1/devices')).status, 401);
+      assert.deepEqual((await callController(endpoint, 'controller/v1/devices', {credential: run.tokens.feed})).status, 401, 'the feed token is not a controller credential');
+      const devices = await callController(endpoint, 'controller/v1/devices', {credential});
+      assert.equal(devices.status, 200);
+      assert.deepEqual(devices.body.devices.map(({identity}) => [identity.controllerId, identity.deviceId, identity.sourceId]), [['wall-controller', 'wall', 'wall']]);
+      assert.equal((await callController(endpoint, 'controller/v1/snapshot?deviceId=wall', {credential})).status, 200);
+      const snapshot = await callController(endpoint, 'controller/integration/v1/snapshot?deviceId=wall', {credential});
+      assert.equal(snapshot.status, 200);
+      assert.equal(snapshot.body.settings.style, 'classic');
+      const command = {apiVersion: snapshot.body.apiVersion, controllerId: 'wall-controller', deviceId: 'wall', requestId: snapshot.body.nextRequestId,
+        expectedRevision: snapshot.body.revision, command: {kind: 'settings.set', style: 'project'}};
+      const admitted = await callController(endpoint, 'controller/integration/v1/commands', {credential, body: command});
+      assert.deepEqual([admitted.status, admitted.body.outcome], [202, 'queued']);
+      const state = await until(() => wallState(run.context.url), value => value.integration.applied === 1);
+      assert.deepEqual(state.integration, {applied: 1, queued: 0, failed: 0});
+      assert.equal((await (await fetch(new URL('api/state', run.context.url))).json()).settings.style, 'project', 'the wall shows the applied setting');
+      const receipt = await callController(endpoint, `controller/integration/v1/receipt?deviceId=wall&epoch=${command.requestId.epoch}&sequence=${command.requestId.sequence}`, {credential});
+      assert.deepEqual([receipt.status, receipt.body.outcome], [200, 'applied']);
+      assert.equal(await run.backstop(), '');
+    } finally {
+      await run.stop();
+    }
+  });
+
+  test('a Hub that refuses the feed credential at first leaves the wall serving and the check skipped until it accepts', async () => {
+    const tokens = {feed: token(), controller: token()};
+    const hub = await standInHub(tokens.feed);
+    hub.status = 401;
+    const runtimeDir = await mkdtemp(join(tmpdir(), 'wall-verify-'));
+    await writeCredentials(runtimeDir, tokens);
+    const run = await startRun('hub-paired', {hub, runtimeDir, tokens});
+    try {
+      assert.deepEqual(await run.probe(), {ok: true});
+      const refused = await until(() => wallState(run.context.url), value => value.feed.error === 'feed-rejected');
+      assert.deepEqual([refused.feed.connection, refused.feed.revision], ['unavailable', null]);
+      assert.deepEqual(await run.checks(), [{id: 'device-boundary', outcome: 'passed'},
+        {id: 'paired-feed', outcome: 'skipped', reason: 'no snapshot from the paired Hub yet (feed-rejected)'}]);
+      hub.status = 200;
+      await until(() => wallState(run.context.url), value => value.feed.connection === 'current' && value.feed.revision === 7);
+      assert.deepEqual((await run.checks())[1], {id: 'paired-feed', outcome: 'passed'});
+    } finally {
+      await run.stop();
+      await hub.close();
+    }
+  });
+
+  test('a paired feed that goes stale or falls behind the Hub fails the paired-feed check', async () => {
+    const run = await startRun('hub-paired');
+    try {
+      await until(() => wallState(run.context.url), value => value.feed.connection === 'current');
+      // The Hub moves on with a snapshot the wall must reject: another owner.
+      run.hub.envelope = {...structuredClone(FEED.envelope), ownerId: 'another-owner'};
+      const check = await pairedFeed({...run.context, signal: AbortSignal.timeout(20000)});
+      assert.equal(check.outcome, 'failed');
+      assert.match(check.reason, /^(the wall's paired feed is (stale|unavailable) \(invalid-feed\)|the paired Hub names owner "another-owner", not verify-owner)$/);
+      run.hub.envelope = structuredClone(FEED.envelope);
+      run.hub.envelope.snapshot.revision = 8;
+      await until(() => wallState(run.context.url), value => value.feed.connection === 'current' && value.feed.revision === 8);
+      await run.hub.close();
+      const stale = await until(() => wallState(run.context.url), value => value.feed.connection === 'stale', 10000);
+      assert.equal(stale.feed.error, 'feed-unavailable');
+      assert.deepEqual(await pairedFeed({...run.context, signal: AbortSignal.timeout(20000)}),
+        {outcome: 'failed', reason: "the wall's paired feed is stale (feed-unavailable)"});
+      const tasks = (await (await fetch(new URL('api/state', run.context.url))).json()).tasks;
+      assert.ok(tasks.length > 0 && tasks.every(task => task.statusEvidence === 'uncertain'), 'the wall keeps its tasks steady as uncertain');
+    } finally {
+      await run.stop();
+    }
+  });
+
+  test('a relaunch keeps the controller on its recorded port, and a standalone scenario then accepts no Hub credential', async () => {
+    const run = await startRun('hub-paired');
+    const {runtimeDir} = run.context;
+    const controller = Number(new URL(run.context.endpoints.controller).port);
+    const port = run.context.port;
+    let again;
+    try {
+      await run.halt();
+      again = await startRun('reference', {runtimeDir, port, endpointPorts: {controller}});
+      assert.equal(again.context.endpoints.controller, `http://127.0.0.1:${controller}/`);
+      assert.deepEqual(await again.probe(), {ok: true});
+      assert.equal((await callController(again.context.endpoints.controller, 'controller/v1/devices', {credential: run.tokens.controller})).status, 401);
+      assert.deepEqual(await again.checks(), [{id: 'device-boundary', outcome: 'passed'}, {id: 'paired-feed', outcome: 'skipped', reason: 'reference is not paired with a Hub'}]);
+      await again.halt();
+      again = await startRun('hub-paired', {runtimeDir, port, endpointPorts: {controller}, hub: run.hub, tokens: run.tokens});
+      assert.equal(again.context.endpoints.controller, `http://127.0.0.1:${controller}/`);
+      assert.equal((await callController(again.context.endpoints.controller, 'controller/v1/devices', {credential: run.tokens.controller})).status, 200);
+      assert.equal(await again.backstop(), '');
+    } finally {
+      await again?.halt();
       await run.stop();
     }
   });
@@ -288,24 +616,30 @@ describe('capture steps through the core driver', () => {
       const outputDir = join(results, name);
       await rm(outputDir, {recursive: true, force: true});
       try {
-        const {runId, runtimeDir, dataDir, url, scenario} = run.context;
-        const result = await runCaptureStep(plugin, name, {url, outputDir, scenario, dataDir, runtimeDir, runId});
+        const {runId, runtimeDir, dataDir, url, scenario, inputs, endpoints} = run.context;
+        const result = await runCaptureStep(run.plugin, name, {url, outputDir, scenario, dataDir, runtimeDir, runId, inputs, endpoints});
         const failed = result.assertions.filter(assertion => assertion.outcome === 'failed').map(assertion => assertion.name);
         const record = result.attachments.find(path => path.endsWith('/device-boundary.json'));
         assert.ok(record, 'the boundary record is attached, also to a failed capture');
         const during = JSON.parse(await readFile(record, 'utf8')).duringStep;
+        const refused = during.filter(entry => entry.outcome !== 'allowed').map(entry => [entry.kind, entry.method, entry.endpoint, entry.target]).sort();
+        const effects = [['light-request', 'PUT', '/effects', '192.0.2.1'], ['light-request', 'PUT', '/effects', '192.0.2.2']];
         if (control) {
-          if (name === 'control-device-attempt') {
-            assert.deepEqual(during.map(entry => [entry.kind, entry.method, entry.endpoint, entry.target]).sort(),
-              [['light-request', 'PUT', '/effects', '192.0.2.1'], ['light-request', 'PUT', '/effects', '192.0.2.2']]);
-          }
+          if (name === 'control-device-attempt' || name === 'control-paired-light-request') assert.deepEqual(refused, effects);
+          if (name === 'control-paired-installed-port') assert.deepEqual(refused, [['socket.connect', undefined, undefined, '127.0.0.1:8788']]);
           assert.equal(result.outcome, 'failed');
           assert.deepEqual(failed, [control], JSON.stringify(result, null, 2));
           assert.ok(result.reason.startsWith(`assertion failed: ${control}`), result.reason);
         } else {
           assert.equal(result.outcome, 'passed', JSON.stringify(result, null, 2));
           assert.ok(result.screenshot && result.video, 'a screenshot and a finalized video exist');
-          assert.deepEqual(during.filter(entry => !(name === 'device-read-refused' && entry.kind === 'light-request' && entry.method === 'GET')), []);
+          assert.deepEqual(during.filter(entry => !(name === 'device-read-refused' && entry.kind === 'light-request' && entry.method === 'GET')
+            && !(step.scenario === 'hub-paired' && entry.outcome === 'allowed' && entry.target === new URL(inputs['hub-feed']).host)), []);
+        }
+        if (step.scenario === 'hub-paired') {
+          assert.equal(await run.backstop(), '', 'nothing reached the test backstop');
+          const log = await readFile(result.log, 'utf8');
+          for (const secret of Object.values(run.tokens)) assert.equal(log.includes(secret), false, 'no credential in the capture log');
         }
       } finally {
         await run.stop();

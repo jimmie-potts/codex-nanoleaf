@@ -4,12 +4,21 @@ Each run seeds a named scenario into its own state directory, serves the actual 
 127.0.0.1 and drives task transitions through the actual hook handler. The light worker is a
 stand-in, and every device path is refused and recorded. These tests prove the refusal with real
 attempts, including an unguarded control, rather than by inspecting a screenshot.
+
+#194: a hub-paired run pairs with a stand-in Hub feed served here from
+tests/fixtures/paired-hub-feed.json. Its boundary allows connections to that feed's port only;
+attempts at an installed service's port run beneath tests/fixtures/backstop_demo.py, so a boundary
+regression could not reach one.
 """
 import contextlib
+import copy
+import hashlib
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import importlib.util
 import json
 import os
 from pathlib import Path
+import secrets
 import signal
 import socket
 import sqlite3
@@ -17,6 +26,8 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import threading
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -26,6 +37,8 @@ import devices
 
 ROOT = Path(__file__).resolve().parents[1]
 DEMO = ROOT / 'scripts/demo.py'
+BACKSTOP = ROOT / 'tests/fixtures/backstop_demo.py'
+FEED = json.loads((ROOT / 'tests/fixtures/paired-hub-feed.json').read_text())
 spec = importlib.util.spec_from_file_location('demo', DEMO)
 demo = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(demo)
@@ -59,7 +72,7 @@ class Directories(unittest.TestCase):
 
 class ScenarioTest(Directories):
     def test_scenarios_name_and_describe_each_fixture(self):
-        self.assertEqual(sorted(demo.SCENARIOS), ['empty', 'layout-unavailable', 'reference'])
+        self.assertEqual(sorted(demo.SCENARIOS), ['empty', 'hub-paired', 'layout-unavailable', 'reference'])
         for name, scenario in demo.SCENARIOS.items():
             with self.subTest(scenario=name):
                 self.assertIsInstance(scenario['description'], str)
@@ -102,10 +115,12 @@ class ScenarioTest(Directories):
         self.assertEqual(saved['panels']['kind'], 'panels')
 
     def test_seeding_is_deterministic_for_a_fixed_clock(self):
-        first, second = self.directory(), self.directory()
-        for directory in (first, second):
-            demo.seed(directory, 'reference', now=lambda: NOW)
-        self.assertEqual(dump(first), dump(second))
+        for scenario in ('reference', 'empty', 'layout-unavailable'):
+            with self.subTest(scenario=scenario):
+                first, second = self.directory(), self.directory()
+                for directory in (first, second):
+                    demo.seed(directory, scenario, now=lambda: NOW)
+                self.assertEqual(dump(first), dump(second))
 
     def test_seed_marks_the_directory_it_created(self):
         directory = self.directory()
@@ -229,6 +244,13 @@ class DriveTest(Directories):
         before = dump(self.run)
         with self.assertRaises(ValueError):
             demo.drive(self.run, 'no-such-transition')
+        self.assertEqual(dump(self.run), before)
+
+    def test_paired_defects_are_refused_on_a_standalone_run(self):
+        before = dump(self.run)
+        for name in ('defect-poll-installed-hub', 'defect-paired-light-request'):
+            with self.subTest(transition=name), self.assertRaisesRegex(ValueError, 'applies only to a hub-paired run'):
+                demo.drive(self.run, name)
         self.assertEqual(dump(self.run), before)
 
     def test_drive_command_applies_one_transition_under_the_boundary(self):
@@ -510,6 +532,372 @@ class ServeTest(Directories):
             process.send_signal(signal.SIGTERM)
             process.communicate(timeout=10)
         self.assertEqual(process.returncode, 0)
+
+
+
+def write_credentials(directory, mode=0o600):
+    """The orchestrator's two credential files: one 43-character token each, no trailing newline."""
+    tokens = {demo.FEED_TOKEN: secrets.token_urlsafe(32), demo.CONTROLLER_TOKEN: secrets.token_urlsafe(32)}
+    for name, value in tokens.items():
+        (directory / name).write_text(value)
+        (directory / name).chmod(mode)
+    return tokens
+
+
+class StandInHub:
+    """The paired Hub run's monitor feed: the one route the wall reads, answering only its feed credential and header."""
+
+    def __init__(self, feed_token):
+        self.envelope = copy.deepcopy(FEED['envelope'])
+        self.status = 200
+        self.requests = []
+        outer = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_GET(self):
+                outer.requests.append(self.path)
+                ok = (self.path == '/api/monitor/v1/sessions?snapshotVersion=1.2' and self.headers.get('X-Pixoo-Request') == '1'
+                      and self.headers.get('Authorization') == 'Bearer ' + feed_token)
+                status = outer.status if ok else 401
+                body = json.dumps(outer.envelope if status == 200 else {'error': 'rejected'}).encode()
+                self.send_response(status)
+                self.send_header('Content-Length', str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+        # The kernel could hand out an installed service's port while that service is down; the wall refuses one.
+        while True:
+            self.server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+            if self.server.server_port not in INSTALLED_PORTS:
+                break
+            self.server.server_close()
+        self.port = self.server.server_port
+        self.origin = f'http://127.0.0.1:{self.port}/'
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def close(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+
+def opener():
+    return urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
+def call(url, credential=None, body=None):
+    """One request as the Hub's controller client makes it; returns the status and JSON body."""
+    headers = {**({'Authorization': 'Bearer ' + credential} if credential else {}), **({'Content-Type': 'application/json'} if body else {})}
+    request = urllib.request.Request(url, data=json.dumps(body).encode() if body else None, headers=headers)
+    try:
+        with opener().open(request, timeout=5) as response:
+            return response.status, json.load(response)
+    except urllib.error.HTTPError as error:
+        with error:
+            return error.code, json.loads(error.read() or b'null')
+
+
+def until(read, condition, seconds=15):
+    deadline = time.monotonic() + seconds
+    while True:
+        value = read()
+        if condition(value) or time.monotonic() > deadline:
+            return value
+        time.sleep(0.2)
+
+
+class PairedSeedTest(Directories):
+    """A hub-paired seed registers the Hub's controller credential and follows the paired feed, or writes nothing."""
+
+    def setUp(self):
+        self.runtime = self.directory()
+        self.data = self.runtime / 'data'
+        self.data.mkdir()
+
+    def test_the_seed_pairs_the_controller_and_shared_input_and_keeps_no_token(self):
+        tokens = write_credentials(self.runtime)
+        demo.seed(self.data, 'hub-paired', now=lambda: NOW, hub_feed='http://127.0.0.1:45001/', credentials=self.runtime)
+        import controller_state
+        with contextlib.closing(sqlite3.connect(self.data / 'status.sqlite')) as db:
+            identity = controller_state.read(db)['identity']
+            credentials = db.execute('SELECT principal, digest, scopes, active FROM controller_credentials').fetchall()
+            source, config = db.execute('SELECT source, config FROM shared_input WHERE id=1').fetchone()
+        self.assertEqual({key: identity[key] for key in ('controllerId', 'deviceId', 'sourceId')},
+                         {'controllerId': 'wall-controller', 'deviceId': 'wall', 'sourceId': 'wall'})
+        self.assertEqual(credentials, [('hub', hashlib.sha256(tokens[demo.CONTROLLER_TOKEN].encode()).hexdigest(), '["read","control"]', 1)])
+        self.assertEqual(source, 'shared')
+        self.assertEqual(json.loads(config), {
+            'version': 1, 'ownerId': 'verify-owner', 'consumerId': 'nanoleaf', 'endpoint': 'http://127.0.0.1:45001/api/monitor/v1',
+            'tokenFile': str((self.runtime / demo.FEED_TOKEN).resolve()), 'clearOnNewTurn': True,
+            'qualifiedSources': [{'provider': 'codex', 'client': 'cli', 'hostId': 'verify-host', 'sourceId': 'verify-source'}], 'bindings': []})
+        self.assertEqual(rows(self.data, 'SELECT COUNT(*) FROM sessions'), [(0,)], 'the Hub owns the tasks')
+        self.assertEqual(rows(self.data, "SELECT COUNT(*) FROM projects WHERE id IN ('a','b','c')"), [(0,)], 'the Hub owns the projects')
+        self.assertEqual(demo.registered(self.data), ['wall', 'panels'])
+        self.assertEqual(json.loads((self.data / demo.MARKER).read_text()),
+                         {'scenario': 'hub-paired', 'seededBy': 'scripts/demo.py seed', 'pairedPort': 45001})
+        for path in self.data.rglob('*'):
+            if path.is_file():
+                for value in tokens.values():
+                    self.assertNotIn(value.encode(), path.read_bytes(), f'{path.name} holds a credential')
+
+    def test_a_seed_without_usable_credentials_or_hub_origin_writes_nothing(self):
+        cases = []
+        def missing():
+            pass
+        def exposed():
+            write_credentials(self.runtime, mode=0o640)
+        def malformed():
+            write_credentials(self.runtime)
+            (self.runtime / demo.CONTROLLER_TOKEN).write_text('not-a-token')
+        def linked():
+            write_credentials(self.runtime)
+            (self.runtime / demo.FEED_TOKEN).rename(self.runtime / 'elsewhere')
+            (self.runtime / demo.FEED_TOKEN).symlink_to(self.runtime / 'elsewhere')
+        for prepare, origin, message in (
+                (missing, 'http://127.0.0.1:45001/', 'hub-paired needs a private hub-feed-token file in the run directory.'),
+                (exposed, 'http://127.0.0.1:45001/', 'hub-paired needs a private hub-feed-token file in the run directory.'),
+                (malformed, 'http://127.0.0.1:45001/', 'hub-paired needs a private hub-controller-token file in the run directory.'),
+                (linked, 'http://127.0.0.1:45001/', 'hub-paired needs a private hub-feed-token file in the run directory.'),
+                (write_credentials, 'http://127.0.0.1:45001', "hub-feed must be the paired Hub run's origin, http://127.0.0.1:<port>/."),
+                (write_credentials, 'http://localhost:45001/', "hub-feed must be the paired Hub run's origin, http://127.0.0.1:<port>/."),
+                (write_credentials, 'http://127.0.0.1:99999/', "hub-feed must be the paired Hub run's origin, http://127.0.0.1:<port>/."),
+                (write_credentials, 'http://127.0.0.1:8788/', "hub-feed names an installed service's port.")):
+            with self.subTest(prepare=prepare.__name__, origin=origin):
+                for path in self.runtime.iterdir():
+                    if path != self.data:
+                        path.unlink()
+                prepare() if prepare is not write_credentials else write_credentials(self.runtime)
+                with self.assertRaises(demo.PairingError) as raised:
+                    demo.seed(self.data, 'hub-paired', hub_feed=origin, credentials=self.runtime)
+                self.assertEqual(str(raised.exception), message)
+                self.assertEqual(list(self.data.iterdir()), [], 'a refused seed writes nothing')
+        result = command('seed', '--state-dir', str(self.data), '--scenario', 'hub-paired', '--hub-feed', 'http://127.0.0.1:8788/',
+                         '--credentials', str(self.runtime))
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(result.stderr.splitlines()[-1], "demo.py: error: hub-feed names an installed service's port.")
+        self.assertNotIn(str(self.runtime), result.stderr)
+        with self.assertRaises(demo.PairingError):
+            demo.seed(self.data, 'reference', hub_feed='http://127.0.0.1:45001/', credentials=self.runtime)
+        self.assertEqual(list(self.data.iterdir()), [])
+
+
+class PairedBoundaryTest(Directories):
+    """The paired boundary allows TCP to 127.0.0.1 on the paired port only, and never an installed service's port."""
+
+    def attempt(self, directory, paired_port, script):
+        source = textwrap.dedent(f'''
+            import importlib.util, json, socket, sys
+            from pathlib import Path
+            spec = importlib.util.spec_from_file_location('backstop', {str(BACKSTOP)!r})
+            sys.argv = [{str(BACKSTOP)!r}, 'scenarios']
+            import io, contextlib
+            with contextlib.redirect_stdout(io.StringIO()):
+                backstop = importlib.util.module_from_spec(spec); spec.loader.exec_module(backstop)
+            demo = backstop.demo
+            directory = Path({str(directory)!r})
+            boundary = demo.install_boundary(directory / demo.BOUNDARY_LOG, {paired_port!r})
+            results = {{}}
+            def attempt(name, action):
+                try:
+                    action(); results[name] = 'completed'
+                except Exception as error:
+                    results[name] = type(error).__name__ + ('/refused' if demo.refused(error) else '')
+        ''') + textwrap.dedent(script) + '\nprint(json.dumps(results))\n'
+        result = subprocess.run([sys.executable, '-c', source], capture_output=True, text=True, timeout=30,
+                                env=dict(os.environ, PYTHONDONTWRITEBYTECODE='1'))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        backstop = directory.parent / 'backstop.jsonl'
+        self.assertFalse(backstop.exists(), backstop.read_text() if backstop.exists() else '')
+        return json.loads(result.stdout.strip().splitlines()[-1]), boundary_entries(directory)
+
+    def test_only_the_paired_port_is_reachable_and_each_connection_is_recorded_as_allowed(self):
+        directory = self.directory() / 'data'
+        directory.mkdir()
+        paired, other = Listener(), Listener()
+        self.addCleanup(paired.close)
+        self.addCleanup(other.close)
+        results, entries = self.attempt(directory, paired.port, f'''
+            attempt('paired', lambda: socket.create_connection(('127.0.0.1', {paired.port}), timeout=1).close())
+            attempt('other', lambda: socket.create_connection(('127.0.0.1', {other.port}), timeout=1).close())
+            attempt('installed', lambda: socket.create_connection(('127.0.0.1', 8788), timeout=1).close())
+            def datagram():
+                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                try: sock.sendto(b'x', ('127.0.0.1', {paired.port}))
+                finally: sock.close()
+            attempt('datagram', datagram)
+        ''')
+        self.assertEqual(results, {'paired': 'completed', 'other': 'DeviceBoundaryError/refused',
+                                   'installed': 'DeviceBoundaryError/refused', 'datagram': 'DeviceBoundaryError/refused'})
+        self.assertEqual([(entry['kind'], entry['target'], entry['outcome']) for entry in entries],
+                         [('socket.connect', f'127.0.0.1:{paired.port}', 'allowed'),
+                          ('socket.connect', f'127.0.0.1:{other.port}', 'refused'),
+                          ('socket.connect', '127.0.0.1:8788', 'refused'),
+                          ('socket.sendto', f'127.0.0.1:{paired.port}', 'refused')])
+        self.assertEqual((paired.accepted(), other.accepted()), (1, 0))
+
+    def test_an_installed_port_is_never_allowed_even_when_named_as_paired(self):
+        directory = self.directory() / 'data'
+        directory.mkdir()
+        self.assertIsNone(demo.Boundary(directory / demo.BOUNDARY_LOG, 8788).paired)
+        results, entries = self.attempt(directory, 8788, '''
+            attempt('installed', lambda: socket.create_connection(('127.0.0.1', 8788), timeout=1).close())
+        ''')
+        self.assertEqual(results, {'installed': 'DeviceBoundaryError/refused'})
+        self.assertEqual([(entry['target'], entry['outcome']) for entry in entries], [('127.0.0.1:8788', 'refused')])
+
+
+class PairedRun:
+    """`demo.py serve` of a hub-paired run beneath the test backstop, with its controller listener."""
+
+    def __init__(self, directory, port=0, controller_port=0):
+        environment = dict(os.environ, PYTHONDONTWRITEBYTECODE='1', TMPDIR=str(directory.parent))
+        self.directory = directory
+        self.process = subprocess.Popen([sys.executable, '-u', str(BACKSTOP), 'serve', '--state-dir', str(directory), '--port', str(port),
+                                         '--controller-port', str(controller_port)],
+                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=environment, cwd=ROOT)
+        self.ready = json.loads(self.process.stdout.readline())
+        self.url = self.ready['url']
+        self.port = int(self.url.rsplit(':', 1)[1])
+        self.controller = self.ready['endpoints']['controller']
+
+    def state(self, path='/verify/state'):
+        return call(self.url + path)[1]
+
+    def stop(self):
+        if self.process.poll() is None:
+            self.process.send_signal(signal.SIGTERM)
+        output, errors = self.process.communicate(timeout=10)
+        return self.process.returncode, output, errors
+
+
+class PairedServeTest(Directories):
+    def pair(self, hub=None, tokens=None):
+        self.runtime = self.directory()
+        self.data = self.runtime / 'data'
+        self.data.mkdir()
+        self.tokens = tokens or write_credentials(self.runtime)
+        if tokens:
+            for name, value in tokens.items():
+                (self.runtime / name).write_text(value)
+                (self.runtime / name).chmod(0o600)
+        self.hub = hub or StandInHub(self.tokens[demo.FEED_TOKEN])
+        if not hub:
+            self.addCleanup(self.hub.close)
+        demo.seed(self.data, 'hub-paired', hub_feed=self.hub.origin, credentials=self.runtime)
+
+    def serve(self, **ports):
+        run = PairedRun(self.data, **ports)
+        self.addCleanup(lambda: run.process.poll() is None and run.stop())
+        return run
+
+    def test_a_paired_run_paints_the_hub_feed_and_serves_the_hub_its_controller_api(self):
+        self.pair()
+        run = self.serve()
+        self.assertEqual(json.loads((self.data / 'map-server.json').read_text())['boundary'], 'paired')
+        state = until(run.state, lambda value: value['feed']['connection'] == 'current')
+        self.assertEqual({key: state['feed'][key] for key in ('source', 'connection', 'revision', 'ownerId', 'error')},
+                         {'source': 'shared', 'connection': 'current', 'revision': 7, 'ownerId': 'verify-owner', 'error': None})
+        tasks = run.state('/api/state')['tasks']
+        key = lambda session: 'shared-' + hashlib.sha256(json.dumps([session[k] for k in ('provider', 'client', 'hostId', 'sourceId', 'sessionId')],
+                                                                    separators=(',', ':')).encode()).hexdigest()
+        names = {key(session['identity']): session['identity']['sessionId'] for session in FEED['envelope']['snapshot']['sessions']}
+        self.assertEqual({names[task['id']]: [task['status'], task['title']] for task in tasks}, FEED['expected'])
+        self.assertTrue(all(task['line'] and task['statusEvidence'] == 'current' for task in tasks))
+        # The Hub's calls, with its credential and without.
+        self.assertEqual(call(run.controller + 'controller/v1/devices')[0], 401)
+        status, devices = call(run.controller + 'controller/v1/devices', self.tokens[demo.CONTROLLER_TOKEN])
+        self.assertEqual((status, [d['identity']['controllerId'] for d in devices['devices']]), (200, ['wall-controller']))
+        status, snapshot = call(run.controller + 'controller/integration/v1/snapshot?deviceId=wall', self.tokens[demo.CONTROLLER_TOKEN])
+        self.assertEqual(status, 200)
+        command_body = {'apiVersion': snapshot['apiVersion'], 'controllerId': 'wall-controller', 'deviceId': 'wall',
+                        'requestId': snapshot['nextRequestId'], 'expectedRevision': snapshot['revision'],
+                        'command': {'kind': 'settings.set', 'style': 'project'}}
+        self.assertEqual(call(run.controller + 'controller/integration/v1/commands', self.tokens[demo.CONTROLLER_TOKEN], command_body)[0], 202)
+        state = until(run.state, lambda value: value['integration']['applied'] == 1)
+        self.assertEqual(state['integration'], {'applied': 1, 'queued': 0, 'failed': 0})
+        self.assertEqual(run.state('/api/state')['settings']['style'], 'project')
+        code, output, errors = run.stop()
+        self.assertEqual(code, 0, errors)
+        entries = boundary_entries(self.data)
+        self.assertTrue(entries)
+        self.assertEqual({(entry['kind'], entry['target'], entry['outcome']) for entry in entries},
+                         {('socket.connect', f'127.0.0.1:{self.hub.port}', 'allowed')})
+        self.assertTrue(all(request == '/api/monitor/v1/sessions?snapshotVersion=1.2' for request in self.hub.requests))
+        for value in self.tokens.values():
+            self.assertNotIn(value, output + errors)
+        self.assertFalse((self.runtime / 'backstop.jsonl').exists())
+
+    def test_a_hub_that_rejects_the_feed_credential_leaves_the_wall_serving_until_it_accepts(self):
+        self.pair()
+        self.hub.status = 401
+        run = self.serve()
+        state = until(run.state, lambda value: value['feed']['error'] == 'feed-rejected')
+        self.assertEqual((state['feed']['connection'], state['feed']['revision']), ('unavailable', None))
+        self.assertEqual(run.state('/api/state')['tasks'], [])
+        self.hub.status = 200
+        state = until(run.state, lambda value: value['feed']['connection'] == 'current')
+        self.assertEqual(state['feed']['revision'], 7)
+        self.assertEqual(len(run.state('/api/state')['tasks']), 5)
+
+    def test_a_relaunch_keeps_the_controller_port_and_a_standalone_scenario_accepts_no_hub_credential(self):
+        self.pair()
+        run = self.serve()
+        controller = int(run.controller.rsplit(':', 1)[1].rstrip('/'))
+        self.assertEqual(run.stop()[0], 0)
+        for path in self.data.iterdir():
+            path.unlink()
+        demo.seed(self.data, 'reference')
+        standalone = self.serve(port=run.port, controller_port=controller)
+        self.assertEqual((standalone.port, standalone.controller), (run.port, f'http://127.0.0.1:{controller}/'))
+        self.assertEqual(call(standalone.controller + 'controller/v1/devices', self.tokens[demo.CONTROLLER_TOKEN])[0], 401)
+        self.assertEqual(standalone.state()['feed']['source'], 'legacy')
+        self.assertEqual(standalone.stop()[0], 0)
+        self.assertEqual(boundary_entries(self.data), [], 'a standalone scenario still contacts nothing')
+
+    def test_a_controller_port_in_use_fails_the_start_with_a_named_cause(self):
+        self.pair()
+        taken = Listener()
+        self.addCleanup(taken.close)
+        process = subprocess.run([sys.executable, '-u', str(DEMO), 'serve', '--state-dir', str(self.data), '--port', '0',
+                                  '--controller-port', str(taken.port)], capture_output=True, text=True, timeout=30, cwd=ROOT,
+                                 env=dict(os.environ, PYTHONDONTWRITEBYTECODE='1'))
+        self.assertNotEqual(process.returncode, 0)
+        self.assertRegex(process.stderr.splitlines()[-1], r'^controller_server\.ListenerUnavailable: Port \d+ is already in use\.')
+
+
+class PairedDriveTest(Directories):
+    def setUp(self):
+        self.runtime = self.directory()
+        self.data = self.runtime / 'data'
+        self.data.mkdir()
+        write_credentials(self.runtime)
+        demo.seed(self.data, 'hub-paired', hub_feed='http://127.0.0.1:45001/', credentials=self.runtime)
+
+    def drive(self, transition):
+        return subprocess.run([sys.executable, str(BACKSTOP), 'drive', '--state-dir', str(self.data), transition],
+                              capture_output=True, text=True, timeout=30, cwd=ROOT, env=dict(os.environ, PYTHONDONTWRITEBYTECODE='1'))
+
+    def test_hook_transitions_are_refused_because_the_hub_owns_task_state(self):
+        before = dump(self.data)
+        with self.assertRaisesRegex(ValueError, 'The Hub owns task state in hub-paired'):
+            demo.drive(self.data, 'complete')
+        self.assertEqual(dump(self.data), before)
+
+    def test_polling_the_installed_hub_is_refused_and_recorded_before_any_byte_is_sent(self):
+        result = self.drive('defect-poll-installed-hub')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout), {'transition': 'defect-poll-installed-hub', 'tasks': {}})
+        self.assertEqual([(entry['kind'], entry['target'], entry['outcome']) for entry in boundary_entries(self.data)],
+                         [('socket.connect', '127.0.0.1:8788', 'refused')])
+        self.assertFalse((self.runtime / 'backstop.jsonl').exists(), 'the boundary, not the backstop, refused it')
+
+    def test_a_paired_writer_that_sends_the_effect_is_refused_for_each_device(self):
+        result = self.drive('defect-paired-light-request')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(sorted((entry['kind'], entry['method'], entry['endpoint'], entry['target'], entry['outcome'])
+                                for entry in boundary_entries(self.data)),
+                         [('light-request', 'PUT', '/effects', '192.0.2.1', 'refused'), ('light-request', 'PUT', '/effects', '192.0.2.2', 'refused')])
 
 
 if __name__ == '__main__':
