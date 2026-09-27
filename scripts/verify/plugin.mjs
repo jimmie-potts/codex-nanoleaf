@@ -1,0 +1,163 @@
+// The Nanoleaf wall plug-in for the shared app verification core (#193, Hub #494).
+//
+// It supplies only what is specific to the wall: the synthetic scenarios, the `scripts/demo.py
+// serve` launch of the actual wall server, readiness, the actual and simulated components, the
+// device-boundary check and the capture steps. The core owns the run lifecycle.
+import {execFile} from 'node:child_process';
+import {readFileSync} from 'node:fs';
+import {readFile} from 'node:fs/promises';
+import {join} from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {promisify} from 'node:util';
+import {definePlugin} from '@jimmie-potts/app-verify';
+import {boundaryEntries, captureSteps, isLayoutRead, layoutReadProblem} from './steps.mjs';
+
+const run = promisify(execFile);
+/** Ports of the installed services; a run never answers on one. */
+export const INSTALLED_PORTS = new Set([8788, 8765, 8787, 8791, 41230, 41231]);
+export const SCENARIOS = {
+  reference: 'Lines and Light Panels in Work with five tasks in all four statuses across three projects',
+  empty: 'Lines and Light Panels in Work with no tasks, so the wall rests on its remembered scene',
+  'layout-unavailable': 'The reference tasks on Lines saved without drawing geometry, so the map asks the device for its layout and the boundary refuses the request',
+};
+const TITLE = '<title>Nanoleaf · Wall map</title>';
+
+/** Parse the demo's ready line, `{"url": "http://127.0.0.1:<port>", …}`; anything else is not a ready line. */
+export function readyLine(line) {
+  let value;
+  try {
+    value = JSON.parse(line);
+  } catch {
+    return undefined;
+  }
+  if (typeof value?.url !== 'string') return undefined;
+  let url;
+  try {
+    url = new URL(value.url);
+  } catch {
+    return undefined;
+  }
+  if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || !url.port || url.pathname !== '/' || url.search || url.hash) return undefined;
+  return {url: url.href};
+}
+
+/** The map's own readiness: its receipt, its health route and its page, all naming this process. */
+export async function probe({url, port, dataDir, signal}) {
+  if (INSTALLED_PORTS.has(port)) return {ok: false, reason: `port ${port} belongs to an installed service`};
+  let receipt;
+  try {
+    receipt = JSON.parse(await readFile(join(dataDir, 'map-server.json'), 'utf8'));
+  } catch {
+    return {ok: false, reason: 'map-server.json is missing or unreadable'};
+  }
+  if (receipt.port !== port) return {ok: false, reason: `map-server.json names port ${receipt.port}, not ${port}`};
+  if (receipt.boundary !== 'refusing') return {ok: false, reason: 'the served process did not install the device boundary'};
+  const health = await fetch(new URL('/health', url), {signal});
+  const body = health.ok ? await health.json() : null;
+  if (body?.service !== 'codex-nanoleaf-map') return {ok: false, reason: `health answered ${health.status}`};
+  if (body.instance !== receipt.instance) return {ok: false, reason: 'health names another map instance'};
+  const page = await fetch(url, {signal});
+  // The page embeds the per-process edit token; only its title is inspected, and nothing is printed.
+  if (!page.ok || !(await page.text()).includes(TITLE)) return {ok: false, reason: `map page answered ${page.status}`};
+  return {ok: true};
+}
+
+/**
+ * The boundary check, at start and in `doctor`. The log starts empty at each seed and holds only
+ * refusals, because the boundary records an attempt as it refuses it. A run records no attempt,
+ * except that layout-unavailable must record the map's layout reads of the Lines, only those, and
+ * no more or more often than the map makes them.
+ */
+export async function deviceBoundary({dataDir, scenario}) {
+  const entries = await boundaryEntries(dataDir);
+  if (scenario === 'layout-unavailable') {
+    const other = entries.filter(entry => !isLayoutRead(entry));
+    if (other.length) return {outcome: 'failed', reason: `${other.length} device attempt(s) other than the map's layout read recorded since the last seed`};
+    if (!entries.length) return {outcome: 'failed', reason: 'the startup layout read was not attempted and refused'};
+    const problem = layoutReadProblem(entries);
+    return problem ? {outcome: 'failed', reason: problem} : {outcome: 'passed'};
+  }
+  return entries.length ? {outcome: 'failed', reason: `${entries.length} device attempt(s) recorded since the last seed`} : {outcome: 'passed'};
+}
+
+/**
+ * The cause of a failed demo.py command, read from its stderr: a fixed phrase for its known failures,
+ * or the Python exception type alone. It never returns an exception message, which can hold a path.
+ */
+export function demoCause(stderrTail) {
+  const lines = String(stderrTail ?? '').split('\n').map(line => line.trim()).filter(Boolean);
+  const last = lines.at(-1) ?? '';
+  if (/^OSError: \[Errno 98\] Address already in use$/.test(last)) return 'port already in use';
+  if (/^FileNotFoundError: \[Errno 2\] No such file or directory: '[^']*\/config\.json'$/.test(last)) return 'the state directory is not seeded (config.json missing)';
+  const module = /^ModuleNotFoundError: No module named '([A-Za-z0-9_.]{1,60})'$/.exec(last);
+  if (module) return `Python module ${module[1]} is missing`;
+  if (/^demo\.py: error: Refusing the state directory: it is the installation's own state\.$/.test(last)) return 'refused the installation state directory';
+  if (/^demo\.py: error: Refusing the state directory: it has no demo-run\.json from demo\.py seed\.$/.test(last)) return 'the state directory was not seeded by demo.py';
+  if (/^demo\.py(?: [a-z]+)?: error: /.test(last)) return 'demo.py rejected its arguments';
+  const type = /^([A-Za-z_][A-Za-z0-9_.]{0,80}(?:Error|Exception|Exit|Interrupt))(?::|$)/.exec(last);
+  return type ? type[1] : undefined;
+}
+
+/** Name a failed start from the wall server's stderr, for the core's `failure.detail`. */
+export function failureCause(stderrTail) {
+  const cause = demoCause(stderrTail);
+  return cause ? `wall-start-failed: ${cause}` : undefined;
+}
+
+/**
+ * Run `demo.py seed`. A failure becomes one fixed line, never execFile's message, which names the
+ * interpreter, the checkout and the state directory.
+ */
+export async function seedWith(python, root, {dataDir, scenario}) {
+  try {
+    await run(python, [join(root, 'scripts/demo.py'), 'seed', '--state-dir', dataDir, '--scenario', scenario], {cwd: root});
+  } catch (error) {
+    if (error.code === 'ENOENT') throw new Error('demo.py seed failed: the Python interpreter was not found');
+    throw new Error(`demo.py seed failed: ${demoCause(error.stderr) ?? `exit status ${Number.isInteger(error.code) ? error.code : 'unknown'}`}`);
+  }
+}
+
+/**
+ * The plug-in for one checkout. `python` must be Python 3.12 or later; a bare name is resolved on
+ * the adapter's PATH, because the unit does not inherit the caller's shell. Tests pass their own
+ * `app` so their units and run ids never mix with real `wall` runs.
+ */
+export function createPlugin({root = fileURLToPath(new URL('../..', import.meta.url)), python = process.env.PYTHON || 'python3', app = 'wall'} = {}) {
+  const demo = join(root, 'scripts/demo.py');
+  const seed = context => seedWith(python, root, context);
+  return definePlugin({
+    app,
+    repository: 'jimmie-potts/codex-nanoleaf',
+    command: 'npm run verify --',
+    root,
+    defaultScenario: 'reference',
+    scenarios: Object.fromEntries(Object.entries(SCENARIOS).map(([name, description]) => [name, {description, seed}])),
+    build: {
+      version: JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version,
+      // The page and the three Prism assets it loads; the page is read from disk on every request.
+      artifact: {files: ['bridge/wall.html', 'bridge/prism.js', 'bridge/prism-adapters.js', 'bridge/prism-labels.js']},
+    },
+    launch: ({dataDir, port}) => ({
+      argv: [python, '-u', demo, 'serve', '--state-dir', dataDir, '--port', String(port)],
+      env: {PYTHONDONTWRITEBYTECODE: '1', PYTHONUNBUFFERED: '1'},
+      cwd: root,
+    }),
+    readiness: {line: readyLine, probe, failureCause, timeoutMs: 20000},
+    components: [
+      {id: 'wall-server', kind: 'actual', note: 'bridge/wall_server.py, started as the installed map starts'},
+      {id: 'wall-page', kind: 'actual', note: 'bridge/wall.html with the Prism assets'},
+      {id: 'state-store', kind: 'actual', note: 'private SQLite in the run data directory'},
+      {id: 'hook-handler', kind: 'actual', note: 'bridge.handle_event applies driven task transitions'},
+      {id: 'allocation', kind: 'actual', note: 'bridge.dashboard and project_map allocation, run by the worker stand-in'},
+      {id: 'light-worker', kind: 'simulated', note: 'scripts/demo.py worker stand-in applies edits and allocation; it never renders or sends'},
+      {id: 'lines-device', kind: 'simulated', note: 'tests/fixtures/lines-layout.json at 192.0.2.1; every request is refused by the process boundary'},
+      {id: 'panels-device', kind: 'simulated', note: 'tests/fixtures/nl22-panels-fixture.json at 192.0.2.2; every request is refused by the process boundary'},
+      {id: 'codex-metadata', kind: 'simulated', note: 'synthetic projects and tasks; no Codex state is read'},
+    ],
+    // Read-only, so doctor re-runs it against an active run. The core's private HOME is kept: the demo needs no home files.
+    checks: [{id: 'device-boundary', run: deviceBoundary, doctor: true}],
+    captureSteps: captureSteps({root, python}),
+  });
+}
+
+export default createPlugin();
