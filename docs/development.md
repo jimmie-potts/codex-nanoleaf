@@ -67,7 +67,7 @@ Every capture step is `fresh`: the core reseeds the step's scenario and relaunch
 | Light Panels | Device, Light Panels; Quiet | None | `reference` | `panels-view`: every triangle drawn, each placed task's triangle filled with its status color, Quiet on the Panels leaves the Lines in Work |
 | Device boundary | Open the map | None | `layout-unavailable` | `device-read-refused`: the map's layout-unavailable notice, and a refused `GET` light request to `192.0.2.1` in the boundary log |
 
-In each transition step, every other Line keeps its colors. Every step also asserts that the page requested only its own run origin and that the run recorded no device attempt; `device-read-refused` instead requires its attempt to be refused.
+Every check throws on a mismatch or returns `true`; the plug-in wraps each step so that a check returning `false`, or any other value such as a count, fails the capture. In each transition step, every other Line keeps its colors. Every step also asserts that the page requested only its own run origin and that the run recorded no device attempt; `device-read-refused` instead requires its attempt to be refused.
 
 Negative controls are ordinary capture steps that apply a known-wrong result to the same assertions. Each reports `failed` at the named assertion, and the checks below require that:
 

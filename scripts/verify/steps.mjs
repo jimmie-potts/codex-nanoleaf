@@ -43,6 +43,25 @@ function same(actual, expected, message) {
   if (a !== e) throw new Error(`${message}: expected ${e}, saw ${a}`);
 }
 
+/**
+ * The rule for every check: throw or reject on a mismatch, or return `true`. A returned `false` is a
+ * mismatch, and any other value, such as a count of 0 meaning "none", is a malformed check. The
+ * wrapper keeps a predicate that resolves `false` from being recorded as passed.
+ */
+export function strict(check) {
+  return async () => {
+    const value = await check();
+    if (value === undefined || value === true) return;
+    if (value === false) throw new Error('the observation did not match');
+    throw new Error(`the check returned ${JSON.stringify(value) ?? String(value)} instead of throwing on a mismatch or returning true`);
+  };
+}
+
+/** Give a step a context whose `expect` applies `strict` to every check. */
+export function strictChecks(run) {
+  return t => run({...t, expect: (name, check) => t.expect(name, strict(check))});
+}
+
 /** Wait for any poll in flight, then take one fresh poll and let the page paint it. */
 async function settle(page) {
   await page.evaluate(async () => {
@@ -183,8 +202,17 @@ const COMPLETION = {task: 'task-0', from: 'working', to: 'unread', alerts: ['1 b
 const APPROVAL = {task: 'task-1', from: 'blocked', to: 'working', alerts: ['1 question'],
   alertsName: 'the red alert clears and the question alert stays'};
 
+/** Apply `strictChecks` to every step of a step map. */
+export function strictSteps(steps) {
+  return Object.fromEntries(Object.entries(steps).map(([name, step]) => [name, {...step, run: strictChecks(step.run)}]));
+}
+
 /** Capture steps, with `python` the interpreter that runs `scripts/demo.py` and `root` the checkout. */
 export function captureSteps(options) {
+  return strictSteps(definitions(options));
+}
+
+function definitions(options) {
   return {
     'wall-ready': {
       description: 'The Lines wall draws 15 Lines and lists the five reference tasks, their alerts and both devices',

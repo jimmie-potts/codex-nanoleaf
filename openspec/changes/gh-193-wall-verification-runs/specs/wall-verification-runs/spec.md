@@ -68,6 +68,10 @@ The wall plug-in SHALL define capture steps for the Lines wall, a task completio
 - **WHEN** a transition step drives `complete`, `approve`, `request-approval` or `resume`
 - **THEN** the task is listed in its new status on the same Line, that Line is painted in the new status color, every other Line keeps its colors and the alerts match the new state
 
+#### Scenario: A predicate check sees a wrong observation
+- **WHEN** a step's check resolves `false`, or returns a value other than `true`, instead of throwing
+- **THEN** the capture fails at that assertion
+
 #### Scenario: Reduced motion
 - **WHEN** the lighting-modes step switches the page to reduced motion in Work
 - **THEN** the light phase holds still and Replay does not animate

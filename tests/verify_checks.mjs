@@ -17,7 +17,7 @@ import {describe, test} from 'node:test';
 import {promisify} from 'node:util';
 import {runCaptureStep} from '@jimmie-potts/app-verify';
 import plugin, {readyLine} from '../scripts/verify/plugin.mjs';
-import {NEGATIVE_CONTROLS} from '../scripts/verify/steps.mjs';
+import {NEGATIVE_CONTROLS, strict, strictSteps} from '../scripts/verify/steps.mjs';
 
 const results = join(plugin.root, 'test-results/verify');
 
@@ -90,6 +90,56 @@ describe('plug-in surface', () => {
     const spec = await plugin.launch({dataDir: '/run/data', port: 41705});
     assert.deepEqual(spec.argv.slice(-4), ['--state-dir', '/run/data', '--port', '41705']);
     assert.ok(Object.keys(spec.env).every(key => key.startsWith('PYTHON')), JSON.stringify(spec.env));
+  });
+});
+
+describe('check rule', () => {
+  test('a check passes only by returning nothing or true', async () => {
+    await strict(() => undefined)();
+    await strict(async () => true)();
+    await assert.rejects(strict(async () => false)(), /the observation did not match/);
+    await assert.rejects(strict(() => 0)(), /returned 0 instead of throwing/);
+    await assert.rejects(strict(async () => 'Line 1')(), /returned "Line 1" instead of throwing/);
+    await assert.rejects(strict(() => {throw new Error('mismatch')})(), /mismatch/);
+  });
+
+  test('predicate-style checks fail the capture when the observation is wrong', async () => {
+    // Probe steps wrapped exactly as the plug-in wraps its own, driven by the core's capture driver.
+    const probes = strictSteps({
+      'predicate-wrong': {description: 'A predicate on an absent Line', scenario: 'reference', run: async t => {
+        await t.page.goto(t.url);
+        await t.page.locator('#taskList .task').first().waitFor();
+        await t.expect('the task list names a Line 99', () => t.page.locator('#taskList').getByText('Line 99', {exact: true}).isVisible());
+      }},
+      'predicate-right': {description: 'A predicate on a present Line', scenario: 'reference', run: async t => {
+        await t.page.goto(t.url);
+        await t.page.locator('#taskList .task').first().waitFor();
+        await t.expect('the task list names Line 1', () => t.page.locator('#taskList').getByText('Line 1', {exact: true}).first().isVisible());
+      }},
+      'count-of-zero': {description: 'A check that returns a count', scenario: 'reference', run: async t => {
+        await t.page.goto(t.url);
+        await t.page.locator('#taskList .task').first().waitFor();
+        await t.expect('no task waits for a Line', () => t.page.evaluate(() => state.tasks.filter(task => !task.line).length));
+      }},
+    });
+    const probe = {...plugin, captureSteps: probes};
+    const run = await startRun('reference');
+    try {
+      const capture = async name => {
+        const outputDir = join(results, `check-rule-${name}`);
+        await rm(outputDir, {recursive: true, force: true});
+        return runCaptureStep(probe, name, {url: run.context.url, outputDir, scenario: 'reference', dataDir: run.context.dataDir});
+      };
+      const wrong = await capture('predicate-wrong');
+      assert.equal(wrong.outcome, 'failed');
+      assert.equal(wrong.reason, 'assertion failed: the task list names a Line 99: the observation did not match');
+      assert.equal((await capture('predicate-right')).outcome, 'passed');
+      const count = await capture('count-of-zero');
+      assert.equal(count.outcome, 'failed');
+      assert.match(count.reason, /^assertion failed: no task waits for a Line: the check returned 0 instead of throwing/);
+    } finally {
+      await run.stop();
+    }
   });
 });
 
