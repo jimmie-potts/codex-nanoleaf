@@ -69,7 +69,7 @@ Every capture step is `fresh`: the core reseeds the step's scenario and relaunch
 
 Every check throws on a mismatch or returns `true`; the plug-in wraps each step so that a check returning `false`, or any other value such as a count, fails the capture. In each transition step, every other Line keeps its colors. Every step also asserts that the page requested only its own run origin and that the run recorded no device attempt during the step, and it attaches that boundary record, `device-boundary.json`, to its capture. `device-read-refused` also requires the startup attempt to have been refused.
 
-Negative controls are ordinary capture steps that apply a known-wrong result to the same assertions. Each reports `failed` at the named assertion, and the checks below require that:
+Negative controls are ordinary capture steps that apply a known-wrong result to the same assertions. Each reports `failed` at the named assertion, and the checks below require that. The verified set must hold only passing captures, because the Hub's delivery preflight rejects a receipt whose verified set contains a failed one. For proof that a delivery cites, capture the reference steps, run `handoff`, and only then capture the controls, which land in `after-handoff/` and still read `failed`:
 
 | Control | Known-wrong result | Failing assertion |
 | --- | --- | --- |
