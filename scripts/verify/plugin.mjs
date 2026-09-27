@@ -62,7 +62,10 @@ export async function probe({url, port, dataDir, signal}) {
   return {ok: true};
 }
 
-/** The start-time boundary check: every attempt is refused, and only the layout-unavailable scenario makes one. */
+/**
+ * The boundary check, at start and in `doctor`: every recorded attempt was refused, and only the
+ * layout-unavailable scenario makes one. The log starts empty at each seed.
+ */
 export async function deviceBoundary({dataDir, scenario}) {
   const entries = await boundaryEntries(dataDir);
   if (entries.some(entry => entry.outcome !== 'refused')) return {outcome: 'failed', reason: 'a device attempt was not refused'};
@@ -71,7 +74,23 @@ export async function deviceBoundary({dataDir, scenario}) {
       ? {outcome: 'passed'}
       : {outcome: 'failed', reason: 'the startup layout read was not attempted and refused'};
   }
-  return entries.length ? {outcome: 'failed', reason: `${entries.length} device attempt(s) during start`} : {outcome: 'passed'};
+  return entries.length ? {outcome: 'failed', reason: `${entries.length} device attempt(s) recorded since the last seed`} : {outcome: 'passed'};
+}
+
+/**
+ * Name a failed start from the wall server's stderr: a stable line for its known failures, or the
+ * Python exception type alone. It never returns an exception message, which can hold a path.
+ */
+export function failureCause(stderrTail) {
+  const lines = stderrTail.split('\n').map(line => line.trim()).filter(Boolean);
+  const last = lines.at(-1) ?? '';
+  if (/^OSError: \[Errno 98\] Address already in use$/.test(last)) return 'wall-start-failed: port already in use';
+  if (/^FileNotFoundError: \[Errno 2\] No such file or directory: '[^']*\/config\.json'$/.test(last)) return 'wall-start-failed: the state directory is not seeded (config.json missing)';
+  const module = /^ModuleNotFoundError: No module named '([A-Za-z0-9_.]{1,60})'$/.exec(last);
+  if (module) return `wall-start-failed: Python module ${module[1]} is missing`;
+  if (/^demo\.py(?: [a-z]+)?: error: /.test(last)) return 'wall-start-failed: demo.py rejected its arguments';
+  const type = /^([A-Za-z_][A-Za-z0-9_.]{0,80}(?:Error|Exception|Exit|Interrupt))(?::|$)/.exec(last);
+  return type ? `wall-start-failed: ${type[1]}` : undefined;
 }
 
 /**
@@ -101,7 +120,7 @@ export function createPlugin({root = fileURLToPath(new URL('../..', import.meta.
       env: {PYTHONDONTWRITEBYTECODE: '1', PYTHONUNBUFFERED: '1'},
       cwd: root,
     }),
-    readiness: {line: readyLine, probe, timeoutMs: 20000},
+    readiness: {line: readyLine, probe, failureCause, timeoutMs: 20000},
     components: [
       {id: 'wall-server', kind: 'actual', note: 'bridge/wall_server.py, started as the installed map starts'},
       {id: 'wall-page', kind: 'actual', note: 'bridge/wall.html with the Prism assets'},
@@ -113,7 +132,8 @@ export function createPlugin({root = fileURLToPath(new URL('../..', import.meta.
       {id: 'panels-device', kind: 'simulated', note: 'tests/fixtures/nl22-panels-fixture.json at 192.0.2.2; every request is refused by the process boundary'},
       {id: 'codex-metadata', kind: 'simulated', note: 'synthetic projects and tasks; no Codex state is read'},
     ],
-    checks: [{id: 'device-boundary', run: deviceBoundary}],
+    // Read-only, so doctor re-runs it against an active run. The core's private HOME is kept: the demo needs no home files.
+    checks: [{id: 'device-boundary', run: deviceBoundary, doctor: true}],
     captureSteps: captureSteps({root, python}),
   });
 }

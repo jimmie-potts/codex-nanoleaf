@@ -16,7 +16,7 @@ import readline from 'node:readline';
 import {describe, test} from 'node:test';
 import {promisify} from 'node:util';
 import {runCaptureStep} from '@jimmie-potts/app-verify';
-import plugin, {readyLine} from '../scripts/verify/plugin.mjs';
+import plugin, {failureCause, readyLine} from '../scripts/verify/plugin.mjs';
 import {NEGATIVE_CONTROLS, strict, strictSteps} from '../scripts/verify/steps.mjs';
 
 const results = join(plugin.root, 'test-results/verify');
@@ -84,6 +84,27 @@ describe('plug-in surface', () => {
   test('the artifact names the served page and its assets', () => {
     assert.deepEqual(plugin.build.artifact, {files: ['bridge/wall.html', 'bridge/prism.js', 'bridge/prism-adapters.js', 'bridge/prism-labels.js']});
     for (const file of plugin.build.artifact.files) assert.ok(existsSync(join(plugin.root, file)), file);
+  });
+
+  test('a failed start is named by a fixed line or the exception type, never its message', () => {
+    const traceback = last => `Traceback (most recent call last):\n  File "/x/scripts/demo.py", line 1, in <module>\n${last}\n`;
+    const cases = [
+      [traceback('OSError: [Errno 98] Address already in use'), 'wall-start-failed: port already in use'],
+      [traceback("FileNotFoundError: [Errno 2] No such file or directory: '/home/u/.local/state/app-verify/wall-x/data/config.json'"),
+        'wall-start-failed: the state directory is not seeded (config.json missing)'],
+      [traceback("ModuleNotFoundError: No module named 'wall_server'"), 'wall-start-failed: Python module wall_server is missing'],
+      ['usage: demo.py [-h] [--port PORT]\ndemo.py: error: unrecognized arguments: --bogus\n', 'wall-start-failed: demo.py rejected its arguments'],
+      [traceback("ValueError: The token must contain only letters and numbers: FakeDemoToken"), 'wall-start-failed: ValueError'],
+      [traceback("FileNotFoundError: [Errno 2] No such file or directory: '/home/u/secret-name.json'"), 'wall-start-failed: FileNotFoundError'],
+      [traceback('KeyboardInterrupt'), 'wall-start-failed: KeyboardInterrupt'],
+      ['listening\n', undefined],
+      ['', undefined],
+    ];
+    for (const [tail, expected] of cases) {
+      const cause = failureCause(tail);
+      assert.equal(cause, expected, tail);
+      if (cause) assert.ok(cause.length <= 200 && /^[\x20-\x7e]+$/.test(cause), cause);
+    }
   });
 
   test('the launch binds the requested port and carries no credential', async () => {
@@ -187,6 +208,9 @@ describe('capture steps through the core driver', () => {
         } else {
           assert.equal(result.outcome, 'passed', JSON.stringify(result, null, 2));
           assert.ok(result.screenshot && result.video, 'a screenshot and a finalized video exist');
+          const record = result.attachments.find(path => path.endsWith('/device-boundary.json'));
+          assert.ok(record, 'the boundary record is attached');
+          assert.deepEqual(JSON.parse(await readFile(record, 'utf8')).duringStep, []);
         }
       } finally {
         await run.stop();

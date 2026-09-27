@@ -43,7 +43,7 @@ The plug-in is built on these `scripts/demo.py` commands:
 
 Every command first installs a process boundary. It refuses outbound socket connections, datagram sends and new processes, and it routes the wall server's light-request seam to a trap. Each refusal is appended to `<dir>/device-boundary.jsonl` with its kind, target and time, never a credential. The wall server sees a refused request as an unreachable device.
 
-The plug-in's readiness probe matches `map-server.json` against `/health`, so another listener on the port cannot pass. Its start-time `device-boundary` check fails a run that recorded any device attempt during start, except `layout-unavailable`, which must record a refused one. The artifact digest covers `bridge/wall.html` and its three Prism assets.
+The plug-in's readiness probe matches `map-server.json` against `/health`, so another listener on the port cannot pass. Its `device-boundary` check runs at start and again in `doctor`. It fails a run that recorded any device attempt since its last seed, except `layout-unavailable`, which must record a refused one. A failed start names its cause from the server's stderr with a fixed line, such as `wall-start-failed: port already in use`, or with the Python exception type alone, never an exception message. The application runs with the core's private HOME and TMPDIR; the demo reads no home files. The artifact digest covers `bridge/wall.html` and its three Prism assets.
 
 In a run, the wall server, map page, private SQLite state, hook handler and allocation are actual code. The light worker is a stand-in that applies edits and allocation and never renders or sends. The Lines (`192.0.2.1`) and Light Panels (`192.0.2.2`) are fixture layouts behind the boundary, and projects and tasks are synthetic. A run never reads Codex state, the installed runtime or its ports.
 
@@ -67,7 +67,7 @@ Every capture step is `fresh`: the core reseeds the step's scenario and relaunch
 | Light Panels | Device, Light Panels; Quiet | None | `reference` | `panels-view`: every triangle drawn, each placed task's triangle filled with its status color, Quiet on the Panels leaves the Lines in Work |
 | Device boundary | Open the map | None | `layout-unavailable` | `device-read-refused`: the map's layout-unavailable notice, and a refused `GET` light request to `192.0.2.1` in the boundary log |
 
-Every check throws on a mismatch or returns `true`; the plug-in wraps each step so that a check returning `false`, or any other value such as a count, fails the capture. In each transition step, every other Line keeps its colors. Every step also asserts that the page requested only its own run origin and that the run recorded no device attempt; `device-read-refused` instead requires its attempt to be refused.
+Every check throws on a mismatch or returns `true`; the plug-in wraps each step so that a check returning `false`, or any other value such as a count, fails the capture. In each transition step, every other Line keeps its colors. Every step also asserts that the page requested only its own run origin and that the run recorded no device attempt during the step, and it attaches that boundary record, `device-boundary.json`, to its capture. `device-read-refused` also requires the startup attempt to have been refused.
 
 Negative controls are ordinary capture steps that apply a known-wrong result to the same assertions. Each reports `failed` at the named assertion, and the checks below require that:
 

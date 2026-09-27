@@ -120,7 +120,9 @@ test('a run starts leased and identified, captures, freezes its proof, extends a
   assert.equal(JSON.stringify(receipt).includes((await (await fetch(url)).text()).split("const token='")[1].slice(0, 64)), false, 'the page token is in no receipt');
 
   let row = await doctor(runId);
-  assert.deepEqual([row.state, row.health.outcome, row.artifact], ['running', 'passed', 'matches']);
+  assert.deepEqual([row.state, row.health.outcome, row.artifact, row.listener.outcome], ['running', 'passed', 'matches', 'matches']);
+  assert.deepEqual(row.checks, [{id: 'device-boundary', outcome: 'passed'}], 'doctor re-runs the read-only boundary check');
+  assert.equal(existsSync(join(base, 'state', runId, 'home')), true, 'the wall runs with the core\'s private HOME');
 
   const passed = await cli(['capture', runId, 'task-completes']);
   assert.deepEqual([passed.code, passed.result.outcome, passed.result.set], [0, 'passed', 'verified']);
@@ -168,7 +170,7 @@ test('a wall that attempts a device request during start fails its boundary chec
   const start = await cli(['start', '--lease', '10'], {entry});
   assert.equal(start.code, 1);
   assert.deepEqual([start.result.state, start.result.cause, start.result.cleanup.result], ['failed', 'check-failed', 'clean']);
-  assert.match(start.result.detail, /^device-boundary: 1 device attempt\(s\) during start/);
+  assert.match(start.result.detail, /^device-boundary: 1 device attempt\(s\) recorded since the last seed/);
   assert.equal(unitLoaded(`app-verify-${start.result.runId}.service`), false);
   assert.equal(existsSync(join(base, 'state', start.result.runId)), false);
   assert.equal((await doctor(start.result.runId)).state, 'failed');
@@ -180,6 +182,7 @@ test('a wall that exits before it is ready fails the start and leaves no unit, t
   const start = await cli(['start', '--lease', '10'], {entry});
   assert.equal(start.code, 1);
   assert.deepEqual([start.result.state, start.result.cause, start.result.cleanup.result], ['failed', 'unit-exited', 'clean']);
+  assert.match(start.result.detail, /; app: wall-start-failed: the state directory is not seeded \(config\.json missing\)$/);
   assert.deepEqual(start.result.cleanup.items.map(item => [item.kind, item.outcome]), [['lease-timer', 'removed'], ['unit', 'absent'], ['runtime-dir', 'removed']]);
   const row = await doctor(start.result.runId);
   assert.deepEqual([row.state, row.failure.cause, row.unit, row.leaseTimers, row.runtimeDir], ['failed', 'unit-exited', null, [], 'missing']);

@@ -94,7 +94,7 @@ The plug-in SHALL define negative controls that apply a known-wrong transition o
 
 ### Requirement: Labelled components and boundary check
 
-The plug-in SHALL label the wall server, page, state store, hook handler and allocation as actual, and the light worker, both devices and the Codex metadata as simulated. Its start-time `device-boundary` check SHALL fail when any recorded attempt was not refused, when a scenario other than `layout-unavailable` recorded an attempt during start, or when `layout-unavailable` recorded no refused light request. Its readiness probe SHALL fail for an installed service port or a map instance other than the run's own. (Issue #193: identify real and simulated components.)
+The plug-in SHALL label the wall server, page, state store, hook handler and allocation as actual, and the light worker, both devices and the Codex metadata as simulated. Its `device-boundary` check SHALL run at start and in `doctor`, and SHALL fail when any recorded attempt was not refused, when a scenario other than `layout-unavailable` recorded an attempt since its last seed, or when `layout-unavailable` recorded no refused light request. Its readiness probe SHALL fail for an installed service port or a map instance other than the run's own. A failed start SHALL be named from the server's stderr by a fixed cause line or the Python exception type alone, never an exception message. Each capture SHALL attach the boundary record of its step. (Issue #193: identify real and simulated components.)
 
 #### Scenario: Another map on the port
 - **WHEN** the run's receipt names an instance that `/health` does not report

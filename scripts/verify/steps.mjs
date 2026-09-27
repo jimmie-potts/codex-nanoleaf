@@ -129,17 +129,16 @@ async function watchBoundary(t) {
   });
   const before = (await boundaryEntries(t.dataDir)).length;
   return {
-    async close({expected = 0} = {}) {
+    async close() {
       // End visually settled, so the core's after.png shows the final state rather than a CSS transition.
       await t.page.waitForFunction(() => document.getAnimations().every(item => !(item instanceof CSSTransition) || item.playState !== 'running'),
         null, {timeout: 3000}).catch(() => t.note('CSS transitions were still running at the end of the step'));
       await t.expect('the page contacted only its own run', () => same([...new Set(foreign)], [], 'Requests left the run origin'));
-      await t.expect(expected ? 'every device attempt was refused and recorded' : 'no device attempt was recorded', async () => {
-        const entries = (await boundaryEntries(t.dataDir)).slice(before);
-        check(entries.every(entry => entry.outcome === 'refused'), `An attempt was not refused: ${JSON.stringify(entries)}`);
-        if (expected) check(entries.length >= expected, `Expected at least ${expected} refused attempt, saw ${entries.length}`);
-        else same(entries.map(entry => `${entry.kind} ${entry.target}`), [], 'Device attempts during the step');
-      });
+      const entries = (await boundaryEntries(t.dataDir)).slice(before);
+      // The step's boundary record goes into the proof beside its screenshot and video.
+      await t.attach('device-boundary.json', `${JSON.stringify({recordedBeforeStep: before, duringStep: entries}, null, 2)}\n`);
+      await t.expect('no device attempt was recorded during the step', () =>
+        same(entries.map(entry => `${entry.kind} ${entry.target} ${entry.outcome}`), [], 'Device attempts during the step'));
     },
   };
 }
