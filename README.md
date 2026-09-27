@@ -33,6 +33,8 @@ npx playwright install chromium
 npm run test:browser
 ```
 
+`npm run test:verify` serves one synthetic run per verification capture step; see [verification runs](docs/development.md#verification-runs) for the scenarios, the no-device boundary and what a run does not prove.
+
 On a fresh Linux machine, Playwright may also need its browser system dependencies. The CI workflow uses `npx playwright install --with-deps chromium`. `PYTHON` can select a Python executable; `NANOLEAF_BROWSER_EXECUTABLE` can select an existing Chromium-based browser.
 
 [Depot CI](docs/development.md#hosted-ci) runs workflow checks, the Python suite with Python 3.12 and 3.14, browser checks, and MCP source checks on Linux.

@@ -13,6 +13,64 @@ Run `npm run test:browser` after map or API changes. It starts the synthetic dem
 
 Exercise Linux installation and device enrollment with isolated state and fake device transport; never enroll a personal device from a development checkout. `cd tests && python3 -m unittest test_enrollment` runs the focused enrollment tests; the operator commands are in [the Linux installation guide](linux-install.md#add-nl22-light-panels). Hosted CI runs the Python, browser, MCP and workflow checks on Linux; there are no platform-specific checks.
 
+## Verification runs
+
+A verification run serves the actual wall server over its own synthetic state so an agent can exercise a change, keep assertion-backed proof and hand over a disposable preview. The shared lifecycle core from the Hub ([app verification contract](https://github.com/jimmie-potts/agent-device-hub/blob/main/docs/app-verification.md)) owns the run's supervisor unit, lease, receipt, proof and preview card. This repository supplies the wall plug-in in `scripts/verify/`, built on these `scripts/demo.py` commands:
+
+| Command | Effect |
+| --- | --- |
+| `python3 scripts/demo.py scenarios` | Print the scenario names and descriptions as JSON |
+| `python3 scripts/demo.py seed --state-dir <dir> --scenario <name>` | Write a scenario into an empty directory: registry, layout, projects, tasks and hook waits |
+| `python3 scripts/demo.py serve --state-dir <dir> --port 0` | Start the wall server as the installed map starts, on `127.0.0.1`. It writes `map-server.json` and prints one ready line, `{"url": …, "instance": …}`. The page's edit token is never printed |
+| `python3 scripts/demo.py drive --state-dir <dir> <transition>` | Apply a named task transition through the actual hook handler, then the worker stand-in |
+
+Every command first installs a process boundary. It refuses outbound socket connections, datagram sends and new processes, and it routes the wall server's light-request seam to a trap. Each refusal is appended to `<dir>/device-boundary.jsonl` with its kind, target and time, never a credential. The wall server sees a refused request as an unreachable device.
+
+Two checks prove the boundary and the steps:
+
+- `python3 scripts/check.py` makes real attempts through the Nanoleaf transport, the worker launcher, a loopback service and a geometry read that bypasses the seam. Each is refused. An unguarded control process does reach the loopback service, so the check can observe a leak.
+- `npm run test:verify` serves one run per capture step. Every reference step must pass and every negative control must fail at its named assertion. It writes screenshots, videos and assertion logs to ignored `test-results/verify/`.
+
+In a run, the wall server, map page, private SQLite state, hook handler and allocation are actual code. The light worker is a stand-in that applies edits and allocation and never renders or sends. The Lines (`192.0.2.1`) and Light Panels (`192.0.2.2`) are fixture layouts behind the boundary, and projects and tasks are synthetic. A run never reads Codex state, the installed runtime or its ports.
+
+Scenarios:
+
+- `reference`: the browser suite's fixture. Five tasks in all four statuses across three projects, on Lines and Light Panels in Work.
+- `empty`: the same devices with no tasks.
+- `layout-unavailable`: the reference tasks without saved drawing geometry. The map's startup asks the Lines for their layout, and the boundary refuses it.
+
+Capture steps change the run's state, so run each step on a freshly seeded run.
+
+| Behavior | Page entry | Driver action | Scenario | Capture step and expected observation |
+| --- | --- | --- | --- | --- |
+| Lines wall and task list | Open the map | None | `reference` | `wall-ready`: 15 Lines; each task listed with its status; alerts `1 blocked` and `1 question`; Device offers Lines and Light Panels; each placed task's Line painted in its status color |
+| Task completion | None | `complete`: Stop for task-0 | `reference` | `task-completes`: task-0 listed unread on the same Line, which is painted in the unread color; other Lines and the alerts unchanged |
+| Approval clears red | None | `approve`: PostToolUse for task-1's shell wait | `reference` | `approval-clears-red`: task-1 listed working, the blocked alert gone, its Line painted in the working color |
+| Project layout (configuration) | Options, Project; select two free Lines; Reserved for | None | `reference` | `project-layout`: Project style, both Lines reserved for Notification Service with no pending edit, each project half painted in the project color |
+| Lighting modes and animation | Work, Quiet, Free; Options, Replay | None | `reference` | `lighting-modes`: Work advances the light phase on active Lines, Quiet holds it, Free notes the release and disables Locate, Work resumes, Replay finishes, the Light Panels keep their own mode |
+| Light Panels | Device, Light Panels; Quiet | None | `reference` | `panels-view`: every triangle drawn, each placed task's triangle filled with its status color, Quiet on the Panels leaves the Lines in Work |
+| Device boundary | Open the map | None | `layout-unavailable` | `device-read-refused`: the map's layout-unavailable notice, and a refused `GET` light request to `192.0.2.1` in the boundary log |
+
+Every step also asserts that the page requested only its own run origin and that the run recorded no device attempt; `device-read-refused` instead requires its attempt to be refused. The `request-approval` and `resume` transitions are available for new steps.
+
+Negative controls use the same assertions against a known-wrong result, and each must fail at the named assertion:
+
+| Control | Known-wrong result | Failing assertion |
+| --- | --- | --- |
+| `control-stale-completion` | Stop for an earlier turn, which the hook handler ignores | task-0 reads unread in the task list |
+| `control-unread-painted-working` | The page served with unread Lines painted in the working color | task-0's Line is painted in the unread color |
+| `control-stale-red` | PostToolUse for another tool, which leaves task-1's approval waiting | task-1 reads working in the task list |
+
+Not covered by a run:
+
+- Physical color, brightness, frames and timing. The stand-in never renders, so a run proves no device output.
+- Completion comets, outward waves and Locate flashes. They are queued in state but never played; the map shows status colors. The animation preview is [#156](https://github.com/jimmie-potts/codex-nanoleaf/issues/156).
+- `GET /api/rendering` reports pending or unknown output, because no worker sends.
+- Scenes, native brightness overrides, requested animations, the controller API, MCP, shared input and the Codex metadata reader. None of them run.
+- Layout discovery and device enrollment.
+- The header's B.U.N.N.Y. link opens the installed Hub dashboard, outside the run.
+- A reseed relaunches the server with a new edit token. Reload a preview tab opened before the reseed before editing.
+
 ## Hosted CI
 
 Depot CI runs the workflow in `.depot/workflows/ci.yml` on pull requests and pushes to `main`. It reports each job as a GitHub check. A newer PR revision cancels the superseded PR run, and each `main` revision runs independently. Each job has a ten-minute timeout. Depot CI provides only Linux sandboxes, so normal CI has five Linux jobs:
@@ -21,7 +79,7 @@ Depot CI runs the workflow in `.depot/workflows/ci.yml` on pull requests and pus
 | --- | --- |
 | Workflow checks | `npm run check:workflow` and `npm run test:workflow` with Node 24 |
 | Python 3.12 and Python 3.14 | Controller dependencies and `python scripts/check.py` with Node 24 available |
-| Wall map browser checks | Prism tests, a clean Prism export, and `npm run test:browser` in Chromium; screenshots uploaded as the `prism-wall-review` artifact with a requested 14-day retention |
+| Wall map browser checks | Prism tests, a clean Prism export, `npm run test:browser` and `npm run test:verify` in Chromium; screenshots, verification videos and assertion logs uploaded as the `prism-wall-review` artifact with a requested 14-day retention |
 | MCP source checks | `npm run test:mcp` |
 
 `.github/workflows/ci.yml` stays in the repository as the migration source. It is disabled in GitHub Actions. Its runs, including earlier billing-blocked failures, are not evidence for a candidate.
