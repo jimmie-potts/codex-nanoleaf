@@ -145,52 +145,42 @@ const UNREAD_PAINTED_WORKING = [
   "const status=(task?.status==='unread'?'working':task?.status)||'base',",
 ];
 
-function completion(options, {transition, pageDefect}) {
+/**
+ * One driven task transition: the task moves from `from` to `to` on the same Line, its Line is
+ * repainted in the new status color, no other Line changes and the alerts read `alerts` afterwards.
+ */
+function transition(options, {transition: name, task, from, to, alerts: expected, alertsName, pageDefect, screenshot}) {
   return async t => {
     const boundary = await watchBoundary(t);
     const confirmDefect = pageDefect ? await injectPageDefect(t, ...pageDefect) : null;
     await openWall(t);
     if (confirmDefect) await confirmDefect();
     const before = await tasks(t.page), beforePaint = await painted(t.page);
-    const line = before['task-0']?.line;
-    await t.expect('task-0 starts working on a Line', () => {
-      same(before['task-0']?.listed, 'working', 'task-0 status');
-      check(line, 'task-0 has no Line');
+    const line = before[task]?.line;
+    await t.expect(`${task} starts ${from} on a Line`, () => {
+      same(before[task]?.listed, from, `${task} status`);
+      check(line, `${task} has no Line`);
     });
-    await drive(t, options, transition);
+    await drive(t, options, name);
     await settle(t.page);
     const after = await tasks(t.page), afterPaint = await painted(t.page), colors = await palette(t.page);
-    await t.expect('task-0 reads unread in the task list', () => same(after['task-0'].listed, 'unread', 'task-0 status'));
-    await t.expect('task-0 keeps its Line', () => same(after['task-0'].line, line, 'task-0 Line'));
-    await t.expect("task-0's Line is painted in the unread color", () => same(afterPaint[line], [colors.unread, colors.unread], 'Painted zones'));
+    await t.expect(`${task} reads ${to} in the task list`, () => same(after[task].listed, to, `${task} status`));
+    await t.expect(`${task} keeps its Line`, () => same(after[task].line, line, `${task} Line`));
+    await t.expect(`${task}'s Line is painted in the ${to} color`, () => same(afterPaint[line], [colors[to], colors[to]], 'Painted zones'));
     await t.expect('every other Line keeps its colors', () => {
       const changed = Object.keys(afterPaint).filter(id => id !== line && JSON.stringify(afterPaint[id]) !== JSON.stringify(beforePaint[id]));
       same(changed, [], 'Lines that changed');
     });
-    await t.expect('the blocked and question alerts are unchanged', async () => same(await alerts(t.page), ['1 blocked', '1 question'], 'Alerts'));
-    await t.screenshot('completed');
+    await t.expect(alertsName, async () => same(await alerts(t.page), expected, 'Alerts'));
+    if (screenshot) await t.screenshot(screenshot);
     await boundary.close();
   };
 }
 
-function approval(options, {transition}) {
-  return async t => {
-    const boundary = await watchBoundary(t);
-    await openWall(t);
-    const line = (await tasks(t.page))['task-1']?.line;
-    await t.expect('task-1 starts blocked with a red alert', async () => {
-      same((await tasks(t.page))['task-1']?.listed, 'blocked', 'task-1 status');
-      same(await alerts(t.page), ['1 blocked', '1 question'], 'Alerts');
-    });
-    await drive(t, options, transition);
-    await settle(t.page);
-    const colors = await palette(t.page);
-    await t.expect('task-1 reads working in the task list', async () => same((await tasks(t.page))['task-1'].listed, 'working', 'task-1 status'));
-    await t.expect('the red alert clears and the question alert stays', async () => same(await alerts(t.page), ['1 question'], 'Alerts'));
-    await t.expect("task-1's Line is painted in the working color", async () => same((await painted(t.page))[line], [colors.working, colors.working], 'Painted zones'));
-    await boundary.close();
-  };
-}
+const COMPLETION = {task: 'task-0', from: 'working', to: 'unread', alerts: ['1 blocked', '1 question'],
+  alertsName: 'the blocked and question alerts are unchanged', screenshot: 'completed'};
+const APPROVAL = {task: 'task-1', from: 'blocked', to: 'working', alerts: ['1 question'],
+  alertsName: 'the red alert clears and the question alert stays'};
 
 /** Capture steps, with `python` the interpreter that runs `scripts/demo.py` and `root` the checkout. */
 export function captureSteps(options) {
@@ -222,12 +212,24 @@ export function captureSteps(options) {
     'task-completes': {
       description: 'task-0 finishes its turn through the hook handler; its Line turns unread and keeps its place',
       scenario: 'reference',
-      run: completion(options, {transition: 'complete'}),
+      run: transition(options, {...COMPLETION, transition: 'complete'}),
     },
     'approval-clears-red': {
       description: 'task-1 receives its shell approval; the red alert clears and its Line turns working',
       scenario: 'reference',
-      run: approval(options, {transition: 'approve'}),
+      run: transition(options, {...APPROVAL, transition: 'approve'}),
+    },
+    'approval-requested': {
+      description: 'task-4 asks for a shell approval; its Line turns blocked and a second red alert appears',
+      scenario: 'reference',
+      run: transition(options, {transition: 'request-approval', task: 'task-4', from: 'working', to: 'blocked',
+        alerts: ['2 blocked', '1 question'], alertsName: 'a second red alert appears'}),
+    },
+    'task-resumes': {
+      description: 'task-3 starts a new turn; its unread Line turns working and the alerts stay',
+      scenario: 'reference',
+      run: transition(options, {transition: 'resume', task: 'task-3', from: 'unread', to: 'working',
+        alerts: ['1 blocked', '1 question'], alertsName: 'the blocked and question alerts are unchanged'}),
     },
     'project-layout': {
       description: 'Switch to Project layout and reserve two free Lines for Notification Service from the page',
@@ -263,10 +265,12 @@ export function captureSteps(options) {
       },
     },
     'lighting-modes': {
-      description: 'Work animates the active Lines, Quiet holds them steady, Free releases them, and Replay reassembles the wall',
+      description: 'Work animates the active Lines, Quiet holds them steady, Free releases them, Replay reassembles the wall, and reduced motion holds it still',
       scenario: 'reference',
       run: async t => {
         const boundary = await watchBoundary(t);
+        // The capture context prefers reduced motion; this step checks the animation itself, so it opts out first.
+        await t.page.emulateMedia({reducedMotion: 'no-preference'});
         await openWall(t);
         const phaseMoves = async () => {
           const first = await t.page.evaluate(() => wallAssembly.snapshot().lightPhase);
@@ -303,6 +307,21 @@ export function captureSteps(options) {
           await t.page.waitForFunction(() => wallAssembly.snapshot().playing, null, {timeout: 3000});
           await t.page.waitForFunction(() => wallAssembly.snapshot().progress === 1 && !wallAssembly.snapshot().playing, null, {timeout: 15000});
         });
+        await t.page.emulateMedia({reducedMotion: 'reduce'});
+        await t.page.locator('#replay').click();
+        await t.expect('Reduced motion holds Work steady and skips the Replay animation', async () => {
+          check(!await phaseMoves(), 'The light phase advanced with reduced motion');
+          const samples = [];
+          for (let i = 0; i < 5; i++) {
+            samples.push(await t.page.evaluate(() => {
+              const snapshot = wallAssembly.snapshot();
+              return {playing: snapshot.playing, progress: snapshot.progress, reduced: snapshot.reducedMotion};
+            }));
+            await t.page.waitForTimeout(60);
+          }
+          same([...new Set(samples.map(sample => JSON.stringify(sample)))], [JSON.stringify({playing: false, progress: 1, reduced: true})], 'Replay with reduced motion');
+        });
+        await t.page.locator('#wallOptions > summary').click();
         await t.expect('the Light Panels keep their own mode', async () =>
           same(await t.page.evaluate(async () => (await (await fetch('/api/state?device=panels')).json()).mode), 'work', 'Panels mode'));
         await boundary.close();
@@ -364,17 +383,17 @@ export function captureSteps(options) {
     'control-stale-completion': {
       description: 'Negative control: a Stop for an earlier turn leaves task-0 working, which task-completes must reject',
       scenario: 'reference',
-      run: completion(options, {transition: 'defect-complete-stale-turn'}),
+      run: transition(options, {...COMPLETION, transition: 'defect-complete-stale-turn'}),
     },
     'control-unread-painted-working': {
       description: 'Negative control: a page that paints unread Lines in the working color, which task-completes must reject',
       scenario: 'reference',
-      run: completion(options, {transition: 'complete', pageDefect: UNREAD_PAINTED_WORKING}),
+      run: transition(options, {...COMPLETION, transition: 'complete', pageDefect: UNREAD_PAINTED_WORKING}),
     },
     'control-stale-red': {
       description: 'Negative control: an approval for another tool leaves task-1 red, which approval-clears-red must reject',
       scenario: 'reference',
-      run: approval(options, {transition: 'defect-approve-other-tool'}),
+      run: transition(options, {...APPROVAL, transition: 'defect-approve-other-tool'}),
     },
   };
 }

@@ -1,8 +1,10 @@
 // #193: the wall verification plug-in against real served runs, without the shared core's supervisor.
 //
 // Each capture step runs on its own freshly seeded run of the actual wall server, in a fresh
-// Chromium context that records video, as the core's capture harness will. Reference steps must
-// pass; each negative control must fail at its named assertion, never by crashing.
+// Chromium context that prefers reduced motion and records video, with the same step context,
+// timeouts and pass rule as the core's `capture`. Hosted CI has no systemd user manager, so this
+// mirror stands in for the core's supervisor; the lifecycle itself is exercised locally.
+// Reference steps must pass; each negative control must fail at its named assertion, never by crashing.
 import assert from 'node:assert/strict';
 import {execFile, spawn} from 'node:child_process';
 import {randomBytes} from 'node:crypto';
@@ -63,8 +65,9 @@ async function capture(browser, run, name) {
   await rm(directory, {recursive: true, force: true});
   await mkdir(directory, {recursive: true});
   const viewport = step.viewport ?? {width: 1280, height: 800};
-  const context = await browser.newContext({viewport, recordVideo: {dir: directory, size: viewport}});
+  const context = await browser.newContext({viewport, reducedMotion: 'reduce', recordVideo: {dir: directory, size: viewport}});
   const page = await context.newPage();
+  page.setDefaultTimeout(Math.min(step.timeoutMs ?? 30000, 15000));
   const log = [];
   let failure = null, crash = null;
   const t = {
@@ -82,10 +85,15 @@ async function capture(browser, run, name) {
     note: message => log.push({note: message}),
     screenshot: label => page.screenshot({path: join(directory, `${label}.png`), fullPage: true}),
   };
+  let timer;
   try {
-    await step.run(t);
+    await Promise.race([step.run(t), new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error('step timed out')), step.timeoutMs ?? 30000);
+    })]);
   } catch (error) {
     if (!(error instanceof StepEnded)) crash = error;
+  } finally {
+    clearTimeout(timer);
   }
   await page.screenshot({path: join(directory, 'after.png'), fullPage: true});
   const video = page.video();

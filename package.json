@@ -5,6 +5,7 @@
   "description": "Nanoleaf Lines task indicators and a local project wall map for Codex Desktop",
   "scripts": {
     "test:browser": "node scripts/test-browser.cjs",
+    "verify": "node scripts/verify.mjs",
     "test:verify": "node --test --test-concurrency=1 tests/verify_checks.mjs",
     "openspec": "node scripts/openspec.cjs",
     "check:workflow": "node scripts/check-workflow.cjs",
@@ -18,6 +19,7 @@
   },
   "devDependencies": {
     "@fission-ai/openspec": "1.12.0",
+    "@jimmie-potts/app-verify": "file:vendor/jimmie-potts-app-verify-1.0.0.tgz",
     "playwright": "1.63.0"
   }
 }

@@ -9,6 +9,7 @@ import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {promisify} from 'node:util';
+import {definePlugin} from '@jimmie-potts/app-verify';
 import {boundaryEntries, captureSteps} from './steps.mjs';
 
 const run = promisify(execFile);
@@ -82,7 +83,7 @@ export function createPlugin({root = fileURLToPath(new URL('../..', import.meta.
   const seed = async ({dataDir, scenario}) => {
     await run(python, [demo, 'seed', '--state-dir', dataDir, '--scenario', scenario], {cwd: root});
   };
-  return {
+  return definePlugin({
     app: 'wall',
     repository: 'jimmie-potts/codex-nanoleaf',
     command: 'npm run verify --',
@@ -112,7 +113,7 @@ export function createPlugin({root = fileURLToPath(new URL('../..', import.meta.
     ],
     checks: [{id: 'device-boundary', run: deviceBoundary}],
     captureSteps: captureSteps({root, python}),
-  };
+  });
 }
 
 export default createPlugin();
