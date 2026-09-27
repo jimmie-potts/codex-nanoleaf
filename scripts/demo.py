@@ -2,14 +2,18 @@
 
 Without a command, serve the reference scenario from a temporary directory. The verification
 adapter (#193) uses the commands: `seed` writes a named scenario into a run's empty state
-directory, `serve` runs the actual wall server over it, and `drive` applies a named task
-transition through the actual hook handler. Every entry point first installs a process guard
-that refuses and records any socket connection, new process or light request.
+directory and marks it with demo-run.json, `serve` runs the actual wall server over a marked
+directory, and `drive` applies a named task transition to one through the actual hook handler.
+Neither accepts an unmarked directory or the installation's own state directory. Before calling
+any bridge function, every entry point installs a process boundary that refuses and records
+outbound connections, new processes, foreign code loaded through ctypes, new subinterpreters and
+light requests. Importing the bridge modules first has no side effects.
 """
 import argparse
 import contextlib
 from datetime import datetime, timezone
 from http.server import ThreadingHTTPServer
+import importlib
 import json
 from pathlib import Path
 import secrets
@@ -33,6 +37,8 @@ import wall_server
 import project_map as wall
 
 BOUNDARY_LOG = 'device-boundary.jsonl'
+# Written by `seed`; `serve` and `drive` refuse a directory without it.
+MARKER = 'demo-run.json'
 PROJECTS = [{'id': 'a', 'name': 'Notification Service', 'color': '#ad8dff'},
             {'id': 'b', 'name': 'Daily Trader', 'color': '#39d8bb'},
             {'id': 'c', 'name': 'NBA GM', 'color': '#f4ad68'}]
@@ -72,6 +78,9 @@ TRANSITIONS = {
                                   'defect': True, 'events': [event('PostToolUse', 'task-1', tool='apply_patch')]},
     'defect-complete-stale-turn': {'description': 'Known-wrong completion: a Stop for an earlier turn is ignored, so task-0 stays working',
                                    'defect': True, 'events': [event('Stop', 'task-0', turn='0')]},
+    'defect-complete-contacts-device': {'description': 'Known-wrong completion: task-0 completes, but the worker stand-in also tries to send '
+                                                       'the effect to each device, which the boundary refuses and records',
+                                        'defect': True, 'events': [event('Stop', 'task-0')], 'contacts_device': True},
 }
 
 
@@ -79,9 +88,16 @@ class DeviceBoundaryError(ConnectionRefusedError):
     """A synthetic run refused to reach a light, a service or a new process."""
 
 
-# Audit events that would leave the process. The wall server only accepts connections.
+# Audit events that would leave the process. The wall server only accepts connections, starts no
+# process, loads no foreign code and creates no interpreter.
 REFUSED_EVENTS = frozenset({'socket.connect', 'socket.sendto', 'socket.sendmsg', 'subprocess.Popen', 'os.system',
-                            'os.exec', 'os.posix_spawn', 'os.spawn', 'os.fork', 'os.forkpty', 'pty.spawn'})
+                            'os.exec', 'os.posix_spawn', 'os.spawn', 'os.fork', 'os.forkpty', 'pty.spawn',
+                            'ctypes.dlopen', 'ctypes.dlsym', 'ctypes.call_function', 'cpython.PyInterpreterState_New'})
+# Standard-library launchers that raise no audit event: multiprocessing's spawn and forkserver start
+# children through fork_exec, and concurrent.interpreters through _interpreters.create. The boundary
+# replaces each with a recording refusal. These are the only attributes the demo ever replaces.
+UNAUDITED = (('_posixsubprocess', 'fork_exec', 'process'), ('_interpreters', 'create', 'subinterpreter'),
+             ('_xxsubinterpreters', 'create', 'subinterpreter'))
 
 
 def refused(error):
@@ -145,27 +161,63 @@ class Boundary:
             return
         if name.startswith('socket.'):
             address = args[1] if len(args) > 1 else None
-            target = f'{address[0]}:{address[1]}' if isinstance(address, tuple) and len(address) >= 2 else str(address)
-            kind = name
+            kind, target = name, f'{address[0]}:{address[1]}' if isinstance(address, tuple) and len(address) >= 2 else str(address)
+        elif name == 'ctypes.dlopen':
+            kind, target = name, Path(str(args[0])).name if args and args[0] else 'this process'
+        elif name == 'ctypes.dlsym':
+            kind, target = name, str(args[1]) if len(args) > 1 else 'symbol'
+        elif name == 'ctypes.call_function':
+            kind, target = name, 'foreign function'
+        elif name == 'cpython.PyInterpreterState_New':
+            kind, target = 'subinterpreter', name
         else:
             kind, target = 'process', program(name, args)
         self.record(kind, target)
         raise DeviceBoundaryError(f'The synthetic wall refused {kind} to {target}.')
+
+    def refusal(self, kind, name):
+        """A recording refusal that stands in for an unaudited launcher."""
+        def refuse(*args, **kwargs):
+            target = program('subprocess.Popen', (None, args[0])) if kind == 'process' and args else name
+            self.record(kind, target)
+            raise DeviceBoundaryError(f'The synthetic wall refused {kind} to {target}.')
+        return refuse
 
 
 def install_boundary(log):
     """Refuse device, service and process access for the rest of this process. It cannot be removed."""
     boundary = Boundary(log)
     sys.addaudithook(boundary.audit)
+    for module_name, attribute, kind in UNAUDITED:
+        try:
+            module = importlib.import_module(module_name)
+        except ImportError:
+            continue
+        setattr(module, attribute, boundary.refusal(kind, f'{module_name}.{attribute}'))
     return boundary
+
+
+def owned_state(directory):
+    """The resolved directory, when `seed` marked it and it is not the installation's own state."""
+    directory = Path(directory).resolve()
+    installed = configuration.data_dir().resolve()
+    if directory == installed or installed in directory.parents:
+        raise ValueError("Refusing the state directory: it is the installation's own state.")
+    if not (directory / MARKER).is_file():
+        raise ValueError(f'Refusing the state directory: it has no {MARKER} from demo.py seed.')
+    return directory
 
 
 def registered(directory):
     return configuration.registered_devices(directory)
 
 
-def worker_stand_in(directory, now=time.time, request=refuse_light_request):
-    """Stand in for the light workers: apply edits and allocation for every registered device, without any device."""
+def worker_stand_in(directory, now=time.time, request=refuse_light_request, contacts_device=False):
+    """Stand in for the light workers: apply edits and allocation for every registered device, without any device.
+
+    contacts_device makes a known-wrong stand-in that also tries to send an effect to each device,
+    as a worker would; the request fails and the stand-in carries on.
+    """
     targets = [configuration.load_config(directory, device, request=request) for device in registered(directory)]
 
     def update(directory):
@@ -177,6 +229,11 @@ def worker_stand_in(directory, now=time.time, request=refuse_light_request):
                 wall.apply_pending(db, device)
                 bridge.dashboard(db, target, now())
                 store.mark_applied(db, store.control_state(db, device)['revision'], device)
+        for target in targets if contacts_device else ():
+            try:
+                request(target, 'PUT', '/effects', {'write': {'command': 'display'}})
+            except OSError:
+                pass
     return update
 
 
@@ -185,6 +242,9 @@ def seed(directory, scenario='reference', now=time.time):
     directory = Path(directory)
     if scenario not in SCENARIOS:
         raise ValueError(f'Unknown scenario {scenario!r}. Choose one of: {", ".join(SCENARIOS)}.')
+    installed = configuration.data_dir().resolve()
+    if directory.resolve() == installed or installed in directory.resolve().parents:
+        raise ValueError("Refusing the state directory: it is the installation's own state.")
     if any(directory.iterdir()):
         raise ValueError('Seed an empty state directory. A run resets its state by emptying it first.')
     definition = SCENARIOS[scenario]
@@ -211,6 +271,7 @@ def seed(directory, scenario='reference', now=time.time):
         if tasks:
             db.executemany('INSERT INTO waits (session,turn,key,kind,tool) VALUES (?,?,?,?,?)', WAITS)
     worker_stand_in(directory, now)(directory)
+    jsonfile.write_json(directory / MARKER, {'scenario': scenario, 'seededBy': 'scripts/demo.py seed'})
 
 
 def prepare(directory, now=time.time):
@@ -223,7 +284,8 @@ def drive(directory, transition, now=time.time, request=refuse_light_request):
     """Apply a named transition's hook events through the actual hook handler, then the worker stand-in."""
     if transition not in TRANSITIONS:
         raise ValueError(f'Unknown transition {transition!r}. Choose one of: {", ".join(TRANSITIONS)}.')
-    update = worker_stand_in(directory, now, request)
+    directory = owned_state(directory)
+    update = worker_stand_in(directory, now, request, TRANSITIONS[transition].get('contacts_device', False))
     events = TRANSITIONS[transition]['events']
     for item in events:
         bridge.handle_event(directory, dict(item), launch=update, now=now)
@@ -235,10 +297,12 @@ def drive(directory, transition, now=time.time, request=refuse_light_request):
 
 def serve(directory, boundary, port=0, now=time.time):
     """Serve a seeded state directory on 127.0.0.1 until SIGTERM, starting as the installed map does."""
+    directory = owned_state(directory)
     config = configuration.load_config(directory, request=boundary.light_request)
     wall_server.ensure_geometry(directory, config, request=boundary.light_request)
     app = wall_server.App(directory, config, launch=worker_stand_in(directory, now, boundary.light_request),
                           request=boundary.light_request)
+    app.geometry_attempts = 1  # As wall_server.serve: startup used the first of the map's bounded layout reads.
     instance = secrets.token_hex(16)
     server = ThreadingHTTPServer(('127.0.0.1', port), wall_server.handler(app, secrets.token_hex(32), instance))
     server.app = app
@@ -283,6 +347,11 @@ def main(argv=None):
             serve(directory, boundary, args.port)
         return
     directory = args.state_dir.resolve()
+    if args.command in ('serve', 'drive'):
+        try:
+            owned_state(directory)
+        except ValueError as error:
+            parser.error(str(error))
     boundary = install_boundary(directory / BOUNDARY_LOG)
     if args.command == 'seed':
         seed(directory, args.scenario)

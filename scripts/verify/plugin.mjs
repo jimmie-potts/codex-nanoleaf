@@ -10,7 +10,7 @@ import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {promisify} from 'node:util';
 import {definePlugin} from '@jimmie-potts/app-verify';
-import {boundaryEntries, captureSteps} from './steps.mjs';
+import {boundaryEntries, captureSteps, isLayoutRead} from './steps.mjs';
 
 const run = promisify(execFile);
 /** Ports of the installed services; a run never answers on one. */
@@ -63,16 +63,16 @@ export async function probe({url, port, dataDir, signal}) {
 }
 
 /**
- * The boundary check, at start and in `doctor`: every recorded attempt was refused, and only the
- * layout-unavailable scenario makes one. The log starts empty at each seed.
+ * The boundary check, at start and in `doctor`. The log starts empty at each seed and holds only
+ * refusals, because the boundary records an attempt as it refuses it. A run records no attempt,
+ * except that layout-unavailable must record the map's layout read of the Lines, and only that.
  */
 export async function deviceBoundary({dataDir, scenario}) {
   const entries = await boundaryEntries(dataDir);
-  if (entries.some(entry => entry.outcome !== 'refused')) return {outcome: 'failed', reason: 'a device attempt was not refused'};
   if (scenario === 'layout-unavailable') {
-    return entries.some(entry => entry.kind === 'light-request')
-      ? {outcome: 'passed'}
-      : {outcome: 'failed', reason: 'the startup layout read was not attempted and refused'};
+    const other = entries.filter(entry => !isLayoutRead(entry));
+    if (other.length) return {outcome: 'failed', reason: `${other.length} device attempt(s) other than the map's layout read recorded since the last seed`};
+    return entries.length ? {outcome: 'passed'} : {outcome: 'failed', reason: 'the startup layout read was not attempted and refused'};
   }
   return entries.length ? {outcome: 'failed', reason: `${entries.length} device attempt(s) recorded since the last seed`} : {outcome: 'passed'};
 }
@@ -88,6 +88,8 @@ export function failureCause(stderrTail) {
   if (/^FileNotFoundError: \[Errno 2\] No such file or directory: '[^']*\/config\.json'$/.test(last)) return 'wall-start-failed: the state directory is not seeded (config.json missing)';
   const module = /^ModuleNotFoundError: No module named '([A-Za-z0-9_.]{1,60})'$/.exec(last);
   if (module) return `wall-start-failed: Python module ${module[1]} is missing`;
+  if (/^demo\.py: error: Refusing the state directory: it is the installation's own state\.$/.test(last)) return 'wall-start-failed: refused the installation state directory';
+  if (/^demo\.py: error: Refusing the state directory: it has no demo-run\.json from demo\.py seed\.$/.test(last)) return 'wall-start-failed: the state directory was not seeded by demo.py';
   if (/^demo\.py(?: [a-z]+)?: error: /.test(last)) return 'wall-start-failed: demo.py rejected its arguments';
   const type = /^([A-Za-z_][A-Za-z0-9_.]{0,80}(?:Error|Exception|Exit|Interrupt))(?::|$)/.exec(last);
   return type ? `wall-start-failed: ${type[1]}` : undefined;

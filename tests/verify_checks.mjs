@@ -16,7 +16,7 @@ import readline from 'node:readline';
 import {describe, test} from 'node:test';
 import {promisify} from 'node:util';
 import {runCaptureStep} from '@jimmie-potts/app-verify';
-import plugin, {failureCause, readyLine} from '../scripts/verify/plugin.mjs';
+import plugin, {deviceBoundary, failureCause, readyLine} from '../scripts/verify/plugin.mjs';
 import {NEGATIVE_CONTROLS, strict, strictSteps} from '../scripts/verify/steps.mjs';
 
 const results = join(plugin.root, 'test-results/verify');
@@ -94,6 +94,8 @@ describe('plug-in surface', () => {
         'wall-start-failed: the state directory is not seeded (config.json missing)'],
       [traceback("ModuleNotFoundError: No module named 'wall_server'"), 'wall-start-failed: Python module wall_server is missing'],
       ['usage: demo.py [-h] [--port PORT]\ndemo.py: error: unrecognized arguments: --bogus\n', 'wall-start-failed: demo.py rejected its arguments'],
+      ["usage: demo.py [-h]\ndemo.py: error: Refusing the state directory: it is the installation's own state.\n", 'wall-start-failed: refused the installation state directory'],
+      ['usage: demo.py [-h]\ndemo.py: error: Refusing the state directory: it has no demo-run.json from demo.py seed.\n', 'wall-start-failed: the state directory was not seeded by demo.py'],
       [traceback("ValueError: The token must contain only letters and numbers: FakeDemoToken"), 'wall-start-failed: ValueError'],
       [traceback("FileNotFoundError: [Errno 2] No such file or directory: '/home/u/secret-name.json'"), 'wall-start-failed: FileNotFoundError'],
       [traceback('KeyboardInterrupt'), 'wall-start-failed: KeyboardInterrupt'],
@@ -104,6 +106,31 @@ describe('plug-in surface', () => {
       const cause = failureCause(tail);
       assert.equal(cause, expected, tail);
       if (cause) assert.ok(cause.length <= 200 && /^[\x20-\x7e]+$/.test(cause), cause);
+    }
+  });
+
+  test("the boundary check allows only the map's layout read, and only in layout-unavailable", async () => {
+    const layoutRead = {kind: 'light-request', target: '192.0.2.1', method: 'GET', endpoint: '', outcome: 'refused'};
+    const cases = [
+      ['reference', [], {outcome: 'passed'}],
+      ['reference', [layoutRead], {outcome: 'failed', reason: '1 device attempt(s) recorded since the last seed'}],
+      ['layout-unavailable', [layoutRead, layoutRead], {outcome: 'passed'}],
+      ['layout-unavailable', [], {outcome: 'failed', reason: 'the startup layout read was not attempted and refused'}],
+      ['layout-unavailable', [layoutRead, {kind: 'process', target: 'python3', outcome: 'refused'}],
+        {outcome: 'failed', reason: "1 device attempt(s) other than the map's layout read recorded since the last seed"}],
+      ['layout-unavailable', [{...layoutRead, method: 'PUT', endpoint: '/effects'}],
+        {outcome: 'failed', reason: "1 device attempt(s) other than the map's layout read recorded since the last seed"}],
+      ['layout-unavailable', [{...layoutRead, target: '192.0.2.2'}],
+        {outcome: 'failed', reason: "1 device attempt(s) other than the map's layout read recorded since the last seed"}],
+    ];
+    for (const [scenario, entries, expected] of cases) {
+      const dataDir = await mkdtemp(join(tmpdir(), 'wall-boundary-'));
+      try {
+        if (entries.length) await writeFile(join(dataDir, 'device-boundary.jsonl'), entries.map(entry => JSON.stringify(entry)).join('\n') + '\n');
+        assert.deepEqual(await deviceBoundary({dataDir, scenario}), expected, JSON.stringify([scenario, entries]));
+      } finally {
+        await rm(dataDir, {recursive: true, force: true});
+      }
     }
   });
 
@@ -190,6 +217,26 @@ describe('served runs', () => {
   });
 });
 
+describe("the map's own layout retry", () => {
+  test('device-read-refused passes when the map retries its layout read during the step', async () => {
+    const run = await startRun('layout-unavailable');
+    const outputDir = join(results, 'device-read-refused-after-retry');
+    await rm(outputDir, {recursive: true, force: true});
+    try {
+      // The map retries its layout read on the first poll at least 10 s after it started.
+      await new Promise(resolve => setTimeout(resolve, 10500));
+      const {runId, runtimeDir, dataDir, url, scenario} = run.context;
+      const result = await runCaptureStep(plugin, 'device-read-refused', {url, outputDir, scenario, dataDir, runtimeDir, runId});
+      assert.equal(result.outcome, 'passed', JSON.stringify(result, null, 2));
+      const record = JSON.parse(await readFile(result.attachments.find(path => path.endsWith('/device-boundary.json')), 'utf8'));
+      assert.ok(record.duringStep.length >= 1, 'the retry happened during the step');
+      assert.ok(record.duringStep.every(entry => entry.kind === 'light-request' && entry.method === 'GET' && entry.target === '192.0.2.1'));
+    } finally {
+      await run.stop();
+    }
+  });
+});
+
 describe('capture steps through the core driver', () => {
   for (const [name, step] of Object.entries(plugin.captureSteps)) {
     const control = NEGATIVE_CONTROLS[name];
@@ -201,16 +248,21 @@ describe('capture steps through the core driver', () => {
         const {runId, runtimeDir, dataDir, url, scenario} = run.context;
         const result = await runCaptureStep(plugin, name, {url, outputDir, scenario, dataDir, runtimeDir, runId});
         const failed = result.assertions.filter(assertion => assertion.outcome === 'failed').map(assertion => assertion.name);
+        const record = result.attachments.find(path => path.endsWith('/device-boundary.json'));
+        assert.ok(record, 'the boundary record is attached, also to a failed capture');
+        const during = JSON.parse(await readFile(record, 'utf8')).duringStep;
         if (control) {
+          if (name === 'control-device-attempt') {
+            assert.deepEqual(during.map(entry => [entry.kind, entry.method, entry.endpoint, entry.target]).sort(),
+              [['light-request', 'PUT', '/effects', '192.0.2.1'], ['light-request', 'PUT', '/effects', '192.0.2.2']]);
+          }
           assert.equal(result.outcome, 'failed');
           assert.deepEqual(failed, [control], JSON.stringify(result, null, 2));
           assert.ok(result.reason.startsWith(`assertion failed: ${control}`), result.reason);
         } else {
           assert.equal(result.outcome, 'passed', JSON.stringify(result, null, 2));
           assert.ok(result.screenshot && result.video, 'a screenshot and a finalized video exist');
-          const record = result.attachments.find(path => path.endsWith('/device-boundary.json'));
-          assert.ok(record, 'the boundary record is attached');
-          assert.deepEqual(JSON.parse(await readFile(record, 'utf8')).duringStep, []);
+          assert.deepEqual(during.filter(entry => !(name === 'device-read-refused' && entry.kind === 'light-request' && entry.method === 'GET')), []);
         }
       } finally {
         await run.stop();

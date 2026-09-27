@@ -3,8 +3,9 @@
 // Each step drives the real wall page of one run and records every expected observation with
 // `t.expect`. Observations come from what the page painted and listed, not from screenshots.
 // Transitions are applied through the actual hook handler (`scripts/demo.py drive`). Every step
-// also asserts that the run recorded no device attempt and that the page contacted only its own
-// origin. Every step asserts absolute observations, so each is `fresh`: the core reseeds its
+// also asserts that the page contacted only its own origin and that the run recorded no device
+// attempt during the step (device-read-refused accepts only the map's own layout reads), and its
+// capture carries that boundary record even when an earlier assertion failed. Every step asserts absolute observations, so each is `fresh`: the core reseeds its
 // scenario and relaunches the wall on the same port before the step runs.
 //
 // Steps named `control-*` are negative controls: a known-wrong transition or presentation that the
@@ -116,11 +117,14 @@ async function drive(t, options, transition) {
   t.note(`drove ${transition}: ${stdout.trim()}`);
 }
 
+/** The map's own bounded layout read of the Lines: the only device attempt a run can expect. */
+export const isLayoutRead = entry => entry.kind === 'light-request' && entry.method === 'GET' && entry.target === '192.0.2.1';
+
 /**
- * Record what leaves the page and the run for the whole step; `close` asserts that nothing did.
- * Call before the first navigation.
+ * Record what leaves the page and the run during a step. `close` asserts that nothing did, apart
+ * from attempts that `tolerate` accepts; `attach` writes the step's boundary record into its capture.
  */
-async function watchBoundary(t) {
+async function watchBoundary(t, tolerate) {
   const origin = new URL(t.url).origin;
   const foreign = [];
   t.page.on('request', request => {
@@ -128,18 +132,41 @@ async function watchBoundary(t) {
     if (target.origin !== origin && !['data:', 'blob:'].includes(target.protocol)) foreign.push(target.origin);
   });
   const before = (await boundaryEntries(t.dataDir)).length;
+  const during = async () => (await boundaryEntries(t.dataDir)).slice(before);
+  const describe = entry => [entry.kind, entry.method, entry.target].filter(Boolean).join(' ');
   return {
     async close() {
       // End visually settled, so the core's after.png shows the final state rather than a CSS transition.
       await t.page.waitForFunction(() => document.getAnimations().every(item => !(item instanceof CSSTransition) || item.playState !== 'running'),
         null, {timeout: 3000}).catch(() => t.note('CSS transitions were still running at the end of the step'));
       await t.expect('the page contacted only its own run', () => same([...new Set(foreign)], [], 'Requests left the run origin'));
-      const entries = (await boundaryEntries(t.dataDir)).slice(before);
-      // The step's boundary record goes into the proof beside its screenshot and video.
-      await t.attach('device-boundary.json', `${JSON.stringify({recordedBeforeStep: before, duringStep: entries}, null, 2)}\n`);
-      await t.expect('no device attempt was recorded during the step', () =>
-        same(entries.map(entry => `${entry.kind} ${entry.target} ${entry.outcome}`), [], 'Device attempts during the step'));
+      const entries = await during();
+      if (tolerate) {
+        await t.expect("the only device attempts during the step are the map's layout reads", () =>
+          same(entries.filter(entry => !tolerate(entry)).map(describe), [], 'Other device attempts during the step'));
+      } else {
+        await t.expect('no device attempt was recorded during the step', () => same(entries.map(describe), [], 'Device attempts during the step'));
+      }
     },
+    async attach() {
+      await t.attach('device-boundary.json', `${JSON.stringify({recordedBeforeStep: before, duringStep: await during()}, null, 2)}\n`);
+    },
+  };
+}
+
+/**
+ * A step between the boundary watch and its closing assertions. The step's boundary record goes
+ * into its capture even when an earlier assertion failed.
+ */
+function bounded(run, tolerate) {
+  return async t => {
+    const boundary = await watchBoundary(t, tolerate);
+    try {
+      await run(t);
+      await boundary.close();
+    } finally {
+      await boundary.attach().catch(error => t.note(`the boundary record was not attached: ${error.message}`));
+    }
   };
 }
 
@@ -169,8 +196,7 @@ const UNREAD_PAINTED_WORKING = [
  * repainted in the new status color, no other Line changes and the alerts read `alerts` afterwards.
  */
 function transition(options, {transition: name, task, from, to, alerts: expected, alertsName, pageDefect, screenshot}) {
-  return async t => {
-    const boundary = await watchBoundary(t);
+  return bounded(async t => {
     const confirmDefect = pageDefect ? await injectPageDefect(t, ...pageDefect) : null;
     await openWall(t);
     if (confirmDefect) await confirmDefect();
@@ -192,8 +218,7 @@ function transition(options, {transition: name, task, from, to, alerts: expected
     });
     await t.expect(alertsName, async () => same(await alerts(t.page), expected, 'Alerts'));
     if (screenshot) await t.screenshot(screenshot);
-    await boundary.close();
-  };
+  });
 }
 
 const COMPLETION = {task: 'task-0', from: 'working', to: 'unread', alerts: ['1 blocked', '1 question'],
@@ -217,8 +242,7 @@ function definitions(options) {
       description: 'The Lines wall draws 15 Lines and lists the five reference tasks, their alerts and both devices',
       scenario: 'reference',
       fresh: true,
-      run: async t => {
-        const boundary = await watchBoundary(t);
+      run: bounded(async t => {
         await openWall(t);
         await t.expect('the wall draws 15 Lines', async () => same(await t.page.locator('.wall-line').count(), 15, 'Lines'));
         await t.expect('the task list shows each reference task with its status', async () => {
@@ -235,8 +259,7 @@ function definitions(options) {
             if (task.line) same(paint[task.line], [colors[task.listed], colors[task.listed]], `${id} Line`);
           }
         });
-        await boundary.close();
-      },
+      }),
     },
     'task-completes': {
       description: 'task-0 finishes its turn through the hook handler; its Line turns unread and keeps its place',
@@ -268,8 +291,7 @@ function definitions(options) {
       description: 'Switch to Project layout and reserve two free Lines for Notification Service from the page',
       scenario: 'reference',
       fresh: true,
-      run: async t => {
-        const boundary = await watchBoundary(t);
+      run: bounded(async t => {
         await openWall(t);
         const free = await t.page.evaluate(() => state.lines.filter(line => !line.task).slice(0, 2).map(line => line.id));
         await t.expect('two Lines are free to reserve', () => same(free.length, 2, 'Free Lines'));
@@ -295,15 +317,13 @@ function definitions(options) {
           const paint = await painted(t.page);
           for (const line of seen.lines.filter(item => free.includes(item.id))) same(paint[line.id][line.signature], '#ad8dff', `${line.id} project half`);
         });
-        await boundary.close();
-      },
+      }),
     },
     'lighting-modes': {
       description: 'Work animates the active Lines, Quiet holds them steady, Free releases them, Replay reassembles the wall, and reduced motion holds it still',
       scenario: 'reference',
       fresh: true,
-      run: async t => {
-        const boundary = await watchBoundary(t);
+      run: bounded(async t => {
         // The capture context prefers reduced motion; this step checks the animation itself, so it opts out first.
         await t.page.emulateMedia({reducedMotion: 'no-preference'});
         await openWall(t);
@@ -359,15 +379,13 @@ function definitions(options) {
         await t.page.locator('#wallOptions > summary').click();
         await t.expect('the Light Panels keep their own mode', async () =>
           same(await t.page.evaluate(async () => (await (await fetch('/api/state?device=panels')).json()).mode), 'work', 'Panels mode'));
-        await boundary.close();
-      },
+      }),
     },
     'panels-view': {
       description: 'Choose Light Panels: tasks sit on triangles in their status colors, and Quiet there leaves the Lines in Work',
       scenario: 'reference',
       fresh: true,
-      run: async t => {
-        const boundary = await watchBoundary(t);
+      run: bounded(async t => {
         await openWall(t);
         await t.page.locator('#device').selectOption('panels');
         await t.page.waitForFunction(() => state.kind === 'panels' && document.querySelectorAll('.wall-triangle').length > 0, null, {timeout: 5000});
@@ -396,15 +414,13 @@ function definitions(options) {
           same(await t.page.evaluate(() => state.mode), 'quiet', 'Panels mode');
           same(await t.page.evaluate(async () => (await (await fetch('/api/state')).json()).mode), 'work', 'Lines mode');
         });
-        await boundary.close();
-      },
+      }),
     },
     'device-read-refused': {
       description: 'With no saved drawing geometry the map asks the Lines for their layout; the boundary refuses and records it',
       scenario: 'layout-unavailable',
       fresh: true,
-      run: async t => {
-        const boundary = await watchBoundary(t);
+      run: bounded(async t => {
         await t.page.goto(t.url);
         await t.page.waitForFunction(() => typeof state !== 'undefined' && state !== null, null, {timeout: 10000});
         await t.expect('the map reports the unavailable layout', async () =>
@@ -414,8 +430,7 @@ function definitions(options) {
           same(entries.map(entry => [entry.kind, entry.method, entry.target, entry.outcome]).slice(0, 1),
             [['light-request', 'GET', '192.0.2.1', 'refused']], 'First boundary entry');
         });
-        await boundary.close();
-      },
+      }, isLayoutRead),
     },
     'control-stale-completion': {
       description: 'Negative control: a Stop for an earlier turn leaves task-0 working, which task-completes must reject',
@@ -428,6 +443,12 @@ function definitions(options) {
       scenario: 'reference',
       fresh: true,
       run: transition(options, {...COMPLETION, transition: 'complete', pageDefect: UNREAD_PAINTED_WORKING}),
+    },
+    'control-device-attempt': {
+      description: 'Negative control: a completion whose worker stand-in also tries to send the effect to each device, which task-completes must reject',
+      scenario: 'reference',
+      fresh: true,
+      run: transition(options, {...COMPLETION, transition: 'defect-complete-contacts-device'}),
     },
     'control-stale-red': {
       description: 'Negative control: an approval for another tool leaves task-1 red, which approval-clears-red must reject',
@@ -443,4 +464,5 @@ export const NEGATIVE_CONTROLS = {
   'control-stale-completion': 'task-0 reads unread in the task list',
   'control-unread-painted-working': "task-0's Line is painted in the unread color",
   'control-stale-red': 'task-1 reads working in the task list',
+  'control-device-attempt': 'no device attempt was recorded during the step',
 };

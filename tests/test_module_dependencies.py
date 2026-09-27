@@ -99,7 +99,17 @@ class ModuleDependencyTest(unittest.TestCase):
         rebound = [ast.unparse(target) for node in ast.walk(demo) if isinstance(node, ast.Assign) for target in node.targets
                    if isinstance(target, ast.Attribute) and isinstance(target.value, ast.Name) and target.value.id in modules]
         self.assertEqual(rebound, [], 'the demo must not rebind module attributes')
-        pattern = re.compile(r"patch\.object\(b,\s*'(light_request|launch_worker|connect_state|load_config)'|\bb\.(light_request|launch_worker|subprocess\.Popen)\s*=")
+        # The one exception: the process boundary replaces the standard library's unaudited launchers with
+        # recording refusals. It may do so only inside install_boundary, and never for a bridge module.
+        calls = [(function.name, ast.unparse(node)) for function in ast.walk(demo) if isinstance(function, ast.FunctionDef)
+                 for node in ast.walk(function) if isinstance(node, ast.Call) and ast.unparse(node.func) == 'setattr']
+        self.assertEqual([name for name, _ in calls], ['install_boundary'], calls)
+        unaudited = next(ast.literal_eval(node.value) for node in demo.body if isinstance(node, ast.Assign)
+                         and [ast.unparse(target) for target in node.targets] == ['UNAUDITED'])
+        self.assertEqual(unaudited, (('_posixsubprocess', 'fork_exec', 'process'), ('_interpreters', 'create', 'subinterpreter'),
+                                     ('_xxsubinterpreters', 'create', 'subinterpreter')))
+        self.assertFalse({name for name, _, _ in unaudited} & {path.stem for path in SOURCE.glob('*.py')})
+        pattern =re.compile(r"patch\.object\(b,\s*'(light_request|launch_worker|connect_state|load_config)'|\bb\.(light_request|launch_worker|subprocess\.Popen)\s*=")
         for path in sorted((ROOT / 'tests').glob('*.py')):
             with self.subTest(test=path.name):
                 self.assertIsNone(pattern.search(path.read_text(encoding='utf-8')))

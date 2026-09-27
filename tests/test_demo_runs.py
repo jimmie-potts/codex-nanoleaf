@@ -107,6 +107,11 @@ class ScenarioTest(Directories):
             demo.seed(directory, 'reference', now=lambda: NOW)
         self.assertEqual(dump(first), dump(second))
 
+    def test_seed_marks_the_directory_it_created(self):
+        directory = self.directory()
+        demo.seed(directory, 'empty', now=lambda: NOW)
+        self.assertEqual(json.loads((directory / demo.MARKER).read_text()), {'scenario': 'empty', 'seededBy': 'scripts/demo.py seed'})
+
     def test_seed_refuses_an_unknown_scenario_or_an_existing_state(self):
         directory = self.directory()
         with self.assertRaises(ValueError):
@@ -117,6 +122,58 @@ class ScenarioTest(Directories):
         with self.assertRaises(ValueError):
             demo.seed(directory, 'empty', now=lambda: NOW)
         self.assertEqual(dump(directory), before)
+
+
+def command(*arguments, env=None):
+    return subprocess.run([sys.executable, str(DEMO), *arguments], capture_output=True, text=True, timeout=30,
+                          env=dict(os.environ, PYTHONDONTWRITEBYTECODE='1', **(env or {})), cwd=ROOT)
+
+
+class StateOwnershipTest(Directories):
+    """serve and drive run only over a directory that seed marked, never over the installation's state."""
+
+    def test_serve_and_drive_refuse_a_directory_seed_did_not_mark(self):
+        directory = self.directory()
+        demo.seed(directory, 'reference', now=lambda: NOW)
+        (directory / demo.MARKER).unlink()
+        before = dump(directory)
+        for arguments in (['serve', '--state-dir', str(directory), '--port', '0'], ['drive', '--state-dir', str(directory), 'complete']):
+            with self.subTest(command=arguments[0]):
+                result = command(*arguments)
+                self.assertEqual(result.returncode, 2, result.stdout)
+                self.assertIn('Refusing the state directory: it has no demo-run.json from demo.py seed.', result.stderr)
+        with self.assertRaisesRegex(ValueError, 'no demo-run.json'):
+            demo.drive(directory, 'complete')
+        self.assertEqual(dump(directory), before)
+        self.assertFalse((directory / 'map-server.json').exists())
+        self.assertFalse((directory / demo.BOUNDARY_LOG).exists())
+
+    def test_every_command_refuses_the_installation_state_directory(self):
+        # A private HOME stands in for the user's; the real installation is never read or written.
+        home = self.directory()
+        probe = subprocess.run([sys.executable, '-c', 'import sys; sys.path.insert(0, "bridge"); import configuration; print(configuration.data_dir().resolve())'],
+                               capture_output=True, text=True, cwd=ROOT, env=dict(os.environ, HOME=str(home)))
+        installed = Path(probe.stdout.strip())
+        if home not in installed.parents:
+            self.skipTest(f'this checkout has its own bridge/config.json, so the installation directory is not under HOME')
+        seeded = self.directory()
+        demo.seed(seeded, 'reference', now=lambda: NOW)
+        installed.mkdir(parents=True)
+        for path in seeded.iterdir():
+            (installed / path.name).write_bytes(path.read_bytes())
+        before = dump(installed)
+        nested = installed / 'nested'
+        for arguments in (['serve', '--state-dir', str(installed), '--port', '0'], ['drive', '--state-dir', str(installed), 'complete'],
+                          ['seed', '--state-dir', str(nested)]):
+            with self.subTest(command=arguments[0]):
+                if arguments[0] == 'seed':
+                    nested.mkdir()
+                result = command(*arguments, env={'HOME': str(home)})
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn("Refusing the state directory: it is the installation's own state.", result.stderr)
+        self.assertEqual(dump(installed), before, 'the installation state is unchanged')
+        self.assertEqual(sorted(path.name for path in installed.iterdir()), sorted([path.name for path in seeded.iterdir()] + ['nested']))
+        self.assertEqual(list(nested.iterdir()), [])
 
 
 class DriveTest(Directories):
@@ -152,6 +209,16 @@ class DriveTest(Directories):
         demo.drive(self.run, 'defect-approve-other-tool', now=lambda: NOW + 5)
         demo.drive(self.run, 'defect-complete-stale-turn', now=lambda: NOW + 6)
         self.assertEqual((self.status('task-1'), self.status('task-0')), ('blocked', 'working'))
+
+    def test_a_stand_in_that_contacts_the_device_still_completes_but_attempts_each_device(self):
+        attempts = []
+
+        def record(config, method, endpoint='', payload=None):
+            attempts.append((config['ip'], method, endpoint))
+            raise demo.DeviceBoundaryError('refused')
+        demo.drive(self.run, 'defect-complete-contacts-device', now=lambda: NOW + 5, request=record)
+        self.assertEqual(self.status('task-0'), 'unread')
+        self.assertEqual(sorted(attempts), [('192.0.2.1', 'PUT', '/effects'), ('192.0.2.2', 'PUT', '/effects')])
 
     def test_every_transition_is_described_and_an_unknown_one_is_refused(self):
         for name, transition in demo.TRANSITIONS.items():
@@ -194,13 +261,14 @@ class Listener:
 class BoundaryTest(Directories):
     """The process guard refuses every device path, including ones that bypass the request seam."""
 
-    def attempt(self, directory, script, guarded=True):
+    def attempt(self, directory, script, guarded=True, before=''):
         source = textwrap.dedent(f'''
             import importlib.util, json, socket, sys
             from pathlib import Path
             spec = importlib.util.spec_from_file_location('demo', {str(DEMO)!r})
             demo = importlib.util.module_from_spec(spec); spec.loader.exec_module(demo)
             directory = Path({str(directory)!r})
+        ''') + textwrap.dedent(before) + textwrap.dedent(f'''
             boundary = demo.install_boundary(directory / demo.BOUNDARY_LOG) if {guarded!r} else None
             results = {{}}
             def attempt(name, action):
@@ -255,6 +323,64 @@ class BoundaryTest(Directories):
         ''')
         self.assertEqual(results, {'geometry': False})
         self.assertEqual([(entry['kind'], entry['target']) for entry in entries], [('socket.connect', '192.0.2.1:16021')])
+
+    # Paths that raise no socket or process audit event: a spawned child, foreign code through ctypes
+    # (loaded before the guard, and loaded after it) and, where Python has them, subinterpreters.
+    PRE_GUARD = '''
+        import ctypes, multiprocessing, struct
+        libc = ctypes.CDLL(None)
+        foreign_connect = libc.connect
+    '''
+
+    def unaudited_attempts(self, port):
+        return f'''
+            def sockaddr():
+                return struct.pack('=H', socket.AF_INET) + struct.pack('!H', {port}) + socket.inet_aton('127.0.0.1') + bytes(8)
+            def through(connect):
+                sock = socket.socket()
+                try:
+                    if connect(sock.fileno(), sockaddr(), 16) != 0: raise OSError('connect failed')
+                finally:
+                    sock.close()
+            def spawned():
+                child = multiprocessing.get_context('spawn').Process(target=socket.create_connection, args=(('127.0.0.1', {port}), 5))
+                child.start(); child.join(20)
+                if child.exitcode != 0: raise OSError(f'child exited {{child.exitcode}}')
+            def interpreter():
+                from concurrent import interpreters
+                created = interpreters.create()
+                try:
+                    created.exec("import socket; socket.create_connection(('127.0.0.1', {port}), 5).close()")
+                finally:
+                    created.close()
+            attempt('ctypes-call', lambda: through(foreign_connect))
+            attempt('ctypes-load', lambda: through(ctypes.CDLL(None).connect))
+            attempt('spawn', spawned)
+            if importlib.util.find_spec('concurrent.interpreters'): attempt('subinterpreter', interpreter)
+        '''
+
+    def test_guard_refuses_spawn_foreign_code_and_subinterpreters(self):
+        directory = self.directory()
+        listener = Listener()
+        self.addCleanup(listener.close)
+        results, entries = self.attempt(directory, self.unaudited_attempts(listener.port), before=self.PRE_GUARD)
+        expected = {'ctypes-call': 'DeviceBoundaryError/refused', 'ctypes-load': 'DeviceBoundaryError/refused', 'spawn': 'DeviceBoundaryError/refused'}
+        kinds = [('ctypes.call_function', 'foreign function'), ('ctypes.dlopen', 'this process'), ('process', Path(sys.executable).name)]
+        if importlib.util.find_spec('concurrent.interpreters'):
+            expected['subinterpreter'] = 'DeviceBoundaryError/refused'
+            kinds.append(('subinterpreter', '_interpreters.create'))
+        self.assertEqual(results, expected)
+        self.assertEqual([(entry['kind'], entry['target']) for entry in entries], kinds)
+        self.assertEqual(listener.accepted(), 0, 'nothing reached the stand-in service')
+
+    def test_control_unguarded_spawn_foreign_code_and_subinterpreters_do_reach_the_listener(self):
+        directory = self.directory()
+        listener = Listener()
+        self.addCleanup(listener.close)
+        results, entries = self.attempt(directory, self.unaudited_attempts(listener.port), guarded=False, before=self.PRE_GUARD)
+        self.assertEqual(set(results.values()), {'completed'}, results)
+        self.assertEqual(entries, [])
+        self.assertEqual(sum(listener.accepted() for _ in range(len(results) + 1)), len(results))
 
     def test_the_request_trap_records_the_attempt_without_its_credential(self):
         directory = self.directory()

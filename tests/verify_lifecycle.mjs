@@ -182,7 +182,7 @@ test('a wall that exits before it is ready fails the start and leaves no unit, t
   const start = await cli(['start', '--lease', '10'], {entry});
   assert.equal(start.code, 1);
   assert.deepEqual([start.result.state, start.result.cause, start.result.cleanup.result], ['failed', 'unit-exited', 'clean']);
-  assert.match(start.result.detail, /; app: wall-start-failed: the state directory is not seeded \(config\.json missing\)$/);
+  assert.match(start.result.detail, /; app: wall-start-failed: the state directory was not seeded by demo\.py$/);
   assert.deepEqual(start.result.cleanup.items.map(item => [item.kind, item.outcome]), [['lease-timer', 'removed'], ['unit', 'absent'], ['runtime-dir', 'removed']]);
   const row = await doctor(start.result.runId);
   assert.deepEqual([row.state, row.failure.cause, row.unit, row.leaseTimers, row.runtimeDir], ['failed', 'unit-exited', null, [], 'missing']);
@@ -214,21 +214,37 @@ test('a start killed after seeding is listed by doctor, and stop removes what ex
   started.delete(runId);
 });
 
-test('an expired lease stops the wall, reads as expired and keeps the frozen proof', {skip}, async () => {
+test('an expired run keeps its frozen proof and restarts as a new run that names it', {skip}, async () => {
   const start = await cli(['start', '--lease', '0.1']);
   assert.equal(start.code, 0, start.stderr);
   const {runId} = start.result;
+  assert.equal((await cli(['capture', runId, 'wall-ready'])).code, 0);
   assert.equal((await cli(['handoff', runId])).code, 0);
+  const manifest = join(base, 'proof', runId, 'verified/SHA256SUMS');
+  const digest = async () => createHash('sha256').update(await readFile(manifest)).digest('hex');
+  const frozen = await digest();
   const unit = `app-verify-${runId}.service`;
   for (let waited = 0; unitLoaded(unit) && waited < 30000; waited += 250) await new Promise(resolve => setTimeout(resolve, 250));
   assert.equal(unitLoaded(unit), false, 'the lease timer stopped the unit');
   let row = await doctor(runId);
   assert.deepEqual([row.state, row.reasons, row.proof.sums], ['expired', ['lease-expired', 'runtime-dir-awaits-stop'], 'ok']);
+  const refused = await cli(['handoff', runId]);
+  assert.deepEqual([refused.code, refused.result.error], [1, 'run-not-running'], 'an expired run cannot hand off again');
   const stop = await cli(['stop', runId]);
   assert.deepEqual([stop.code, stop.result.state, stop.result.cleanup.result], [0, 'expired', 'clean']);
   row = await doctor(runId);
   assert.deepEqual([row.state, row.runtimeDir, row.proof.sums], ['expired', 'missing', 'ok']);
+  // A new preview from the expired run: restart names it, and its frozen proof stays as it was.
+  const restart = await cli(['restart', runId]);
+  assert.equal(restart.code, 0, restart.stderr);
+  const dirty = execFileSync('git', ['-C', plugin.root, 'status', '--porcelain', '--untracked-files=no'], {encoding: 'utf8'}).trim() !== '';
+  assert.deepEqual([restart.result.restarts, restart.result.continuity], [runId, dirty ? 'different-candidate' : 'same-candidate']);
+  assert.equal((await receiptOf(restart.result.runId)).restarts, runId);
+  assert.equal(await digest(), frozen, 'the expired run\'s verified SHA256SUMS is unchanged');
+  assert.equal((await doctor(runId)).proof.sums, 'ok');
   started.delete(runId);
+  assert.equal((await cli(['stop', restart.result.runId])).code, 0);
+  started.delete(restart.result.runId);
 });
 
 test('restart names its predecessor and says whether the candidate is the same', {skip}, async () => {
