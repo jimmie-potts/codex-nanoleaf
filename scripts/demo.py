@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from http.server import ThreadingHTTPServer
 import importlib
 import json
+import os
 from pathlib import Path
 import queue
 import re
@@ -214,12 +215,14 @@ class Boundary:
     def audit(self, name, args):
         if name not in REFUSED_EVENTS:
             return
-        if self.allows(name, args):
-            self.record(name, f'127.0.0.1:{self.paired}', outcome='allowed')
-            return
         if name.startswith('socket.'):
             address = args[1] if len(args) > 1 else None
-            kind, target = name, f'{address[0]}:{address[1]}' if isinstance(address, tuple) and len(address) >= 2 else str(address)
+            target = f'{address[0]}:{address[1]}' if isinstance(address, tuple) and len(address) >= 2 else str(address)
+            if self.allows(name, args):
+                # The address the process asked for, not the policy's port, so the log can show a leak.
+                self.record(name, target, outcome='allowed')
+                return
+            kind = name
         elif name == 'ctypes.dlopen':
             kind, target = name, Path(str(args[0])).name if args and args[0] else 'this process'
         elif name == 'ctypes.dlsym':
@@ -407,7 +410,7 @@ def seed(directory, scenario='reference', now=time.time, hub_feed=None, credenti
     if paired:
         pair(directory, port, credentials, controller_token)
     jsonfile.write_json(directory / MARKER, {'scenario': scenario, 'seededBy': 'scripts/demo.py seed',
-                                             **({'pairedPort': port} if paired else {})})
+                                             **({'pairedPort': port, 'hubFeed': hub_feed} if paired else {})})
 
 
 def prepare(directory, now=time.time):
@@ -505,20 +508,48 @@ class PairedWriter:
         threading.Thread(target=loop, name='paired-writer', daemon=True).start()
 
 
+def free_port():
+    """A loopback port the kernel reports free that no installed service uses.
+
+    The kernel's ephemeral range includes installed ports such as 41230 and 41231. Another process
+    can still take the port before the listener binds it; that start then fails as a port in use.
+    """
+    while True:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            probe.bind(('127.0.0.1', 0))
+            port = probe.getsockname()[1]
+        if port not in INSTALLED_PORTS:
+            return port
+
+
+# Set when the controller listener stops after it was announced; the run then exits with status 1.
+CONTROLLER_STOPPED = threading.Event()
+
+
 def serve_controller(directory, port, launch):
     """Start the real controller API listener in a thread; return its origin once it is bound.
 
-    A standalone scenario relaunched after pairing keeps the recorded endpoint, so the listener
-    runs with the controller identity but no accepted credential: every Hub call is unauthenticated.
+    Port 0 takes a free port that no installed service uses. A standalone scenario relaunched after
+    pairing keeps the recorded endpoint, so the listener runs with the controller identity but no
+    accepted credential: every Hub call is unauthenticated. If the listener stops after it was
+    announced, the run prints one fixed line and ends, so the unit fails visibly.
     """
     controller_server.configure(directory, CONTROLLER['controllerId'], CONTROLLER['deviceId'], CONTROLLER['sourceId'])
     bound = queue.Queue()
+    announced = threading.Event()
 
     def run():
+        ended = None
         try:
-            controller_server.serve(directory, port, launch, ready=bound.put)
+            controller_server.serve(directory, port or free_port(), launch, ready=lambda value: (announced.set(), bound.put(value)))
         except BaseException as error:
-            bound.put(error)
+            if not announced.is_set():
+                bound.put(error)
+                return
+            ended = type(error).__name__
+        print(f'controller listener stopped{f" ({ended})" if ended else ""}', file=sys.stderr, flush=True)
+        CONTROLLER_STOPPED.set()
+        os.kill(os.getpid(), signal.SIGTERM)
     threading.Thread(target=run, name='controller', daemon=True).start()
     result = bound.get(timeout=30)
     if isinstance(result, BaseException):
@@ -530,9 +561,11 @@ def verification_state(directory):
     """The run's scripted read for Hub #495's orchestrator: feed freshness and the integration settings applied.
 
     `feed` is the local shared-input inspection: `connection` is current only while the last
-    accepted envelope is at most 4 s old. `integration` counts the Lines' integration requests:
-    `applied` by the stand-in writer, `queued` not yet applied, `failed` completed otherwise. The
-    ledger keeps the last 256 completed requests. It never includes a token or a token path.
+    accepted envelope is at most 4 s old. `ownerId` is the owner of the last accepted envelope,
+    null before the first, never the configured owner. `integration` counts the Lines'
+    integration requests: `applied` by the stand-in writer, `queued` not yet applied, `failed`
+    completed otherwise. The ledger keeps the last 256 completed requests. It never includes a
+    token or a token path.
     """
     view = shared_input.inspect(directory)
     counts = {'applied': 0, 'queued': 0, 'failed': 0}
@@ -540,14 +573,42 @@ def verification_state(directory):
         for phase, receipt in db.execute('SELECT phase,receipt FROM integration_requests'):
             key = 'queued' if phase != 'done' else 'applied' if json.loads(receipt).get('outcome') == 'applied' else 'failed'
             counts[key] += 1
-    return {'apiVersion': 'wall-verify/1', 'scenario': marker(directory).get('scenario'),
-            'feed': {key: view.get(key) for key in ('source', 'connection', 'revision', 'receivedAt', 'ownerId', 'error')},
-            'integration': counts}
+        envelope = db.execute('SELECT envelope FROM shared_input WHERE id=1').fetchone()[0]
+    feed = {key: view.get(key) for key in ('source', 'connection', 'revision', 'receivedAt', 'error')}
+    feed['ownerId'] = shared_input.decode(envelope)['ownerId'] if envelope else None
+    return {'apiVersion': 'wall-verify/1', 'scenario': marker(directory).get('scenario'), 'feed': feed, 'integration': counts}
 
 
-def verification_handler(app, token, instance, directory):
-    """The wall server's own handler plus one read-only route, `GET /verify/state`, served only by runs."""
+# The page's one link out of the run: the header's B.U.N.N.Y. link to the installed Hub dashboard (#191).
+INSTALLED_HUB_LINK = b'href="http://127.0.0.1:8788/"'
+
+
+def paired_page(page, hub_feed):
+    """The served page with its B.U.N.N.Y. link pointed at the paired Hub run's origin, or None.
+
+    A hub-paired preview must not lead to an installed service (Hub #495). bridge/wall.html is
+    unchanged; only a paired run's server substitutes the link target. It returns None unless the
+    page holds the installed link exactly once, so a changed page fails loudly instead of serving
+    the installed link.
+    """
+    if page.count(INSTALLED_HUB_LINK) != 1:
+        return None
+    return page.replace(INSTALLED_HUB_LINK, b'href="' + hub_feed.encode('ascii') + b'"')
+
+
+def verification_handler(app, token, instance, directory, hub_feed=None):
+    """The wall server's own handler plus one read-only route, `GET /verify/state`, served only by runs.
+
+    With hub_feed, a hub-paired run's origin from its seed, the page at `/` links B.U.N.N.Y. to it.
+    """
     class Handler(wall_server.handler(app, token, instance)):
+        def respond(self, code, data, kind='application/json'):
+            if hub_feed is not None and kind == 'text/html' and urlsplit(self.path).path == '/':
+                data = paired_page(data, hub_feed)
+                if data is None:
+                    return super().respond(503, {'error': 'The paired Hub link could not be set.'})
+            return super().respond(code, data, kind)
+
         def do_GET(self):
             if urlsplit(self.path).path != '/verify/state':
                 return super().do_GET()
@@ -568,7 +629,11 @@ def serve(directory, boundary, port=0, now=time.time, controller_port=None):
     PairedWriter; every other scenario keeps the one-pass stand-in.
     """
     directory = owned_state(directory)
-    paired = marker(directory).get('scenario') == HUB_PAIRED
+    seeded = marker(directory)
+    paired = seeded.get('scenario') == HUB_PAIRED
+    hub_feed = seeded.get('hubFeed') if paired else None
+    if paired and paired_port(hub_feed) != seeded.get('pairedPort'):
+        raise PairingError("hub-feed must be the paired Hub run's origin, http://127.0.0.1:<port>/.")
     config = configuration.load_config(directory, request=boundary.light_request)
     wall_server.ensure_geometry(directory, config, request=boundary.light_request)
     writer = PairedWriter(directory, now, boundary.light_request) if paired else None
@@ -581,7 +646,7 @@ def serve(directory, boundary, port=0, now=time.time, controller_port=None):
     if writer:
         writer.start()
     instance = secrets.token_hex(16)
-    server = ThreadingHTTPServer(('127.0.0.1', port), verification_handler(app, secrets.token_hex(32), instance, directory))
+    server = ThreadingHTTPServer(('127.0.0.1', port), verification_handler(app, secrets.token_hex(32), instance, directory, hub_feed))
     server.app = app
 
     def stop(*_):
@@ -599,6 +664,8 @@ def serve(directory, boundary, port=0, now=time.time, controller_port=None):
         pass
     finally:
         server.server_close()
+    if CONTROLLER_STOPPED.is_set():
+        raise SystemExit(1)
 
 
 def main(argv=None):

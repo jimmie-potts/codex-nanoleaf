@@ -17,8 +17,9 @@
 // connections to that Hub's port.
 import {createHash} from 'node:crypto';
 import {execFile} from 'node:child_process';
-import {readFile} from 'node:fs/promises';
-import {join} from 'node:path';
+import {constants} from 'node:fs';
+import {open, readFile} from 'node:fs/promises';
+import {join, relative} from 'node:path';
 import {promisify} from 'node:util';
 
 const run = promisify(execFile);
@@ -44,11 +45,29 @@ export function pairedPort(hubFeed) {
 /** A connection the paired boundary allowed to the paired Hub's port: the only entry a hub-paired run may record. */
 export const isPairedConnect = (entry, port) => port !== undefined && entry.kind === 'socket.connect' && entry.outcome === 'allowed' && entry.target === `127.0.0.1:${port}`;
 
-/** One credential file from the runtime directory. The error never holds the value or a path. */
+/**
+ * One credential file from the runtime directory, read as the wall reads it: a regular file owned by
+ * this user, with no group or other access, never through a symlink, holding one 43-character
+ * base64url token. The error never holds the value or a path.
+ */
 async function pairedToken(runtimeDir, name) {
-  const token = runtimeDir ? (await readFile(join(runtimeDir, name), 'utf8').catch(() => '')).trim() : '';
-  if (!/^[A-Za-z0-9_-]{43}$/.test(token)) throw new Error(`hub-paired needs a private ${name} file in the run directory`);
-  return token;
+  const refused = new Error(`hub-paired needs a private ${name} file in the run directory`);
+  if (!runtimeDir) throw refused;
+  let handle;
+  try {
+    handle = await open(join(runtimeDir, name), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  } catch {
+    throw refused;
+  }
+  try {
+    const info = await handle.stat();
+    if (!info.isFile() || info.size > 128 || (info.mode & 0o077) !== 0 || info.uid !== process.getuid()) throw refused;
+    const token = (await handle.readFile('utf8')).trim();
+    if (!/^[A-Za-z0-9_-]{43}$/.test(token)) throw refused;
+    return token;
+  } finally {
+    await handle.close();
+  }
 }
 
 /** The paired Hub run's monitor feed, as the wall reads it: the same route, credential and header. */
@@ -334,13 +353,20 @@ export function pairedExpectations(snapshot) {
   }));
 }
 
-/** Wait until the wall's feed is current at the revision the Hub serves; return the Hub's envelope at that revision. */
+/**
+ * Wait until the wall's feed is current at the revision the Hub serves; return the Hub's envelope at
+ * that revision. A failed read of either side is retried within the window, which ends with the last reason.
+ */
 async function pairedSnapshot(t) {
   let seen = 'no read yet';
   for (let waited = 0; waited < 15000; waited += 250) {
-    const [wall, hub] = [(await wallState(t.url, t.signal)).feed, await readHubFeed(t)];
-    if (wall.connection === 'current' && wall.revision === hub.snapshot.revision) return hub;
-    seen = `the wall is ${wall.connection}${wall.error ? ` (${wall.error})` : ''} at revision ${wall.revision}; the Hub serves ${hub.snapshot.revision}`;
+    try {
+      const [wall, hub] = [(await wallState(t.url, t.signal)).feed, await readHubFeed(t)];
+      if (wall.connection === 'current' && wall.revision === hub.snapshot.revision) return hub;
+      seen = `the wall is ${wall.connection}${wall.error ? ` (${wall.error})` : ''} at revision ${wall.revision}; the Hub serves ${hub.snapshot.revision}`;
+    } catch (error) {
+      seen = error.message;
+    }
     await new Promise(resolve => setTimeout(resolve, 250));
   }
   throw new Error(`The wall did not reach the Hub's revision: ${seen}`);
@@ -361,6 +387,8 @@ function pairedLifecycle(options, {transition} = {}) {
       listed: document.querySelector(`#taskList .task[data-task="${CSS.escape(task.id)}"] .badge`)?.dataset.status ?? null,
       title: task.title, line: task.line, evidence: task.statusEvidence ?? null,
     }]))), await painted(t.page), await palette(t.page)];
+    await t.expect('each Hub-fed task is placed on a Line', () =>
+      same(Object.keys(expected).filter(id => !listed[id]?.line), [], 'Hub-fed tasks without a Line'));
     await t.expect('the task list shows each Hub session with its lifecycle status', () =>
       same(Object.fromEntries(Object.entries(listed).map(([id, task]) => [id, task.listed])),
         Object.fromEntries(Object.entries(expected).map(([id, task]) => [id, task.status])), 'Listed statuses'));
@@ -370,13 +398,16 @@ function pairedLifecycle(options, {transition} = {}) {
     await t.expect('each Hub-fed task reports the evidence the Hub gives', () =>
       same(Object.fromEntries(Object.entries(listed).map(([id, task]) => [id, task.evidence])),
         Object.fromEntries(Object.entries(expected).map(([id, task]) => [id, task.evidence])), 'Status evidence'));
-    await t.expect('each placed Hub-fed task paints its Line in its status color', () => {
-      const placed = Object.entries(listed).filter(([, task]) => task.line);
-      check(placed.length > 0, 'No Hub-fed task is placed on a Line');
-      for (const [id, task] of placed) {
+    await t.expect("each Hub-fed task paints its Line in its status's color", () => {
+      for (const id of Object.keys(expected)) {
+        const task = listed[id];
         const color = colors[task.listed === 'idle' ? 'base' : task.listed];
         same(paint[task.line], [color, color], `${id} Line`);
       }
+    });
+    await t.expect('the B.U.N.N.Y. link leads to the paired Hub run', async () => {
+      const links = await t.page.locator('a.hub-link').evaluateAll(nodes => nodes.map(node => [node.textContent, node.getAttribute('href'), node.getAttribute('target')]));
+      same(links, [['B.U.N.N.Y.', t.inputs['hub-feed'], '_blank']], 'Header Hub link');
     });
     await t.expect("the wall stayed current at the Hub's revision", async () => {
       const [wall, now] = [(await wallState(t.url, t.signal)).feed, await readHubFeed(t)];
@@ -397,9 +428,18 @@ export function strictSteps(steps) {
   return Object.fromEntries(Object.entries(steps).map(([name, step]) => [name, {...step, run: strictChecks(step.run)}]));
 }
 
-/** Capture steps, with `python` the interpreter that runs `scripts/demo.py` and `root` the checkout. */
+/**
+ * Capture steps, with `python` the interpreter that runs the demo, `root` the checkout and `demo` the
+ * entry point that seeds, serves and drives it. Each capture's log names that entry, so a capture
+ * made beneath the test backstop says so.
+ */
 export function captureSteps(options) {
-  return strictSteps(definitions(options));
+  const entry = relative(options.root, options.demo ?? join(options.root, 'scripts/demo.py'));
+  return Object.fromEntries(Object.entries(strictSteps(definitions(options))).map(([name, step]) =>
+    [name, {...step, run: t => {
+      t.note(`demo entry: ${entry}`);
+      return step.run(t);
+    }}]));
 }
 
 function definitions(options) {

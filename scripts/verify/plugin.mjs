@@ -11,7 +11,7 @@
 // endpoint, and its boundary allows connections to the Hub's feed port only.
 import {execFile} from 'node:child_process';
 import {readFileSync} from 'node:fs';
-import {readFile} from 'node:fs/promises';
+import {readFile, stat} from 'node:fs/promises';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {promisify} from 'node:util';
@@ -143,17 +143,28 @@ const delay = (ms, signal) => new Promise((resolve, reject) => {
   signal?.addEventListener('abort', () => {clearTimeout(timer); reject(signal.reason)}, {once: true});
 });
 
+/** How long after its seed a paired run may have no snapshot yet: the orchestrator configures the Hub after the reseed. */
+export const PAIRING_WINDOW_MS = 30000;
+
 /**
  * The paired-feed check, at start and in `doctor`: a hub-paired run's feed is current and the wall
- * applied the revision the Hub serves. It is `skipped` for other scenarios, and until the wall has
- * accepted its first snapshot since the seed, because the orchestrator configures the Hub to accept
- * the wall's feed credential only after the reseed. Once the wall has a snapshot, a stale feed or a
- * revision that stays behind the Hub's for about 3 s fails it.
+ * applied the revision the Hub serves. It is `skipped` for other scenarios. Until the wall has
+ * accepted its first snapshot since the seed it is `skipped` for 30 s after the seed, because the
+ * orchestrator configures the Hub to accept the wall's feed credential only after the reseed, and
+ * `failed` after that, naming the feed's error: a pairing that never came up. Once the wall has a
+ * snapshot, a stale feed or a revision that stays behind the Hub's for about 3 s fails it.
  */
-export async function pairedFeed({scenario, url, inputs, runtimeDir, signal}) {
+export async function pairedFeed({scenario, url, dataDir, inputs, runtimeDir, signal}) {
   if (scenario !== PAIRED.scenario) return {outcome: 'skipped', reason: `${scenario} is not paired with a Hub`};
   const initial = (await wallState(url, signal)).feed;
-  if (initial.revision === null) return {outcome: 'skipped', reason: `no snapshot from the paired Hub yet (${initial.error ?? initial.connection})`};
+  if (initial.revision === null) {
+    const cause = initial.error ?? initial.connection;
+    // The seed writes demo-run.json last, into a data directory each reseed recreates.
+    const seeded = (await stat(join(dataDir, 'demo-run.json'))).mtimeMs;
+    return Date.now() - seeded < PAIRING_WINDOW_MS
+      ? {outcome: 'skipped', reason: `no snapshot from the paired Hub yet (${cause})`}
+      : {outcome: 'failed', reason: `no snapshot from the paired Hub within ${PAIRING_WINDOW_MS / 1000} s of the seed (${cause})`};
+  }
   let problem;
   for (let attempt = 0; attempt < 7; attempt++) {
     if (attempt) await delay(500, signal);
@@ -186,6 +197,7 @@ export function demoCause(stderrTail) {
   if (/^OSError: \[Errno 98\] Address already in use$/.test(last)) return 'port already in use';
   if (/^controller_server\.ListenerUnavailable: Port \d{1,5} is already in use\./.test(last)) return 'controller port already in use';
   if (/^controller_server\.ListenerUnavailable: /.test(last)) return 'controller listener unavailable';
+  if (/^controller listener stopped(?: \([A-Za-z_][A-Za-z0-9_.]{0,80}\))?$/.test(last)) return 'controller listener stopped';
   const credential = /^demo\.py: error: hub-paired needs a private (hub-feed-token|hub-controller-token) file in the run directory\.$/.exec(last);
   if (credential) return `hub-paired needs a private ${credential[1]} file in the run directory`;
   if (/^demo\.py: error: hub-feed must be the paired Hub run's origin, http:\/\/127\.0\.0\.1:<port>\/\.$/.test(last)) return "hub-feed is not the paired Hub run's origin";

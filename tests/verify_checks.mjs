@@ -12,65 +12,32 @@
 // regression cannot reach an installed service, and each asserts that the backstop saw nothing.
 import assert from 'node:assert/strict';
 import {execFile, spawn} from 'node:child_process';
-import {randomBytes} from 'node:crypto';
+import {createHash, randomBytes} from 'node:crypto';
 import {existsSync} from 'node:fs';
-import {chmod, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile} from 'node:fs/promises';
-import {createServer} from 'node:http';
+import {chmod, mkdir, mkdtemp, readdir, readFile, rm, symlink, utimes, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import readline from 'node:readline';
 import {describe, test} from 'node:test';
 import {promisify} from 'node:util';
 import {runCaptureStep} from '@jimmie-potts/app-verify';
-import plugin, {createPlugin, deviceBoundary, failureCause, INSTALLED_PORTS, pairedFeed, readyLine} from '../scripts/verify/plugin.mjs';
-import {NEGATIVE_CONTROLS, pairedExpectations, sessionKey, strict, strictSteps} from '../scripts/verify/steps.mjs';
+import plugin, {createPlugin, deviceBoundary, failureCause, pairedFeed, readyLine} from '../scripts/verify/plugin.mjs';
+import {NEGATIVE_CONTROLS, pairedExpectations, readHubFeed, sessionKey, strict, strictSteps} from '../scripts/verify/steps.mjs';
+import {callController} from './fixtures/controller-caller.mjs';
+import {FEED, standInHub} from './fixtures/stand-in-hub.mjs';
 
 const results = join(plugin.root, 'test-results/verify');
 const BACKSTOP = join(plugin.root, 'tests/fixtures/backstop_demo.py');
 /** The plug-in hub-paired tests use: every seed, serve and drive runs beneath the test backstop. */
 const paired = createPlugin({demo: BACKSTOP});
-const FEED = JSON.parse(await readFile(join(plugin.root, 'tests/fixtures/paired-hub-feed.json'), 'utf8'));
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const token = () => randomBytes(32).toString('base64url');
-
-/**
- * The paired Hub run's monitor feed: the one route the wall reads, answering only the wall's feed
- * credential and header. `status` makes it refuse or fail; `close` takes it away.
- */
-async function standInHub(feedToken) {
-  const hub = {envelope: structuredClone(FEED.envelope), status: 200, requests: 0};
-  const server = createServer((request, response) => {
-    hub.requests++;
-    const ok = request.method === 'GET' && request.url === '/api/monitor/v1/sessions?snapshotVersion=1.2'
-      && request.headers.authorization === `Bearer ${feedToken}` && request.headers['x-pixoo-request'] === '1';
-    const status = ok ? hub.status : 401;
-    const body = JSON.stringify(status === 200 ? hub.envelope : {error: 'rejected'});
-    response.writeHead(status, {'content-type': 'application/json', 'content-length': Buffer.byteLength(body)});
-    response.end(body);
-  });
-  // The kernel could hand out an installed service's port while that service is down; the wall refuses one.
-  do {
-    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-    if (INSTALLED_PORTS.has(server.address().port)) await new Promise(resolve => server.close(resolve));
-  } while (!server.listening);
-  hub.origin = `http://127.0.0.1:${server.address().port}/`;
-  hub.close = () => new Promise(resolve => {server.close(resolve); server.closeAllConnections()});
-  return hub;
-}
 
 /** Write the orchestrator's two credential files: one token each, mode 0600, no trailing newline. */
 async function writeCredentials(runtimeDir, tokens = {feed: token(), controller: token()}) {
   await writeFile(join(runtimeDir, 'hub-feed-token'), tokens.feed, {mode: 0o600});
   await writeFile(join(runtimeDir, 'hub-controller-token'), tokens.controller, {mode: 0o600});
   return tokens;
-}
-
-/** The stand-in controller caller: one request to the wall's controller API, as the Hub makes it. */
-async function callController(endpoint, path, {credential, body} = {}) {
-  const response = await fetch(new URL(path, endpoint), {method: body ? 'POST' : 'GET',
-    headers: {...(credential ? {authorization: `Bearer ${credential}`} : {}), ...(body ? {'content-type': 'application/json'} : {})},
-    ...(body ? {body: JSON.stringify(body)} : {})});
-  return {status: response.status, body: await response.json()};
 }
 
 const wallState = async url => (await fetch(new URL('verify/state', url))).json();
@@ -216,6 +183,8 @@ describe('plug-in surface', () => {
       ["usage: demo.py [-h]\ndemo.py: error: hub-feed must be the paired Hub run's origin, http://127.0.0.1:<port>/.\n",
         "wall-start-failed: hub-feed is not the paired Hub run's origin"],
       ["usage: demo.py [-h]\ndemo.py: error: hub-feed names an installed service's port.\n", "wall-start-failed: hub-feed names an installed service's port"],
+      ['controller listener stopped\n', 'wall-start-failed: controller listener stopped'],
+      ['controller listener stopped (OperationalError)\n', 'wall-start-failed: controller listener stopped'],
       ['listening\n', undefined],
       ['', undefined],
     ];
@@ -353,6 +322,49 @@ describe('plug-in surface', () => {
     assert.deepEqual((await launch('reference', {controller: 41706})).argv.slice(-2), ['--controller-port', '41706']);
     const spec = await launch('hub-paired', {});
     assert.equal(spec.argv.some(argument => argument.includes('hub-feed') || argument.includes('token')), false, 'no Hub origin or credential in the unit');
+  });
+
+  test('the installed core is the vendored app-verify 1.1.0, file for file', async () => {
+    const installed = join(plugin.root, 'node_modules/@jimmie-potts/app-verify');
+    const manifest = JSON.parse(await readFile(join(installed, 'manifest.json'), 'utf8'));
+    assert.equal(manifest.version, '1.1.0');
+    assert.equal(JSON.parse(await readFile(join(installed, 'package.json'), 'utf8')).version, '1.1.0');
+    assert.ok(Object.keys(manifest.files).length > 0);
+    for (const [name, digest] of Object.entries(manifest.files)) {
+      assert.equal(createHash('sha256').update(await readFile(join(installed, name))).digest('hex'), digest, name);
+    }
+  });
+
+  test('the step reads the paired credential only from a private regular file, and never sends another', async () => {
+    const runtimeDir = await mkdtemp(join(tmpdir(), 'wall-token-'));
+    const value = token();
+    const hub = await standInHub(value);
+    try {
+      const read = () => readHubFeed({inputs: {'hub-feed': hub.origin}, runtimeDir, signal: AbortSignal.timeout(5000)});
+      const refused = async () => {
+        await assert.rejects(read(), error => error.message === 'hub-paired needs a private hub-feed-token file in the run directory' && !error.message.includes(runtimeDir));
+      };
+      const file = join(runtimeDir, 'hub-feed-token');
+      await refused();
+      await writeFile(file, value, {mode: 0o640});
+      await refused();
+      await chmod(file, 0o600);
+      assert.equal((await read()).ownerId, 'verify-owner');
+      await rm(file);
+      await writeFile(join(runtimeDir, 'elsewhere'), value, {mode: 0o600});
+      await symlink(join(runtimeDir, 'elsewhere'), file);
+      await refused();
+      await rm(file);
+      await mkdir(file);
+      await refused();
+      await rm(file, {recursive: true});
+      await writeFile(file, 'x'.repeat(200), {mode: 0o600});
+      await refused();
+      assert.equal(hub.requests, 1, "only the private file's token reached the Hub");
+    } finally {
+      await hub.close();
+      await rm(runtimeDir, {recursive: true, force: true});
+    }
   });
 
   test('the Hub expectations come from the snapshot: statuses, titles, keys and the undeclared source left out', () => {
@@ -507,9 +519,14 @@ describe('hub-paired runs', () => {
     try {
       assert.deepEqual(await run.probe(), {ok: true});
       const refused = await until(() => wallState(run.context.url), value => value.feed.error === 'feed-rejected');
-      assert.deepEqual([refused.feed.connection, refused.feed.revision], ['unavailable', null]);
+      assert.deepEqual([refused.feed.connection, refused.feed.revision, refused.feed.ownerId], ['unavailable', null, null],
+        'no owner is reported before an envelope is accepted');
       assert.deepEqual(await run.checks(), [{id: 'device-boundary', outcome: 'passed'},
         {id: 'paired-feed', outcome: 'skipped', reason: 'no snapshot from the paired Hub yet (feed-rejected)'}]);
+      // 30 s after the seed, a pairing that never came up fails instead of staying skipped.
+      const marker = join(run.context.dataDir, 'demo-run.json'), past = new Date(Date.now() - 31000);
+      await utimes(marker, past, past);
+      assert.deepEqual((await run.checks())[1], {id: 'paired-feed', outcome: 'failed', reason: 'no snapshot from the paired Hub within 30 s of the seed (feed-rejected)'});
       hub.status = 200;
       await until(() => wallState(run.context.url), value => value.feed.connection === 'current' && value.feed.revision === 7);
       assert.deepEqual((await run.checks())[1], {id: 'paired-feed', outcome: 'passed'});
@@ -563,6 +580,45 @@ describe('hub-paired runs', () => {
       assert.equal(await again.backstop(), '');
     } finally {
       await again?.halt();
+      await run.stop();
+    }
+  });
+});
+
+describe('hub-lifecycle-painted against a changing Hub', () => {
+  const capture = async (run, name, outputName) => {
+    const outputDir = join(results, outputName);
+    await rm(outputDir, {recursive: true, force: true});
+    const {runId, runtimeDir, dataDir, url, scenario, inputs, endpoints} = run.context;
+    return runCaptureStep(run.plugin, name, {url, outputDir, scenario, dataDir, runtimeDir, runId, inputs, endpoints});
+  };
+
+  test('passes through a brief Hub outage at the start of the step', async () => {
+    const run = await startRun('hub-paired');
+    try {
+      await until(() => wallState(run.context.url), value => value.feed.connection === 'current');
+      run.hub.status = 503;
+      setTimeout(() => {run.hub.status = 200}, 1500);
+      const result = await capture(run, 'hub-lifecycle-painted', 'hub-lifecycle-painted-after-outage');
+      assert.equal(result.outcome, 'passed', JSON.stringify(result, null, 2));
+    } finally {
+      await run.stop();
+    }
+  });
+
+  test('fails when a Hub session gets no Line', async () => {
+    const run = await startRun('hub-paired');
+    try {
+      // Sixteen working sessions for fifteen Lines: one waits for a Line.
+      const template = FEED.envelope.snapshot.sessions[0];
+      run.hub.envelope = structuredClone(FEED.envelope);
+      run.hub.envelope.snapshot.sessions = Array.from({length: 16}, (_, index) =>
+        ({...structuredClone(template), identity: {...template.identity, sessionId: `hub-busy-${index}`}, label: `Busy ${index}`}));
+      const result = await capture(run, 'hub-lifecycle-painted', 'hub-lifecycle-painted-unplaced');
+      assert.equal(result.outcome, 'failed');
+      assert.deepEqual(result.assertions.filter(item => item.outcome === 'failed').map(item => item.name), ['each Hub-fed task is placed on a Line'],
+        JSON.stringify(result, null, 2));
+    } finally {
       await run.stop();
     }
   });
@@ -636,6 +692,8 @@ describe('capture steps through the core driver', () => {
           assert.deepEqual(during.filter(entry => !(name === 'device-read-refused' && entry.kind === 'light-request' && entry.method === 'GET')
             && !(step.scenario === 'hub-paired' && entry.outcome === 'allowed' && entry.target === new URL(inputs['hub-feed']).host)), []);
         }
+        const entry = step.scenario === 'hub-paired' ? 'tests/fixtures/backstop_demo.py' : 'scripts/demo.py';
+        assert.ok((await readFile(result.log, 'utf8')).includes(`demo entry: ${entry}`), 'the capture log names the demo entry that served it');
         if (step.scenario === 'hub-paired') {
           assert.equal(await run.backstop(), '', 'nothing reached the test backstop');
           const log = await readFile(result.log, 'utf8');

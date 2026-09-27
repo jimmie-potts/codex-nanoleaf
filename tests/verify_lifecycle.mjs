@@ -11,12 +11,12 @@ import {execFileSync, spawn, spawnSync} from 'node:child_process';
 import {createHash, randomBytes} from 'node:crypto';
 import {existsSync} from 'node:fs';
 import {chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile} from 'node:fs/promises';
-import {createServer} from 'node:http';
 import {homedir} from 'node:os';
 import {join} from 'node:path';
 import {after, before, test} from 'node:test';
 import {validateReceipt} from '@jimmie-potts/app-verify';
 import plugin from '../scripts/verify/plugin.mjs';
+import {standInHub} from './fixtures/stand-in-hub.mjs';
 
 function supervisorSkipReason() {
   const result = spawnSync('systemctl', ['--user', 'is-system-running'], {encoding: 'utf8'});
@@ -103,25 +103,6 @@ const unitLoaded = unit => execFileSync('systemctl', ['--user', 'show', unit, '-
 const stateOf = async url => (await fetch(new URL('/api/state', url))).json();
 const doctor = async runId => (await cli(['doctor', runId])).result.runs[0];
 const BACKSTOP = join(plugin.root, 'tests/fixtures/backstop_demo.py');
-const FEED = JSON.parse(await readFile(join(plugin.root, 'tests/fixtures/paired-hub-feed.json'), 'utf8'));
-const INSTALLED = new Set([8788, 8765, 8787, 8791, 41230, 41231]);
-
-/** The paired Hub run's monitor feed, answering only the wall's feed credential. */
-async function standInHub(feedToken) {
-  const server = createServer((request, response) => {
-    const ok = request.url === '/api/monitor/v1/sessions?snapshotVersion=1.2' && request.headers.authorization === `Bearer ${feedToken}`
-      && request.headers['x-pixoo-request'] === '1';
-    const body = JSON.stringify(ok ? FEED.envelope : {error: 'rejected'});
-    response.writeHead(ok ? 200 : 401, {'content-type': 'application/json', 'content-length': Buffer.byteLength(body)});
-    response.end(body);
-  });
-  do {
-    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-    if (INSTALLED.has(server.address().port)) await new Promise(resolve => server.close(resolve));
-  } while (!server.listening);
-  return {origin: `http://127.0.0.1:${server.address().port}/`, close: () => new Promise(resolve => {server.close(resolve); server.closeAllConnections()})};
-}
-
 /** The orchestrator's step between start and the hub-paired reseed: both credential files, mode 0600, in the runtime directory. */
 async function writeCredentials(runId) {
   const tokens = {feed: randomBytes(32).toString('base64url'), controller: randomBytes(32).toString('base64url')};

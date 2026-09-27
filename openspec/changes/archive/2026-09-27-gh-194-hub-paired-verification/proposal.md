@@ -10,7 +10,9 @@
 - The boundary of a hub-paired process also allows TCP connections to `127.0.0.1` on the paired Hub's port, never an installed service's port, and records each as `allowed`. Every light request and every other target stays refused.
 - The `device-boundary` check accepts, in hub-paired, only allowed connections to the paired port. A new `paired-feed` check requires the feed to be current at the Hub's revision. It is `skipped` for other scenarios and until the first snapshot arrives.
 - A read-only `GET /verify/state` route on the run's map reports feed freshness and the integration settings the stand-in applied, for the orchestrator's assertions.
+- A hub-paired run's server points the page's B.U.N.N.Y. link at the paired Hub run instead of the installed Hub, so no link in the integrated preview leads to an installed service. `bridge/wall.html` and the installed map are unchanged.
 - A `hub-lifecycle-painted` capture step, and two negative controls: the paired stand-in polls the installed Hub's port, or sends the effect to each device.
+- Committed test tooling: a stand-in Hub feed, a stand-in controller caller, a backstop entry for `npm run verify` and the delivery evidence procedure, with a positive control for the backstop and a test pinning the vendored core.
 - `@jimmie-potts/app-verify` moves to 1.1.0. `controller_server.register` accepts a caller-supplied credential, which `issue` now uses, and `controller_server.serve` takes an optional `ready` callback.
 
 The standalone scenarios, their transitions, steps, controls and boundary proof are unchanged. Their receipts gain a `paired-feed` check reported as `skipped`.

@@ -484,6 +484,8 @@ class ServeTest(Directories):
         self.assertEqual(boundary_entries(directory), [], 'no device path was attempted')
         token = page.decode().split("const token='", 1)[1].split("'", 1)[0]
         self.assertEqual(len(token), 64)
+        self.assertEqual(page.decode(), (ROOT / 'bridge/wall.html').read_text(encoding='utf-8').replace('__CSRF__', token),
+                         'a standalone run serves bridge/wall.html unchanged, apart from its token')
         self.assertNotIn(token, output + errors, 'the page token is never printed')
         self.assertNotIn(token, (directory / 'map-server.json').read_text())
         self.assertTrue((directory / 'status.sqlite').exists(), 'the caller owns the state directory')
@@ -635,7 +637,7 @@ class PairedSeedTest(Directories):
         self.assertEqual(rows(self.data, "SELECT COUNT(*) FROM projects WHERE id IN ('a','b','c')"), [(0,)], 'the Hub owns the projects')
         self.assertEqual(demo.registered(self.data), ['wall', 'panels'])
         self.assertEqual(json.loads((self.data / demo.MARKER).read_text()),
-                         {'scenario': 'hub-paired', 'seededBy': 'scripts/demo.py seed', 'pairedPort': 45001})
+                         {'scenario': 'hub-paired', 'seededBy': 'scripts/demo.py seed', 'pairedPort': 45001, 'hubFeed': 'http://127.0.0.1:45001/'})
         for path in self.data.rglob('*'):
             if path.is_file():
                 for value in tokens.values():
@@ -685,7 +687,7 @@ class PairedSeedTest(Directories):
 class PairedBoundaryTest(Directories):
     """The paired boundary allows TCP to 127.0.0.1 on the paired port only, and never an installed service's port."""
 
-    def attempt(self, directory, paired_port, script):
+    def attempt(self, directory, paired_port, script, before='', backstop_hits=()):
         source = textwrap.dedent(f'''
             import importlib.util, json, socket, sys
             from pathlib import Path
@@ -696,6 +698,7 @@ class PairedBoundaryTest(Directories):
                 backstop = importlib.util.module_from_spec(spec); spec.loader.exec_module(backstop)
             demo = backstop.demo
             directory = Path({str(directory)!r})
+        ''') + textwrap.dedent(before) + textwrap.dedent(f'''
             boundary = demo.install_boundary(directory / demo.BOUNDARY_LOG, {paired_port!r})
             results = {{}}
             def attempt(name, action):
@@ -708,7 +711,8 @@ class PairedBoundaryTest(Directories):
                                 env=dict(os.environ, PYTHONDONTWRITEBYTECODE='1'))
         self.assertEqual(result.returncode, 0, result.stderr)
         backstop = directory.parent / 'backstop.jsonl'
-        self.assertFalse(backstop.exists(), backstop.read_text() if backstop.exists() else '')
+        hits = [json.loads(line)['target'] for line in backstop.read_text().splitlines()] if backstop.exists() else []
+        self.assertEqual(hits, list(backstop_hits), 'what reached the test backstop')
         return json.loads(result.stdout.strip().splitlines()[-1]), boundary_entries(directory)
 
     def test_only_the_paired_port_is_reachable_and_each_connection_is_recorded_as_allowed(self):
@@ -736,6 +740,25 @@ class PairedBoundaryTest(Directories):
                           ('socket.sendto', f'127.0.0.1:{paired.port}', 'refused')])
         self.assertEqual((paired.accepted(), other.accepted()), (1, 0))
 
+    def test_control_the_backstop_records_and_refuses_what_a_broken_boundary_lets_through(self):
+        # Without this control, every empty backstop log could come from a backstop that never ran.
+        directory = self.directory() / 'data'
+        directory.mkdir()
+        paired, leaked = Listener(), Listener()
+        self.addCleanup(paired.close)
+        self.addCleanup(leaked.close)
+        self.assertNotIn(leaked.port, INSTALLED_PORTS)
+        results, entries = self.attempt(directory, paired.port, f'''
+            attempt('leak', lambda: socket.create_connection(('127.0.0.1', {leaked.port}), timeout=1).close())
+        ''', before='''
+            demo.Boundary.allows = lambda self, name, args: True  # A boundary regression: it allows everything.
+        ''', backstop_hits=[f"('127.0.0.1', {leaked.port})"])
+        self.assertEqual(results, {'leak': 'ConnectionRefusedError'})
+        self.assertEqual(leaked.accepted(), 0, 'the backstop refused the connection before it reached the listener')
+        # The boundary log names the address it let through, so the plug-in's checks can see the leak.
+        self.assertEqual([(entry['kind'], entry['target'], entry['outcome']) for entry in entries],
+                         [('socket.connect', f'127.0.0.1:{leaked.port}', 'allowed')])
+
     def test_an_installed_port_is_never_allowed_even_when_named_as_paired(self):
         directory = self.directory() / 'data'
         directory.mkdir()
@@ -745,6 +768,49 @@ class PairedBoundaryTest(Directories):
         ''')
         self.assertEqual(results, {'installed': 'DeviceBoundaryError/refused'})
         self.assertEqual([(entry['target'], entry['outcome']) for entry in entries], [('127.0.0.1:8788', 'refused')])
+
+
+class PairedPageTest(unittest.TestCase):
+    """A paired run's page links B.U.N.N.Y. to the paired Hub, and only when the installed link appears exactly once."""
+
+    def test_the_one_installed_link_is_pointed_at_the_paired_hub(self):
+        page = (ROOT / 'bridge/wall.html').read_bytes()
+        rewritten = demo.paired_page(page, 'http://127.0.0.1:45001/')
+        self.assertEqual(rewritten, page.replace(b'href="http://127.0.0.1:8788/"', b'href="http://127.0.0.1:45001/"'))
+        self.assertNotIn(b'127.0.0.1:8788', rewritten)
+
+    def test_a_page_without_exactly_one_installed_link_is_refused(self):
+        page = (ROOT / 'bridge/wall.html').read_bytes()
+        link = b'<a class="hub-link" href="http://127.0.0.1:8788/">B.U.N.N.Y.</a>'
+        for changed in (page.replace(b'href="http://127.0.0.1:8788/"', b'href="http://127.0.0.1:8789/"'), page + link):
+            self.assertIsNone(demo.paired_page(changed, 'http://127.0.0.1:45001/'))
+
+
+class FreePortTest(unittest.TestCase):
+    def test_a_kernel_chosen_installed_port_is_passed_over(self):
+        offered = iter([41230, 41231, 45002])
+
+        class Probe:
+            def __init__(self, *args):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def bind(self, address):
+                self.port = next(offered)
+
+            def getsockname(self):
+                return ('127.0.0.1', self.port)
+        original = demo.socket.socket
+        demo.socket.socket = Probe
+        try:
+            self.assertEqual(demo.free_port(), 45002)
+        finally:
+            demo.socket.socket = original
 
 
 class PairedRun:
@@ -763,6 +829,10 @@ class PairedRun:
 
     def state(self, path='/verify/state'):
         return call(self.url + path)[1]
+
+    def get(self, path):
+        with opener().open(self.url + path, timeout=5) as response:
+            return response.status, response.read()
 
     def stop(self):
         if self.process.poll() is None:
@@ -794,6 +864,15 @@ class PairedServeTest(Directories):
     def test_a_paired_run_paints_the_hub_feed_and_serves_the_hub_its_controller_api(self):
         self.pair()
         run = self.serve()
+        # The page's one link out of the run leads to the paired Hub run, never the installed one.
+        status, page = run.get('/')
+        page = page.decode()
+        token = page.split("const token='", 1)[1].split("'", 1)[0]
+        wall_page = (ROOT / 'bridge/wall.html').read_text(encoding='utf-8').replace('__CSRF__', token)
+        self.assertEqual(status, 200)
+        self.assertEqual(page, wall_page.replace('href="http://127.0.0.1:8788/"', f'href="{self.hub.origin}"'))
+        self.assertEqual(page.count(f'<a class="hub-link" href="{self.hub.origin}" target="_blank"'), 1)
+        self.assertNotIn('127.0.0.1:8788', page)
         self.assertEqual(json.loads((self.data / 'map-server.json').read_text())['boundary'], 'paired')
         state = until(run.state, lambda value: value['feed']['connection'] == 'current')
         self.assertEqual({key: state['feed'][key] for key in ('source', 'connection', 'revision', 'ownerId', 'error')},
@@ -833,7 +912,8 @@ class PairedServeTest(Directories):
         self.hub.status = 401
         run = self.serve()
         state = until(run.state, lambda value: value['feed']['error'] == 'feed-rejected')
-        self.assertEqual((state['feed']['connection'], state['feed']['revision']), ('unavailable', None))
+        self.assertEqual((state['feed']['connection'], state['feed']['revision'], state['feed']['ownerId']), ('unavailable', None, None),
+                         'no owner is reported before an envelope is accepted')
         self.assertEqual(run.state('/api/state')['tasks'], [])
         self.hub.status = 200
         state = until(run.state, lambda value: value['feed']['connection'] == 'current')
@@ -852,8 +932,20 @@ class PairedServeTest(Directories):
         self.assertEqual((standalone.port, standalone.controller), (run.port, f'http://127.0.0.1:{controller}/'))
         self.assertEqual(call(standalone.controller + 'controller/v1/devices', self.tokens[demo.CONTROLLER_TOKEN])[0], 401)
         self.assertEqual(standalone.state()['feed']['source'], 'legacy')
+        self.assertIn(b'href="http://127.0.0.1:8788/"', standalone.get('/')[1], 'only hub-paired rewrites the link')
         self.assertEqual(standalone.stop()[0], 0)
         self.assertEqual(boundary_entries(self.data), [], 'a standalone scenario still contacts nothing')
+
+    def test_a_controller_listener_that_stops_after_it_was_announced_ends_the_run(self):
+        self.pair()
+        run = self.serve()
+        until(run.state, lambda value: value['feed']['connection'] == 'current')
+        import controller_server
+        controller_server.command(['controller-disable', '--state-dir', str(self.data)])
+        run.process.wait(timeout=15)
+        _, errors = run.process.communicate(timeout=10)
+        self.assertEqual(run.process.returncode, 1)
+        self.assertEqual(errors.strip().splitlines()[-1], 'controller listener stopped')
 
     def test_a_controller_port_in_use_fails_the_start_with_a_named_cause(self):
         self.pair()
