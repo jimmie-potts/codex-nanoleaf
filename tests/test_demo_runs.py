@@ -325,14 +325,17 @@ class BoundaryTest(Directories):
         self.assertEqual([(entry['kind'], entry['target']) for entry in entries], [('socket.connect', '192.0.2.1:16021')])
 
     # Paths that raise no socket or process audit event: a spawned child, foreign code through ctypes
-    # (loaded before the guard, and loaded after it) and, where Python has them, subinterpreters.
+    # and, where Python has them, subinterpreters. A call through a function resolved before the guard
+    # raises an audit event only from Python 3.14; Python 3.12 lets it through, which the development
+    # guide states. The demo and bridge never import ctypes, so no such function exists before the guard.
+    CALL_AUDITED = sys.version_info >= (3, 14)
     PRE_GUARD = '''
         import ctypes, multiprocessing, struct
         libc = ctypes.CDLL(None)
         foreign_connect = libc.connect
     '''
 
-    def unaudited_attempts(self, port):
+    def unaudited_attempts(self, port, guarded):
         return f'''
             def sockaddr():
                 return struct.pack('=H', socket.AF_INET) + struct.pack('!H', {port}) + socket.inet_aton('127.0.0.1') + bytes(8)
@@ -353,7 +356,8 @@ class BoundaryTest(Directories):
                     created.exec("import socket; socket.create_connection(('127.0.0.1', {port}), 5).close()")
                 finally:
                     created.close()
-            attempt('ctypes-call', lambda: through(foreign_connect))
+            if {self.CALL_AUDITED or not guarded!r}: attempt('ctypes-call', lambda: through(foreign_connect))
+            attempt('ctypes-lookup', lambda: through(libc['connect']))
             attempt('ctypes-load', lambda: through(ctypes.CDLL(None).connect))
             attempt('spawn', spawned)
             if importlib.util.find_spec('concurrent.interpreters'): attempt('subinterpreter', interpreter)
@@ -363,9 +367,12 @@ class BoundaryTest(Directories):
         directory = self.directory()
         listener = Listener()
         self.addCleanup(listener.close)
-        results, entries = self.attempt(directory, self.unaudited_attempts(listener.port), before=self.PRE_GUARD)
-        expected = {'ctypes-call': 'DeviceBoundaryError/refused', 'ctypes-load': 'DeviceBoundaryError/refused', 'spawn': 'DeviceBoundaryError/refused'}
-        kinds = [('ctypes.call_function', 'foreign function'), ('ctypes.dlopen', 'this process'), ('process', Path(sys.executable).name)]
+        results, entries = self.attempt(directory, self.unaudited_attempts(listener.port, True), before=self.PRE_GUARD)
+        expected = {'ctypes-lookup': 'DeviceBoundaryError/refused', 'ctypes-load': 'DeviceBoundaryError/refused', 'spawn': 'DeviceBoundaryError/refused'}
+        kinds = [('ctypes.dlsym', 'connect'), ('ctypes.dlopen', 'this process'), ('process', Path(sys.executable).name)]
+        if self.CALL_AUDITED:
+            expected['ctypes-call'] = 'DeviceBoundaryError/refused'
+            kinds.insert(0, ('ctypes.call_function', 'foreign function'))
         if importlib.util.find_spec('concurrent.interpreters'):
             expected['subinterpreter'] = 'DeviceBoundaryError/refused'
             kinds.append(('subinterpreter', '_interpreters.create'))
@@ -377,7 +384,7 @@ class BoundaryTest(Directories):
         directory = self.directory()
         listener = Listener()
         self.addCleanup(listener.close)
-        results, entries = self.attempt(directory, self.unaudited_attempts(listener.port), guarded=False, before=self.PRE_GUARD)
+        results, entries = self.attempt(directory, self.unaudited_attempts(listener.port, False), guarded=False, before=self.PRE_GUARD)
         self.assertEqual(set(results.values()), {'completed'}, results)
         self.assertEqual(entries, [])
         self.assertEqual(sum(listener.accepted() for _ in range(len(results) + 1)), len(results))
