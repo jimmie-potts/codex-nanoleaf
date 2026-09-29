@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import {execFileSync, spawn, spawnSync} from 'node:child_process';
 import {createHash, randomBytes} from 'node:crypto';
 import {existsSync} from 'node:fs';
-import {chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile} from 'node:fs/promises';
+import {chmod, mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import {join} from 'node:path';
 import {after, before, test} from 'node:test';
@@ -355,4 +355,108 @@ test('restart names its predecessor and says whether the candidate is the same',
   started.delete(start.result.runId);
   assert.equal((await cli(['stop', restart.result.runId])).code, 0);
   started.delete(restart.result.runId);
+});
+
+
+test('a paused paired run releases only during its stopped-process seed and preserves frozen proof', {skip}, async () => {
+  const entry = await wrapper('paired-pause', `createPlugin({app: ${JSON.stringify(app)}, demo: ${JSON.stringify(BACKSTOP)}})`);
+  const start = await cli(['start', '--lease', '10'], {entry});
+  assert.equal(start.code, 0, start.stderr);
+  const {runId, url, port} = start.result;
+  const runtime = join(base, 'state', runId), tokens = await writeCredentials(runId);
+  const tokenBytes = await Promise.all(['hub-feed-token', 'hub-controller-token'].map(name => readFile(join(runtime, name))));
+  const hub = await standInHub(tokens.feed);
+  const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+  const until = async (read, accepts) => {
+    const deadline = Date.now() + 15000;
+    for (;;) {
+      const value = await read();
+      if (accepts(value)) return value;
+      if (Date.now() >= deadline) assert.fail('the paired lifecycle condition did not arrive');
+      await pause(200);
+    }
+  };
+  const control = async (kind, value) => {
+    const temporary = join(runtime, `.feed-pause-${kind}-${randomBytes(6).toString('hex')}`);
+    await writeFile(temporary, JSON.stringify(value), {mode: 0o600, flag: 'wx'});
+    await rename(temporary, join(runtime, `feed-pause.${kind}`));
+  };
+  const ack = async () => readFile(join(runtime, 'feed-pause.ack'), 'utf8')
+    .then(JSON.parse, error => error.code === 'ENOENT' ? null : Promise.reject(error));
+  const feed = async () => (await (await fetch(new URL('verify/state', url))).json()).feed;
+  const manifest = join(base, 'proof', runId, 'verified/SHA256SUMS');
+  try {
+    const paired = await cli(['scenario', runId, 'hub-paired', '--input', `hub-feed=${hub.origin}`], {entry});
+    assert.equal(paired.code, 0, paired.stderr);
+    const controller = paired.result.endpoints.controller;
+    await until(() => doctor(runId), row => row.checks?.find(check => check.id === 'paired-feed')?.outcome === 'passed');
+    assert.equal((await feed()).revision, 7);
+    const capture = await cli(['capture', runId, 'hub-lifecycle-painted'], {entry});
+    assert.deepEqual([capture.code, capture.result.outcome], [0, 'passed'], capture.stderr);
+    const handoff = await cli(['handoff', runId], {entry});
+    assert.equal(handoff.code, 0, handoff.stderr);
+    const frozen = await readFile(manifest), before = await receiptOf(runId);
+    const oldPid = before.owned.mainPid, oldStart = before.owned.mainStartMonotonic;
+    assert.ok(oldPid > 0 && oldStart > 0);
+    const request = {version: 1, runId, nonce: 'a'.repeat(32)};
+    await control('request', request);
+    assert.deepEqual(await until(ack, value => value?.nonce === request.nonce), {...request, pid: oldPid});
+    const callsWhilePaused = hub.requests;
+    assert.equal((await fetch(url)).status, 200);
+    assert.equal(await devicesWith(controller, tokens.controller), 200);
+    const paused = await doctor(runId);
+    assert.equal(paused.state, 'running');
+    assert.equal(paused.unit.mainPid, oldPid);
+    assert.equal(paused.checks.find(check => check.id === 'paired-feed').outcome, 'skipped');
+    await pause(1200);
+    assert.equal(hub.requests, callsWhilePaused);
+    hub.envelope.snapshot.revision = 1;
+    await control('release', request);
+    await pause(1200);
+    assert.equal((await doctor(runId)).unit.mainPid, oldPid);
+    assert.equal(hub.requests, callsWhilePaused);
+    const checkedEntry = await wrapper('paired-release-order', `(() => {
+      const paired = createPlugin({app: ${JSON.stringify(app)}, demo: ${JSON.stringify(BACKSTOP)}});
+      const original = paired.scenarios['hub-paired'];
+      return {...paired, scenarios: {...paired.scenarios, 'hub-paired': {...original,
+        seed: async context => {
+          const {spawnSync} = await import('node:child_process');
+          const observed = spawnSync('systemctl',
+            ['--user', 'show', ${JSON.stringify(before.owned.unit)}, '-p', 'ActiveState', '-p', 'MainPID'], {encoding: 'utf8'});
+          if (observed.error) throw observed.error;
+          const lines = observed.stdout.split(String.fromCharCode(10));
+          if (!lines.includes('MainPID=0') || !lines.some(line => ['ActiveState=inactive', 'ActiveState=failed'].includes(line)))
+            throw new Error('old wall unit was not stopped before paired seed');
+          await original.seed(context);
+        }}}};
+    })()`);
+    const reset = await cli(['scenario', runId, 'hub-paired'], {entry: checkedEntry});
+    assert.equal(reset.code, 0, reset.stderr);
+    const afterReset = await receiptOf(runId);
+    assert.notDeepEqual([afterReset.owned.mainPid, afterReset.owned.mainStartMonotonic], [oldPid, oldStart]);
+    assert.deepEqual([afterReset.owned.port, afterReset.owned.endpoints.controller, reset.result.url], [port, controller, url]);
+    for (const kind of ['request', 'ack', 'release']) assert.equal(existsSync(join(runtime, `feed-pause.${kind}`)), false);
+    assert.deepEqual(await Promise.all(['hub-feed-token', 'hub-controller-token'].map(name => readFile(join(runtime, name)))), tokenBytes);
+    await until(feed, value => value.connection === 'current' && value.revision === 1);
+    const ready = await until(() => doctor(runId), row => row.checks?.find(check => check.id === 'paired-feed')?.outcome === 'passed');
+    assert.equal(ready.proof.sums, 'ok');
+    assert.deepEqual(await readFile(manifest), frozen);
+    const unreleased = {version: 1, runId, nonce: 'b'.repeat(32)};
+    await control('request', unreleased);
+    assert.deepEqual(await until(ack, value => value?.nonce === unreleased.nonce), {...unreleased, pid: afterReset.owned.mainPid});
+    const failed = await cli(['scenario', runId, 'hub-paired'], {entry});
+    assert.equal(failed.code, 1);
+    assert.equal(failed.result.cause, 'reset-failed');
+    assert.match(failed.result.detail, /Feed pause needs matching paired reseed authorization/);
+    const stopped = await doctor(runId);
+    assert.equal(stopped.state, 'stopped');
+    assert.equal(stopped.proof.sums, 'ok');
+    const cleanup = await cli(['stop', runId], {entry});
+    assert.equal(cleanup.code, 0, cleanup.stderr);
+    assert.deepEqual(await readFile(manifest), frozen);
+    started.delete(runId);
+  } finally {
+    if (started.has(runId)) {await cli(['stop', runId], {entry}); started.delete(runId);}
+    await hub.close();
+  }
 });

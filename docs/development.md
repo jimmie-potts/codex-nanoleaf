@@ -160,6 +160,18 @@ To make a delivery evidence run for a `hub-paired` change, run `node tests/fixtu
 
 `summary.txt` in the record directory lists each operation's own exit code.
 
+### Aggregate reset pause
+
+An explicitly launched disposable `hub-paired` wall can pause its Hub feed while the owner resets. The adapter passes `--feed-pause-runtime <runtime-dir> --feed-pause-run <run-id>` to the demo; ordinary launches do not enable these controls. In the existing private runtime directory, `feed-pause.request` and `feed-pause.release` contain exactly `{version:1,runId,nonce}`. The nonce is 32 lowercase hexadecimal characters. Controls must be owned, private regular files of at most 4 KiB, with no links.
+
+The paired writer stops admitting Hub reads and finishes its active read before atomically writing mode-0600 `feed-pause.ack`, containing the request fields and its positive integer `pid`. The page, health route and controller reads remain available, and retained feed state ages normally. Invalid requests block polling without a success acknowledgment. Removing the request resumes the same process. A release file alone has no effect on a running process.
+
+After the Hub owner is ready again, the coordinator writes a matching release and reseeds the wall `hub-paired`. The core stops the old process before seed. Seed refuses an outstanding pause without matching authorization, or a change to another scenario; after fresh state is successfully written, it removes release, acknowledgment and request, in that order. The replacement can then accept the owner's lower new revision. Token files and recorded ports remain the same. Failed seed remains stoppable and does not release polling.
+
+The `paired-feed` diagnostic skips a valid pause and fails an invalid one before probing the Hub. Avoid concurrent individual `doctor`, capture or scenario commands during aggregate pause: the coordinator serializes aggregate mutations, and an already active independent diagnostic is outside the serving process's drain acknowledgment. After release, require the feed check to pass. These controls do not apply to installed Nanoleaf or physical devices.
+
+The Python and verification suites exercise held reads, invalid controls, release refusal, nonce changes, lower revision recovery and ordinary-launch isolation. The `paused paired run` case in `npm run test:verify:lifecycle` additionally captures real browser proof, checks that the old unit is stopped inside the seed callback, and verifies frozen proof after reset and failed release. Run it with `APP_VERIFY_REQUIRE_SYSTEMD=1` on the owner host; a skipped result is not systemd qualification.
+
 ## Hosted CI
 
 Depot CI runs the workflow in `.depot/workflows/ci.yml` on pull requests and pushes to `main`. It reports each job as a GitHub check. A newer PR revision cancels the superseded PR run, and each `main` revision runs independently. Each job has a ten-minute timeout. Depot CI provides only Linux sandboxes, so normal CI has five Linux jobs:

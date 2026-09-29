@@ -34,6 +34,9 @@ import threading
 import time
 from urllib.parse import urlsplit
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from verify_feed_pause import FeedPause, PauseError
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'bridge'))
 import bridge
@@ -360,7 +363,8 @@ def worker_stand_in(directory, now=time.time, request=refuse_light_request, cont
     return update
 
 
-def seed(directory, scenario='reference', now=time.time, hub_feed=None, credentials=None):
+def seed(directory, scenario='reference', now=time.time, hub_feed=None, credentials=None,
+         verify_runtime=None, verify_run_id=None):
     """Write a scenario's synthetic installation into an empty state directory and run the worker stand-in once.
 
     hub-paired also needs hub_feed, the paired Hub run's origin, and credentials, the run directory
@@ -374,6 +378,8 @@ def seed(directory, scenario='reference', now=time.time, hub_feed=None, credenti
         raise ValueError('Seed an empty state directory. A run resets its state by emptying it first.')
     definition = SCENARIOS[scenario]
     paired = definition.get('paired', False)
+    pause = pause_context(directory, verify_runtime, verify_run_id)
+    release = pause.seed_release(paired) if pause else None
     if paired:
         if credentials is None:
             raise PairingError('hub-paired needs the run directory that holds its credential files.')
@@ -411,6 +417,8 @@ def seed(directory, scenario='reference', now=time.time, hub_feed=None, credenti
         pair(directory, port, credentials, controller_token)
     jsonfile.write_json(directory / MARKER, {'scenario': scenario, 'seededBy': 'scripts/demo.py seed',
                                              **({'pairedPort': port, 'hubFeed': hub_feed} if paired else {})})
+    if pause:
+        pause.consume_release(release)
 
 
 def prepare(directory, now=time.time):
@@ -460,6 +468,14 @@ def drive(directory, transition, now=time.time, request=refuse_light_request):
     return {'transition': transition, 'tasks': statuses}
 
 
+def pause_context(directory, runtime, run_id):
+    if runtime is None and run_id is None:
+        return None
+    if runtime is None or run_id is None:
+        raise PauseError('Feed pause needs an explicit run directory and identity.')
+    return FeedPause(directory, runtime, run_id)
+
+
 class PairedWriter:
     """The worker stand-in of a hub-paired run.
 
@@ -469,8 +485,9 @@ class PairedWriter:
     renders or sends: every light request stays refused.
     """
 
-    def __init__(self, directory, now=time.time, request=refuse_light_request):
+    def __init__(self, directory, now=time.time, request=refuse_light_request, pause=None):
         self.directory, self.now = directory, now
+        self.pause = pause
         self.targets = [configuration.load_config(directory, device, request=request) for device in registered(directory)]
         self.poller = shared_source.Poller(directory)
         self.woken = threading.Event()
@@ -482,7 +499,10 @@ class PairedWriter:
 
     def run_pass(self):
         with self.lock:
-            self.poller.tick(self.now())
+            if self.pause is None or not self.pause.blocked():
+                self.poller.tick(self.now())
+                if self.pause:
+                    self.pause.blocked()
             instant = self.now()
             with contextlib.closing(database.connect_state(self.directory)) as db, db:
                 db.execute('BEGIN IMMEDIATE')
@@ -621,7 +641,8 @@ def verification_handler(app, token, instance, directory, hub_feed=None):
     return Handler
 
 
-def serve(directory, boundary, port=0, now=time.time, controller_port=None):
+def serve(directory, boundary, port=0, now=time.time, controller_port=None,
+          verify_runtime=None, verify_run_id=None):
     """Serve a seeded state directory on 127.0.0.1 until SIGTERM, starting as the installed map does.
 
     With controller_port, also serve the real controller API on that port, 0 letting the kernel
@@ -636,7 +657,8 @@ def serve(directory, boundary, port=0, now=time.time, controller_port=None):
         raise PairingError("hub-feed must be the paired Hub run's origin, http://127.0.0.1:<port>/.")
     config = configuration.load_config(directory, request=boundary.light_request)
     wall_server.ensure_geometry(directory, config, request=boundary.light_request)
-    writer = PairedWriter(directory, now, boundary.light_request) if paired else None
+    pause = pause_context(directory, verify_runtime, verify_run_id)
+    writer = PairedWriter(directory, now, boundary.light_request, pause) if paired else None
     launch = writer.wake if writer else worker_stand_in(directory, now, boundary.light_request)
     app = wall_server.App(directory, config, launch=launch, request=boundary.light_request)
     app.geometry_attempts = 1  # As wall_server.serve: startup used the first of the map's bounded layout reads.
@@ -683,6 +705,9 @@ def main(argv=None):
     seeding.add_argument('--credentials', type=Path, help=f'hub-paired: the run directory holding {FEED_TOKEN} and {CONTROLLER_TOKEN}.')
     serving.add_argument('--port', type=int, default=0, help='Port on 127.0.0.1; 0 picks a free one.')
     serving.add_argument('--controller-port', type=int, help='Also serve the controller API on this 127.0.0.1 port; 0 picks a free one.')
+    for command in (seeding, serving):
+        command.add_argument('--feed-pause-runtime', type=Path, help='Disposable verification run directory.')
+        command.add_argument('--feed-pause-run', help='Disposable verification run identity.')
     driving.add_argument('transition', choices=list(TRANSITIONS))
     args = parser.parse_args(argv)
 
@@ -705,14 +730,19 @@ def main(argv=None):
     boundary = install_boundary(directory / BOUNDARY_LOG, None if args.command == 'seed' else marker(directory).get('pairedPort'))
     if args.command == 'seed':
         try:
-            seed(directory, args.scenario, hub_feed=args.hub_feed, credentials=args.credentials)
-        except PairingError as error:
+            seed(directory, args.scenario, hub_feed=args.hub_feed, credentials=args.credentials,
+                 verify_runtime=args.feed_pause_runtime, verify_run_id=args.feed_pause_run)
+        except (PairingError, PauseError) as error:
             parser.error(str(error))
         print(json.dumps({'scenario': args.scenario}))
     elif args.command == 'drive':
         print(json.dumps(drive(directory, args.transition, request=boundary.light_request)))
     else:
-        serve(directory, boundary, args.port, controller_port=args.controller_port)
+        try:
+            serve(directory, boundary, args.port, controller_port=args.controller_port,
+                  verify_runtime=args.feed_pause_runtime, verify_run_id=args.feed_pause_run)
+        except PauseError as error:
+            parser.error(str(error))
 
 
 if __name__ == '__main__':

@@ -20,6 +20,7 @@ import os
 from pathlib import Path
 import secrets
 import signal
+import shutil
 import socket
 import sqlite3
 import subprocess
@@ -553,6 +554,9 @@ class StandInHub:
         self.envelope = copy.deepcopy(FEED['envelope'])
         self.status = 200
         self.requests = []
+        self.hold_next = False
+        self.entered = threading.Event()
+        self.release = threading.Event()
         outer = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -561,6 +565,10 @@ class StandInHub:
 
             def do_GET(self):
                 outer.requests.append(self.path)
+                if outer.hold_next:
+                    outer.hold_next = False
+                    outer.entered.set()
+                    outer.release.wait(10)
                 ok = (self.path == '/api/monitor/v1/sessions?snapshotVersion=1.2' and self.headers.get('X-Pixoo-Request') == '1'
                       and self.headers.get('Authorization') == 'Bearer ' + feed_token)
                 status = outer.status if ok else 401
@@ -816,11 +824,12 @@ class FreePortTest(unittest.TestCase):
 class PairedRun:
     """`demo.py serve` of a hub-paired run beneath the test backstop, with its controller listener."""
 
-    def __init__(self, directory, port=0, controller_port=0):
+    def __init__(self, directory, port=0, controller_port=0, pause=True):
         environment = dict(os.environ, PYTHONDONTWRITEBYTECODE='1', TMPDIR=str(directory.parent))
         self.directory = directory
         self.process = subprocess.Popen([sys.executable, '-u', str(BACKSTOP), 'serve', '--state-dir', str(directory), '--port', str(port),
-                                         '--controller-port', str(controller_port)],
+                                         '--controller-port', str(controller_port),
+                                         *(['--feed-pause-runtime', str(directory.parent), '--feed-pause-run', directory.parent.name] if pause else [])],
                                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=environment, cwd=ROOT)
         self.ready = json.loads(self.process.stdout.readline())
         self.url = self.ready['url']
@@ -839,6 +848,22 @@ class PairedRun:
             self.process.send_signal(signal.SIGTERM)
         output, errors = self.process.communicate(timeout=10)
         return self.process.returncode, output, errors
+
+
+def write_pause_control(runtime, kind, value):
+    path = runtime / f'feed-pause.{kind}'
+    temporary = runtime / f'.feed-pause-{kind}-{secrets.token_hex(8)}'
+    with os.fdopen(os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w') as stream:
+        stream.write(value if isinstance(value, str) else json.dumps(value))
+    os.replace(temporary, path)
+    return path
+
+
+def pause_ack(runtime):
+    try:
+        return json.loads((runtime / 'feed-pause.ack').read_text())
+    except FileNotFoundError:
+        return None
 
 
 class PairedServeTest(Directories):
@@ -906,6 +931,144 @@ class PairedServeTest(Directories):
         for value in self.tokens.values():
             self.assertNotIn(value, output + errors)
         self.assertFalse((self.runtime / 'backstop.jsonl').exists())
+
+    def test_pause_ack_waits_for_a_held_feed_read_and_pages_stay_responsive(self):
+        self.pair()
+        self.hub.hold_next = True
+        run = self.serve()
+        request = self.runtime / 'feed-pause.request'
+        ack = self.runtime / 'feed-pause.ack'
+        nonce = '0123456789abcdef' * 2
+        expected = {'version': 1, 'runId': self.runtime.name, 'nonce': nonce, 'pid': run.process.pid}
+        try:
+            self.assertTrue(self.hub.entered.wait(5), 'the wall did not start its paired feed read')
+            temporary = self.runtime / 'feed-pause.request.tmp'
+            with os.fdopen(os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w') as stream:
+                json.dump({'version': 1, 'runId': self.runtime.name, 'nonce': nonce}, stream)
+            os.replace(temporary, request)
+            time.sleep(0.3)
+            self.assertFalse(ack.exists(), 'the wall acknowledged before its Hub read drained')
+        finally:
+            self.hub.release.set()
+        acknowledged = until(lambda: json.loads(ack.read_text()) if ack.exists() else None,
+                             lambda value: value == expected, seconds=5)
+        self.assertEqual(acknowledged, expected, 'the wall did not acknowledge the drained request')
+        calls_after_ack = len(self.hub.requests)
+        self.assertIsNone(run.process.poll(), 'the consumer must stay running while paused')
+        self.assertEqual(run.get('/')[0], 200)
+        self.assertEqual(run.state()['scenario'], 'hub-paired')
+        self.assertEqual(call(run.controller + 'controller/v1/devices', self.tokens[demo.CONTROLLER_TOKEN])[0], 200)
+        stale = until(run.state, lambda value: value['feed']['connection'] == 'stale', seconds=7)
+        self.assertEqual(stale['feed']['revision'], 7, 'the paused page retains its last applied feed')
+        self.assertEqual(len(self.hub.requests), calls_after_ack,
+                         'timer and local reads must not issue another Hub request after ack')
+
+    def test_release_alone_keeps_pause_new_nonce_is_acknowledged_and_unlink_resumes(self):
+        self.pair()
+        run = self.serve()
+        until(run.state, lambda value: value['feed']['connection'] == 'current')
+        first = {'version': 1, 'runId': self.runtime.name, 'nonce': 'a' * 32}
+        request = write_pause_control(self.runtime, 'request', first)
+        expected = dict(first, pid=run.process.pid)
+        self.assertEqual(until(lambda: pause_ack(self.runtime), lambda value: value == expected, seconds=5), expected)
+        calls = len(self.hub.requests)
+        write_pause_control(self.runtime, 'release', first)
+        run.get('/')
+        run.state()
+        time.sleep(1.2)
+        self.assertEqual(len(self.hub.requests), calls)
+        second = dict(first, nonce='b' * 32)
+        write_pause_control(self.runtime, 'request', second)
+        expected = dict(second, pid=run.process.pid)
+        self.assertEqual(until(lambda: pause_ack(self.runtime), lambda value: value == expected, seconds=5), expected)
+        self.assertEqual(len(self.hub.requests), calls)
+        request.unlink()
+        self.assertGreater(until(lambda: len(self.hub.requests), lambda count: count > calls, seconds=5), calls)
+        self.assertFalse(until(lambda: (self.runtime / 'feed-pause.ack').exists(), lambda exists: not exists, seconds=5))
+        self.assertIsNone(run.process.poll())
+
+    def test_invalid_pause_controls_block_polling_without_acknowledgment(self):
+        for kind in ('malformed', 'oversized', 'nonprivate', 'linked', 'wrong-run'):
+            with self.subTest(kind=kind):
+                runtime = self.directory()
+                data = runtime / 'data'
+                data.mkdir()
+                tokens = write_credentials(runtime)
+                hub = StandInHub(tokens[demo.FEED_TOKEN])
+                try:
+                    demo.seed(data, 'hub-paired', hub_feed=hub.origin, credentials=runtime)
+                    record = {'version': 1, 'runId': runtime.name, 'nonce': 'c' * 32}
+                    if kind == 'malformed':
+                        write_pause_control(runtime, 'request', '{')
+                    elif kind == 'oversized':
+                        write_pause_control(runtime, 'request', json.dumps(record) + ' ' * 4096)
+                    elif kind == 'nonprivate':
+                        write_pause_control(runtime, 'request', record).chmod(0o640)
+                    elif kind == 'linked':
+                        target = write_pause_control(runtime, 'target', record)
+                        (runtime / 'feed-pause.request').symlink_to(target)
+                    else:
+                        write_pause_control(runtime, 'request', dict(record, runId='another-run'))
+                    run = PairedRun(data)
+                    try:
+                        self.assertEqual(run.get('/')[0], 200)
+                        time.sleep(1.4)
+                        self.assertEqual(hub.requests, [])
+                        self.assertIsNone(pause_ack(runtime))
+                        self.assertIsNone(run.process.poll())
+                    finally:
+                        run.stop()
+                finally:
+                    hub.close()
+
+    def test_pause_is_enabled_only_by_explicit_launch_arguments(self):
+        self.pair()
+        write_pause_control(self.runtime, 'request', {'version': 1, 'runId': self.runtime.name, 'nonce': 'c' * 32})
+        run = self.serve(pause=False)
+        current = until(run.state, lambda value: value['feed']['connection'] == 'current')
+        self.assertEqual(current['feed']['revision'], 7)
+        self.assertIsNone(pause_ack(self.runtime))
+
+    def test_paused_seed_requires_release_preserves_tokens_and_accepts_lower_revision(self):
+        self.pair()
+        run = self.serve()
+        until(run.state, lambda value: value['feed']['connection'] == 'current' and value['feed']['revision'] == 7)
+        value = {'version': 1, 'runId': self.runtime.name, 'nonce': 'd' * 32}
+        request = write_pause_control(self.runtime, 'request', value)
+        expected = dict(value, pid=run.process.pid)
+        self.assertEqual(until(lambda: pause_ack(self.runtime), lambda ack: ack == expected, seconds=5), expected)
+        tokens = {name: (self.runtime / name).read_bytes() for name in (demo.FEED_TOKEN, demo.CONTROLLER_TOKEN)}
+        old_port, old_controller = run.port, int(run.controller.rsplit(':', 1)[1].rstrip('/'))
+        self.assertEqual(run.stop()[0], 0)
+        shutil.rmtree(self.data)
+        self.data.mkdir()
+
+        def reseed(scenario='hub-paired'):
+            return demo.seed(self.data, scenario,
+                             **({'hub_feed': self.hub.origin, 'credentials': self.runtime} if scenario == 'hub-paired' else {}),
+                             verify_runtime=self.runtime, verify_run_id=self.runtime.name)
+
+        for authorization in (None, dict(value, nonce='e' * 32)):
+            if authorization:
+                write_pause_control(self.runtime, 'release', authorization)
+            with self.assertRaisesRegex(ValueError, 'matching paired reseed authorization'):
+                reseed()
+            self.assertEqual(list(self.data.iterdir()), [])
+            self.assertTrue(request.exists())
+            self.assertEqual(pause_ack(self.runtime), expected)
+        write_pause_control(self.runtime, 'release', value)
+        with self.assertRaisesRegex(ValueError, 'matching paired reseed authorization'):
+            reseed('reference')
+        self.assertEqual(list(self.data.iterdir()), [])
+        self.hub.envelope['snapshot']['revision'] = 1
+        reseed()
+        self.assertEqual({name: (self.runtime / name).read_bytes() for name in tokens}, tokens)
+        for kind in ('request', 'ack', 'release'):
+            self.assertFalse((self.runtime / f'feed-pause.{kind}').exists())
+        fresh = self.serve(port=old_port, controller_port=old_controller)
+        state = until(fresh.state, lambda value: value['feed']['connection'] == 'current' and value['feed']['revision'] == 1)
+        self.assertEqual(state['feed']['ownerId'], 'verify-owner')
+        self.assertEqual((fresh.port, int(fresh.controller.rsplit(':', 1)[1].rstrip('/'))), (old_port, old_controller))
 
     def test_a_hub_that_rejects_the_feed_credential_leaves_the_wall_serving_until_it_accepts(self):
         self.pair()
