@@ -30,6 +30,7 @@ import textwrap
 import threading
 import time
 import unittest
+from unittest import mock
 import urllib.error
 import urllib.request
 
@@ -866,6 +867,76 @@ def pause_ack(runtime):
         return None
 
 
+class FeedPauseReleaseTest(Directories):
+    def controls(self):
+        runtime = self.directory()
+        pause = demo.FeedPause(runtime / 'data', runtime, runtime.name)
+        value = {'version': 1, 'runId': runtime.name, 'nonce': 'a' * 32}
+        write_pause_control(runtime, 'request', value)
+        write_pause_control(runtime, 'release', value)
+        return runtime, pause, value
+
+    def test_release_never_removes_a_new_request_published_during_control_cleanup(self):
+        runtime, pause, value = self.controls()
+        newer = dict(value, nonce='b' * 32)
+        authorization = pause.seed_release(True)
+        unlink = os.unlink
+        published = False
+
+        def replace_before_cleanup(path, *args, **kwargs):
+            nonlocal published
+            if not published:
+                published = True
+                write_pause_control(runtime, 'request', newer)
+            return unlink(path, *args, **kwargs)
+
+        with mock.patch('verify_feed_pause.os.unlink', side_effect=replace_before_cleanup):
+            with contextlib.suppress(demo.PauseError):
+                pause.consume_release(authorization)
+        self.assertTrue(published, 'exercise replacement while release controls are consumed')
+        self.assertEqual(pause.request(), newer, 'old authorization must not delete a newer pause')
+        self.assertTrue(pause.blocked(), 'the replacement consumer must retain the new pause')
+
+    def test_json_numeric_version_agrees_with_the_javascript_diagnostic(self):
+        runtime, pause, value = self.controls()
+        write_pause_control(runtime, 'request', dict(value, version=1.0))
+        self.assertEqual(pause.request(), value)
+        for invalid in (True, 2, '1'):
+            write_pause_control(runtime, 'request', dict(value, version=invalid))
+            with self.assertRaises(demo.PauseError):
+                pause.request()
+
+    def test_invalid_request_withdraws_an_existing_ack_and_same_nonce_can_recover(self):
+        runtime, pause, value = self.controls()
+        self.assertTrue(pause.blocked())
+        self.assertEqual(pause_ack(runtime), dict(value, pid=os.getpid()))
+        write_pause_control(runtime, 'request', '{')
+        self.assertTrue(pause.blocked())
+        self.assertIsNone(pause_ack(runtime))
+        write_pause_control(runtime, 'request', value)
+        self.assertTrue(pause.blocked())
+        self.assertEqual(pause_ack(runtime), dict(value, pid=os.getpid()))
+
+    def test_request_replaced_before_claim_is_restored_without_release(self):
+        runtime, pause, value = self.controls()
+        newer = dict(value, nonce='b' * 32)
+        rename = os.rename
+        replaced = False
+
+        def replace_before_claim(source, target):
+            nonlocal replaced
+            if not replaced:
+                replaced = True
+                write_pause_control(runtime, 'request', newer)
+            return rename(source, target)
+
+        with mock.patch('verify_feed_pause.os.rename', side_effect=replace_before_claim):
+            with self.assertRaises(demo.PauseError):
+                pause.consume_release(value)
+        self.assertEqual(pause.request(), newer)
+        self.assertTrue((runtime / 'feed-pause.release').exists())
+
+
 class PairedServeTest(Directories):
     def pair(self, hub=None, tokens=None):
         self.runtime = self.directory()
@@ -958,6 +1029,12 @@ class PairedServeTest(Directories):
         self.assertEqual(run.get('/')[0], 200)
         self.assertEqual(run.state()['scenario'], 'hub-paired')
         self.assertEqual(call(run.controller + 'controller/v1/devices', self.tokens[demo.CONTROLLER_TOKEN])[0], 200)
+        _, snapshot = call(run.controller + 'controller/integration/v1/snapshot?deviceId=wall', self.tokens[demo.CONTROLLER_TOKEN])
+        command_body = {'apiVersion': snapshot['apiVersion'], 'controllerId': 'wall-controller', 'deviceId': 'wall',
+                        'requestId': snapshot['nextRequestId'], 'expectedRevision': snapshot['revision'],
+                        'command': {'kind': 'settings.set', 'style': 'project'}}
+        self.assertEqual(call(run.controller + 'controller/integration/v1/commands', self.tokens[demo.CONTROLLER_TOKEN], command_body)[0], 202)
+        self.assertEqual(until(run.state, lambda value: value['integration']['applied'] == 1)['integration']['applied'], 1)
         stale = until(run.state, lambda value: value['feed']['connection'] == 'stale', seconds=7)
         self.assertEqual(stale['feed']['revision'], 7, 'the paused page retains its last applied feed')
         self.assertEqual(len(self.hub.requests), calls_after_ack,

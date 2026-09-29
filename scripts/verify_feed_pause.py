@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 import secrets
 import stat
+import tempfile
 
 
 class PauseError(ValueError):
@@ -14,7 +15,10 @@ class PauseError(ValueError):
 
 def read_control(runtime, kind):
     """None means absent. Unsafe, oversized or malformed files fail closed."""
-    path = runtime / f'feed-pause.{kind}'
+    return _read_control(runtime / f'feed-pause.{kind}', kind)
+
+
+def _read_control(path, kind):
     try:
         descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     except FileNotFoundError:
@@ -35,7 +39,7 @@ def read_control(runtime, kind):
             raise ValueError()
         value = json.loads(raw)
         keys = {'version', 'runId', 'nonce'} | ({'pid'} if kind == 'ack' else set())
-        if (not isinstance(value, dict) or set(value) != keys or type(value['version']) is not int or
+        if (not isinstance(value, dict) or set(value) != keys or type(value['version']) not in (int, float) or
                 value['version'] != 1 or not isinstance(value['runId'], str) or
                 not re.fullmatch(r'[A-Za-z0-9_-]{1,120}', value['runId']) or
                 not isinstance(value['nonce'], str) or not re.fullmatch(r'[0-9a-f]{32}', value['nonce']) or
@@ -94,7 +98,8 @@ class FeedPause:
                     temporary.unlink()
         except (PauseError, OSError):
             # Invalid controls or a failed ack keep admission closed. The coordinator times out.
-            pass
+            with contextlib.suppress(OSError):
+                (self.runtime / 'feed-pause.ack').unlink()
         return True
 
     def seed_release(self, paired):
@@ -111,10 +116,41 @@ class FeedPause:
             return
         if self.request() != request or read_control(self.runtime, 'release') != request:
             raise PauseError('Feed pause authorization changed during seed.')
-        # The core has stopped the old unit. Request is removed last, after successful seed.
-        for kind in ('release', 'ack', 'request'):
-            try:
-                (self.runtime / f'feed-pause.{kind}').unlink()
-            except FileNotFoundError:
-                if kind != 'ack':
+        # The old unit is stopped and fresh state is written. Claim each file before
+        # validating and deleting it; never unlink the public path after a nonce check.
+        claimed = Path(tempfile.mkdtemp(prefix='.feed-pause-consume-', dir=self.runtime))
+        paths = {}
+        try:
+            for kind in ('request', 'release', 'ack'):
+                path = claimed / kind
+                try:
+                    os.rename(self.runtime / f'feed-pause.{kind}', path)
+                except FileNotFoundError:
+                    if kind == 'ack':
+                        continue
                     raise PauseError('Feed pause authorization changed during seed.') from None
+                paths[kind] = path
+                value = _read_control(path, kind)
+                if kind == 'ack' and value is not None:
+                    value = {key: value[key] for key in ('version', 'runId', 'nonce')}
+                if value != request:
+                    raise PauseError('Feed pause authorization changed during seed.')
+            if self.request() is not None or read_control(self.runtime, 'release') is not None:
+                raise PauseError('Feed pause authorization changed during seed.')
+            for path in paths.values():
+                path.unlink()
+            if self.request() is not None or read_control(self.runtime, 'release') is not None:
+                raise PauseError('Feed pause authorization changed during seed.')
+        except (OSError, PauseError):
+            # Restore claims without replacing controls published since the claim.
+            # An occupied path retains its private claim until failed-run cleanup.
+            for kind, path in paths.items():
+                try:
+                    os.link(path, self.runtime / f'feed-pause.{kind}', follow_symlinks=False)
+                    path.unlink()
+                except OSError:
+                    pass
+            raise PauseError('Feed pause authorization changed during seed.') from None
+        finally:
+            with contextlib.suppress(OSError):
+                claimed.rmdir()

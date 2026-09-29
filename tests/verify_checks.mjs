@@ -466,11 +466,19 @@ describe('hub-paired runs', () => {
       await writeFile(path, JSON.stringify(request), {mode: 0o600});
       await until(async () => JSON.parse(await readFile(join(run.context.runtimeDir, 'feed-pause.ack'), 'utf8').catch(() => '{}')),
         ack => ack.nonce === request.nonce);
-      const calls = run.hub.requests.length;
+      const calls = run.hub.requests;
+      assert.equal(typeof calls, 'number');
       assert.deepEqual(await pairedFeed(run.context), {outcome: 'skipped', reason: 'the Hub feed is paused for aggregate reset'});
+      const release = join(run.context.runtimeDir, 'feed-pause.release');
+      await writeFile(release, '{', {mode: 0o600});
+      assert.deepEqual(await pairedFeed(run.context), {outcome: 'failed', reason: 'feed-pause.release is invalid for this run'});
+      await rm(release);
       await writeFile(path, '{', {mode: 0o600});
       assert.deepEqual(await pairedFeed(run.context), {outcome: 'failed', reason: 'feed-pause.request is invalid for this run'});
-      assert.equal(run.hub.requests.length, calls);
+      assert.equal(run.hub.requests, calls);
+      // A deliberate direct probe demonstrates that the counter detects the forbidden effect.
+      await fetch(new URL('api/monitor/v1/sessions?snapshotVersion=1.2', run.hub.origin));
+      assert.equal(run.hub.requests, calls + 1);
     } finally { await run.stop(); }
   });
 

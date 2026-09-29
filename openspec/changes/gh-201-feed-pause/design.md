@@ -12,7 +12,7 @@ The existing paired writer holds one lock across the real Poller and local worke
 
 Use the existing private runtime directory. `feed-pause.request` and `feed-pause.release` contain strict JSON `{version:1,runId,nonce}`, with a 32-character lowercase hexadecimal nonce. `feed-pause.ack` adds the live process's positive integer `pid`. Reads are bounded to 4 KiB, regular, owned, private files without symlinks. Acknowledgments use mode 0600 and atomic replacement; no credential appears in controls or errors.
 
-A pause stays active through the owner reset. Hub validates its nonce and the receipt's systemd process identity, then writes release authorization only after its owner reseed succeeds. Consumer seed checks authorization before writing and consumes it after successful seed, before fresh launch. An unconditional seed-time unlink could resume an old consumer during owner reset; leaving pause through readiness would prevent recovery. Neither alternative satisfies the contract.
+A pause stays active through the owner reset. Hub validates its nonce and the receipt's systemd process identity, then writes release authorization only after its owner reseed succeeds. Consumer seed checks authorization before writing and consumes it after successful seed, before fresh launch. Consumption atomically claims the controls into a private directory, validates the claimed contents, and deletes only those claimed files. A changed claim is restored without overwriting a newer public control; failed-run cleanup removes any retained claims. An unconditional seed-time unlink could resume an old consumer during owner reset; leaving pause through readiness would prevent recovery. Neither alternative satisfies the contract.
 
 Diagnostics skip with an explicit pause reason and do not probe Hub while paused; invalid controls fail. Hub must require ordinary passed checks after release. The acknowledgment covers this serving process's requests. The coordinator serializes aggregate mutations and avoids concurrent per-run doctor/capture/scenario operations while resetting.
 
@@ -20,7 +20,7 @@ Diagnostics skip with an explicit pause reason and do not probe Hub while paused
 
 - A paused feed might appear current → retain the prior snapshot but preserve existing age/freshness semantics and mark observation stale where required.
 - A request changes during acknowledgment or seed → recheck run and nonce before publishing or consuming controls; never remove a newer request using old authorization.
-- Reset fails halfway → retain the pause and report the named error; existing core stop remains the cleanup path. No automatic rollback or command retry is introduced.
+- Reset fails halfway → report the named error and never resume polling. Seed itself does not consume refused authorization; the core may remove runtime controls when cleaning up an already stopped failed run. Frozen proof remains separate. No automatic rollback or command retry is introduced.
 - Private runtime files are removed or made invalid → stop admission and withhold successful acknowledgment instead of silently ignoring the request.
 
 ## Migration Plan
