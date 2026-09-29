@@ -16,6 +16,7 @@ import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {promisify} from 'node:util';
 import {definePlugin} from '@jimmie-potts/app-verify';
+import {feedPauseCheck} from './feed-pause.mjs';
 import {boundaryEntries, captureSteps, INSTALLED_PORTS, isLayoutRead, isPairedConnect, layoutReadProblem, PAIRED, pairedPort, readHubFeed, wallState} from './steps.mjs';
 
 export {INSTALLED_PORTS, PAIRED, pairedPort};
@@ -154,8 +155,10 @@ export const PAIRING_WINDOW_MS = 30000;
  * `failed` after that, naming the feed's error: a pairing that never came up. Once the wall has a
  * snapshot, a stale feed or a revision that stays behind the Hub's for about 3 s fails it.
  */
-export async function pairedFeed({scenario, url, dataDir, inputs, runtimeDir, signal}) {
+export async function pairedFeed({scenario, url, dataDir, inputs, runtimeDir, runId, signal}) {
   if (scenario !== PAIRED.scenario) return {outcome: 'skipped', reason: `${scenario} is not paired with a Hub`};
+  const paused = await feedPauseCheck(runtimeDir, runId);
+  if (paused) return paused;
   const initial = (await wallState(url, signal)).feed;
   if (initial.revision === null) {
     const cause = initial.error ?? initial.connection;
@@ -175,6 +178,8 @@ export async function pairedFeed({scenario, url, dataDir, inputs, runtimeDir, si
     }
     let hub;
     try {
+      const paused = await feedPauseCheck(runtimeDir, runId);
+      if (paused) return paused;
       hub = await readHubFeed({inputs, runtimeDir, signal});
     } catch (error) {
       problem = error.message;
@@ -207,6 +212,8 @@ export function demoCause(stderrTail) {
   if (module) return `Python module ${module[1]} is missing`;
   if (/^demo\.py: error: Refusing the state directory: it is the installation's own state\.$/.test(last)) return 'refused the installation state directory';
   if (/^demo\.py: error: Refusing the state directory: it has no demo-run\.json from demo\.py seed\.$/.test(last)) return 'the state directory was not seeded by demo.py';
+  const pause = /^demo\.py: error: ((?:Invalid feed pause|Feed pause)[A-Za-z .]+)\.$/.exec(last);
+  if (pause) return pause[1];
   if (/^demo\.py(?: [a-z]+)?: error: /.test(last)) return 'demo.py rejected its arguments';
   const type = /^([A-Za-z_][A-Za-z0-9_.]{0,80}(?:Error|Exception|Exit|Interrupt))(?::|$)/.exec(last);
   return type ? type[1] : undefined;
@@ -223,10 +230,11 @@ export function failureCause(stderrTail) {
  * interpreter, the checkout and the state directory. hub-paired also passes the Hub origin and the
  * runtime directory that holds the credential files; no credential is ever an argument.
  */
-export async function seedWith(python, root, {dataDir, scenario, inputs = {}, runtimeDir}, demo = join(root, 'scripts/demo.py')) {
+export async function seedWith(python, root, {dataDir, scenario, inputs = {}, runtimeDir, runId}, demo = join(root, 'scripts/demo.py')) {
   const paired = scenario === PAIRED.scenario ? ['--hub-feed', inputs['hub-feed'] ?? '', '--credentials', runtimeDir] : [];
+  const pause = runtimeDir && runId ? ['--feed-pause-runtime', runtimeDir, '--feed-pause-run', runId] : [];
   try {
-    await run(python, [demo, 'seed', '--state-dir', dataDir, '--scenario', scenario, ...paired], {cwd: root});
+    await run(python, [demo, 'seed', '--state-dir', dataDir, '--scenario', scenario, ...paired, ...pause], {cwd: root});
   } catch (error) {
     if (error.code === 'ENOENT') throw new Error('demo.py seed failed: the Python interpreter was not found');
     throw new Error(`demo.py seed failed: ${demoCause(error.stderr) ?? `exit status ${Number.isInteger(error.code) ? error.code : 'unknown'}`}`);
@@ -257,8 +265,9 @@ export function createPlugin({root = fileURLToPath(new URL('../..', import.meta.
     },
     // The controller listener starts with hub-paired. Once its endpoint is recorded, every later
     // scenario serves it again on the same port, as the core requires of a relaunch.
-    launch: ({dataDir, port, scenario, endpointPorts = {}}) => ({
+    launch: ({dataDir, port, scenario, runtimeDir, runId, endpointPorts = {}}) => ({
       argv: [python, '-u', demo, 'serve', '--state-dir', dataDir, '--port', String(port),
+        ...(scenario === PAIRED.scenario ? ['--feed-pause-runtime', runtimeDir, '--feed-pause-run', runId] : []),
         ...(scenario === PAIRED.scenario || endpointPorts.controller !== undefined ? ['--controller-port', String(endpointPorts.controller ?? 0)] : [])],
       env: {PYTHONDONTWRITEBYTECODE: '1', PYTHONUNBUFFERED: '1'},
       cwd: root,

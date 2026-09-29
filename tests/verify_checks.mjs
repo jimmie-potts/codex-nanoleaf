@@ -73,7 +73,7 @@ async function startRun(scenario, {serve, hub, runtimeDir, port = 0, endpointPor
     hub ??= owned = await standInHub(tokens.feed);
   }
   const inputs = pairing ? {'hub-feed': hub.origin} : {};
-  const paths = {runId: `wall-test-${randomBytes(3).toString('hex')}`, root: used.root, runtimeDir, dataDir, scenario, inputs};
+  const paths = {runId: runtimeDir.split('/').at(-1), root: used.root, runtimeDir, dataDir, scenario, inputs};
   await used.scenarios[scenario].seed(paths);
   const spec = await used.launch({...paths, port, node: process.execPath, endpointPorts});
   // A test can serve through another entry point that takes demo.py's arguments.
@@ -316,8 +316,8 @@ describe('plug-in surface', () => {
   });
 
   test('hub-paired launches the controller listener, and every later scenario keeps it on its recorded port', async () => {
-    const launch = (scenario, endpointPorts) => plugin.launch({dataDir: '/run/data', port: 41705, scenario, endpointPorts, inputs: {'hub-feed': 'http://127.0.0.1:45001/'}});
-    assert.deepEqual((await launch('hub-paired', {})).argv.slice(-6), ['--state-dir', '/run/data', '--port', '41705', '--controller-port', '0']);
+    const launch = (scenario, endpointPorts) => plugin.launch({dataDir: '/run/data', runtimeDir: '/run', runId: 'run', port: 41705, scenario, endpointPorts, inputs: {'hub-feed': 'http://127.0.0.1:45001/'}});
+    assert.deepEqual((await launch('hub-paired', {})).argv.slice(-6), ['--feed-pause-runtime', '/run', '--feed-pause-run', 'run', '--controller-port', '0']);
     assert.deepEqual((await launch('hub-paired', {controller: 41706})).argv.slice(-2), ['--controller-port', '41706']);
     assert.deepEqual((await launch('reference', {controller: 41706})).argv.slice(-2), ['--controller-port', '41706']);
     const spec = await launch('hub-paired', {});
@@ -457,6 +457,31 @@ describe('served runs', () => {
 });
 
 describe('hub-paired runs', () => {
+  test('paired diagnostics skip a pause and reject malformed controls without probing the Hub', async () => {
+    const run = await startRun('hub-paired');
+    try {
+      await until(() => wallState(run.context.url), value => value.feed.connection === 'current');
+      const request = {version: 1, runId: run.context.runId, nonce: 'a'.repeat(32)};
+      const path = join(run.context.runtimeDir, 'feed-pause.request');
+      await writeFile(path, JSON.stringify(request), {mode: 0o600});
+      await until(async () => JSON.parse(await readFile(join(run.context.runtimeDir, 'feed-pause.ack'), 'utf8').catch(() => '{}')),
+        ack => ack.nonce === request.nonce);
+      const calls = run.hub.requests;
+      assert.equal(typeof calls, 'number');
+      assert.deepEqual(await pairedFeed(run.context), {outcome: 'skipped', reason: 'the Hub feed is paused for aggregate reset'});
+      const release = join(run.context.runtimeDir, 'feed-pause.release');
+      await writeFile(release, '{', {mode: 0o600});
+      assert.deepEqual(await pairedFeed(run.context), {outcome: 'failed', reason: 'feed-pause.release is invalid for this run'});
+      await rm(release);
+      await writeFile(path, '{', {mode: 0o600});
+      assert.deepEqual(await pairedFeed(run.context), {outcome: 'failed', reason: 'feed-pause.request is invalid for this run'});
+      assert.equal(run.hub.requests, calls);
+      // A deliberate direct probe demonstrates that the counter detects the forbidden effect.
+      await fetch(new URL('api/monitor/v1/sessions?snapshotVersion=1.2', run.hub.origin));
+      assert.equal(run.hub.requests, calls + 1);
+    } finally { await run.stop(); }
+  });
+
   test('the wall follows the stand-in Hub feed and both checks pass, with only the paired port contacted', async () => {
     const run = await startRun('hub-paired');
     try {
