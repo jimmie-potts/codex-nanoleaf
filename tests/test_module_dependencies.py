@@ -45,30 +45,66 @@ UNAUDITED = (('_posixsubprocess', 'fork_exec', 'process'), ('_interpreters', 'cr
              ('_xxsubinterpreters', 'create', 'subinterpreter'))
 
 
+SETTERS = {'setattr', 'delattr', '__setattr__', '__delattr__'}
+MODULE_CALLS = {'importlib.import_module', 'import_module', '__import__'}
+
+
 def rebinding_problems(source):
     """Ways the demo source replaces something on another module; an empty list means none.
 
     The single allowed replacement is the process boundary's: one setattr, inside install_boundary,
     in a for loop over exactly UNAUDITED, on the module that loop imports by the loop's own name.
+    An assigned or deleted attribute is resolved through its attribute and subscript chain to a
+    root: an imported name, a local name assigned from one, importlib.import_module(...) or
+    sys.modules[...]. setattr and delattr may only be called by name, never bound, imported,
+    reached as an attribute or named in a string. A static check cannot be complete: deliberately
+    obfuscated rebinding, such as through exec, stays out of scope (#196).
     """
     tree = ast.parse(source)
     parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
-    modules = {alias.asname or alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names}
+    modules = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            modules |= {alias.asname or alias.name.split('.')[0] for alias in node.names}
+        elif isinstance(node, ast.ImportFrom):
+            modules |= {alias.asname or alias.name for alias in node.names}
+
+    def rooted(node):
+        """True when node is reached from another module's namespace."""
+        while isinstance(node, (ast.Attribute, ast.Subscript)):
+            node = node.value
+        if isinstance(node, ast.Call):
+            return ast.unparse(node.func) in MODULE_CALLS
+        return isinstance(node, ast.Name) and node.id in modules
+
+    # A local alias of a module or of something on one, such as `module = wall_server` or `app = wall_server.App`.
+    bindings = [(target.id, node.value) for node in ast.walk(tree)
+                for target in (node.targets if isinstance(node, ast.Assign) else [node.target]
+                               if isinstance(node, (ast.AnnAssign, ast.NamedExpr)) and node.value else [])
+                if isinstance(target, ast.Name)]
+    while aliases := {name for name, value in bindings if name not in modules and rooted(value)}:
+        modules |= aliases
     problems = []
     for node in ast.walk(tree):
-        targets = node.targets if isinstance(node, ast.Assign) else [node.target] if isinstance(node, (ast.AugAssign, ast.AnnAssign)) else []
-        for target in targets:
-            text = ast.unparse(target)
-            if isinstance(target, ast.Attribute) and isinstance(target.value, ast.Name) and target.value.id in modules:
-                problems.append(f'module attribute assignment: {text}')
-            if isinstance(target, ast.Subscript) and (
-                    (isinstance(target.value, ast.Attribute) and target.value.attr == '__dict__')
-                    or (isinstance(target.value, ast.Call) and ast.unparse(target.value.func) in ('vars', 'globals'))
-                    or ast.unparse(target.value) == 'sys.modules'):
-                problems.append(f'namespace assignment: {text}')
-        if isinstance(node, ast.Call) and ast.unparse(node.func) in ('delattr', 'object.__setattr__') or (
-                isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == '__setattr__'):
-            problems.append(f'attribute replacement: {ast.unparse(node)}')
+        text = ast.unparse(node)
+        written = isinstance(getattr(node, 'ctx', None), (ast.Store, ast.Del))
+        if written and isinstance(node, ast.Attribute) and rooted(node):
+            problems.append(f'module attribute assignment: {text}')
+        if written and isinstance(node, ast.Subscript) and (
+                (isinstance(node.value, ast.Attribute) and node.value.attr == '__dict__')
+                or (isinstance(node.value, ast.Call) and ast.unparse(node.value.func) in ('vars', 'globals'))
+                or ast.unparse(node.value) == 'sys.modules'):
+            problems.append(f'namespace assignment: {text}')
+        if isinstance(node, ast.Call) and ast.unparse(node.func) == 'delattr':
+            problems.append(f'attribute replacement: {text}')
+        if isinstance(node, ast.Attribute) and node.attr in SETTERS:
+            problems.append(f'attribute replacement: {text}')
+        if isinstance(node, ast.Name) and node.id in SETTERS and not (isinstance(parents.get(node), ast.Call) and parents[node].func is node):
+            problems.append(f'{node.id} used other than by a call: {ast.unparse(parents[node])}')
+        if isinstance(node, ast.ImportFrom) and {alias.name for alias in node.names} & SETTERS:
+            problems.append(f'setattr imported: {text}')
+        if isinstance(node, ast.Constant) and node.value in SETTERS:
+            problems.append(f'setattr named in a string: {ast.unparse(parents[node])}')
     calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call) and ast.unparse(node.func) == 'setattr']
     if len(calls) != 1:
         problems.append(f'{len(calls)} setattr calls; only the boundary loop may call it once')
@@ -164,6 +200,23 @@ class ModuleDependencyTest(unittest.TestCase):
             'extended loop': source.replace(loop, "for module_name, attribute, kind in UNAUDITED + (('transport', 'light_request', 'light-request'),):"),
             '__dict__ assignment': source.replace(helper, "def rebind():\n    transport.__dict__['light_request'] = None\n\n\n" + helper),
         }
+        # The ordinary spellings from review round 3 of #195 (#196), each of which the round 2 guard accepted.
+        def before_helper(body):
+            return source.replace(helper, 'def rebind():\n    ' + body.replace('\n', '\n    ') + '\n\n\n' + helper)
+        mutations.update({
+            'class attribute through a module': before_helper('wall_server.App.state = lambda self, device=None: {}'),
+            'import_module root': before_helper("importlib.import_module('wall_server').ensure_geometry = None"),
+            'sys.modules root': before_helper("sys.modules['wall_server'].ensure_geometry = None"),
+            'module alias': before_helper('module = wall_server\nmodule.ensure_geometry = None'),
+            'class alias': before_helper('app = wall_server.App\napp.state = None'),
+            'alias of an alias': before_helper('first = wall_server\nsecond = first\nsecond.ensure_geometry = None'),
+            'deleted module attribute': before_helper('del wall_server.ensure_geometry'),
+            'tuple target': before_helper('wall_server.ensure_geometry, other = None, None'),
+            'setattr bound to another name': before_helper("assign = setattr\nassign(wall_server, 'ensure_geometry', None)"),
+            'setattr through getattr': before_helper("getattr(__builtins__, 'setattr')(wall_server, 'ensure_geometry', None)"),
+            'setattr through builtins': before_helper("import builtins\nbuiltins.setattr(wall_server, 'ensure_geometry', None)"),
+            'setattr imported under another name': "from builtins import setattr as assign\n" + source,
+        })
         for name, mutated in mutations.items():
             with self.subTest(mutation=name):
                 self.assertNotEqual(rebinding_problems(mutated), [])

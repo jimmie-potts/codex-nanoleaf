@@ -196,10 +196,12 @@ export const isLayoutRead = entry => entry.kind === 'light-request' && entry.met
 
 /**
  * The map reads its layout at most three times: at startup, then twice more, each on the first poll
- * 10 s or more after its previous read. The recorded times trail the map's decisions by the few
- * milliseconds each read takes to start, so consecutive reads must be at least 9.9 s apart.
+ * 10 s or more after its previous read. A recorded time trails the map's decision by however long
+ * that read took to start, which a pause or slow I/O can stretch, so consecutive reads must be at
+ * least 9 s apart. A map that reads on every 1 s poll still fails the spacing, and one without the
+ * three-read limit fails the count.
  */
-export const LAYOUT_READS = {most: 3, apartMs: 9900};
+export const LAYOUT_READS = {most: 3, apartMs: 9000};
 
 /** Why a run's layout reads exceed the map's bound, or null when they stay within it. */
 export function layoutReadProblem(entries) {
