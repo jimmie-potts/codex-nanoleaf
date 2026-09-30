@@ -205,6 +205,11 @@ describe('plug-in surface', () => {
       ['layout-unavailable', [read(0), read(10.1), read(20.2)], {outcome: 'passed'}],
       ['layout-unavailable', [read(0), read(10.1), read(20.2), read(30.3)], {outcome: 'failed', reason: "4 layout reads, more than the map's 3"}],
       ['layout-unavailable', [read(0), read(3)], {outcome: 'failed', reason: 'layout read 2 came 3000 ms after the previous one'}],
+      // The map decides its reads 10 s apart; a read recorded 500 ms late still passes (#196).
+      ['layout-unavailable', [read(0.5), read(10), read(20)], {outcome: 'passed'}],
+      // A map that reads on every 1 s poll, and one that keeps the 10 s spacing without the three-read limit.
+      ['layout-unavailable', [read(0), read(1)], {outcome: 'failed', reason: 'layout read 2 came 1000 ms after the previous one'}],
+      ['layout-unavailable', [read(0), read(10), read(20), read(30)], {outcome: 'failed', reason: "4 layout reads, more than the map's 3"}],
       ['layout-unavailable', [layoutRead, {...layoutRead, endpoint: '/state'}],
         {outcome: 'failed', reason: "1 device attempt(s) other than the map's layout read recorded since the last seed"}],
       ['layout-unavailable', [], {outcome: 'failed', reason: 'the startup layout read was not attempted and refused'}],
