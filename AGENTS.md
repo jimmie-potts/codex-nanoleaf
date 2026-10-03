@@ -1,6 +1,6 @@
 # Working on Codex Nanoleaf
 
-This repository maps Codex task status to Nanoleaf Lines. The Linux installation keeps its runtime and private state under `~/.local/share/codex-nanoleaf`. Source delivery does not change the installation. The Windows runtime was retired from source ([ADR 0012](docs/decisions/0012-retire-windows-runtime.md)).
+This repository maps Codex task status to Nanoleaf Lines. The Linux installation keeps its runtime and private state under `~/.local/share/codex-nanoleaf`. A source merge alone does not change the installation. The Windows runtime was retired from source ([ADR 0012](docs/decisions/0012-retire-windows-runtime.md)).
 
 ## Development
 
@@ -24,15 +24,29 @@ controller API or credential changes, read [the controller API guide](docs/contr
 - Reuse installed skills from the shared `agent-skills` catalog. Follow this SDLC for ordinary implementation; use `plan-work` or `deliver-work` only when explicitly invoked. For unsettled decisions, compose `grill-with-docs`; for meaningful executable changes, compose `tdd`; for review, use `code-review`. [Shared skill setup](docs/development.md#shared-skills) names the source and required skills. Report missing prerequisites instead of copying skills into this repository.
 - Keep only domain-specific skills with domain code. Reusable methods and OpenSpec integrations belong in `agent-skills`; domain contracts, verification commands, and policy remain here. This bootstrap needs no local skills.
 - Planning-only and review-only requests remain read-only. Explicit planning-document requests authorize those documents only. Standalone documentation maintenance follows the delivery default unless the user requests local edits only.
-- An implementation/delivery request normally includes issue updates, an isolated worktree, tests, PR publication, independent review, an eligible merge, and final readback. Narrower user instructions prevail. Routine authorized steps do not need repeated confirmation. Installation requires an explicit request.
+- An implementation/delivery request normally includes issue updates, an isolated worktree, tests, PR publication, independent review, an eligible merge, installation under the runtime boundary below, and final readback. Narrower user instructions prevail. Routine authorized steps do not need repeated confirmation.
 - Deliver all repository changes through PRs; never push changes directly to `main`. A PR with UI changes requires explicit human approval of its current candidate before merge. Record that approval in the PR. Until approval arrives, finish checks and independent review, then leave the PR open for human review. Agent reviews and successful CI do not substitute for human approval; changed UI requires renewed approval.
 - This repository deliberately composes the shared TDD and Grill with Docs methods. Their global explicit-only switches stay unchanged. Each substep preserves its own action boundary and returns to the authorized coordinator; it does not discard existing delivery authority.
 - Run OpenSpec through `npm run openspec -- <arguments>` from the assigned worktree. Select the exact issue-linked change and local planning root. Use `init --tools none --profile core --no-animation` if initialization is needed; shared integrations are installed from the catalog separately.
 - Before synchronization/archive, require complete applicable artifacts and tasks, acceptance evidence, and successful current input lookups. Verify every affected spec. A documented conditional design omission is valid; failed lookups and unfinished work are not. Complete synchronization/archive on the delivery branch before final review.
 - The coordinator owns repository and GitHub writes. Obtain independent read-only Standards and Specification reviews against the same committed base/head. Follow [all merge criteria](docs/sdlc.md#review-and-merge), including every configured CI job, the head-commit guard, main CI, and issue readback. Missing independent review or CI prevents automatic merging.
-- Preserve other worktrees and their installation owners. Source delivery does not install, alter lights, or clean up another task's branch.
+- Preserve other worktrees and their installation owners. A source merge does not itself install or alter lights; delivery never cleans up another task's branch.
+- When this repository participates in the nightly queue, start manual delivery through `python3 ~/.dotfiles/scripts/nightly_queue.py claim-run --config ~/.config/nightly-queue/config.json --repository jimmie-potts/codex-nanoleaf --issue <n> -- <manual-client argv>` before the first delivery write. Retain the shared claim through the whole delivery, even while scheduling is paused or disabled. Explicit workers under an already-held supervisor claim do not nest claims. Follow [shared manual claims](../../.dotfiles/docs/nightly-queue.md#shared-manual-claims). Existing unwrapped writers must finish or hand off before queue activation; Desktop and other clients that cannot use the wrapper remain read-only until a claim or handoff procedure qualifies them. These instructions do not themselves lock a client.
 
 ## Runtime boundaries
+
+Installation: a merged change to the installed Nanoleaf runtime is complete only
+after `python3 bridge/install_linux.py upgrade <sha> --state-dir <installation> --plan <private-plan.json>`
+installs it on the owner's established system and its durable receipt, running
+identity, health and state preservation pass. A source-only exception needs the
+user's narrower scope or an accepted issue with a reason and a linked installation
+issue; report overall delivery as installation pending. After merge and main CI,
+review the exact plan and execute under the owner's standing routine installation
+authority without requesting approval again. Before planning, running or checking
+an install, upgrade or rollback, read [the upgrade procedure](docs/linux-install.md#upgrade-and-roll-back-the-installed-runtime)
+and run `python3 bridge/install_linux.py plan <sha> --state-dir <installation>`
+with its required inputs first. That authority does not cover new hosts, hooks,
+agent sessions, unqualified migrations or physical device tests.
 
 - Keep one active installation and one light-writing worker per device. Hooks, CLI, wall map, and controller share Linux SQLite; MCP calls the controller over direct loopback HTTP. Runtime SQLite never lives on a Windows-mounted path; the runtime reads Codex Desktop's mounted JSON read-only. Before Linux setup or service work, read [the Linux installation guide](docs/linux-install.md) and its ownership/acceptance boundaries.
 - Keep credentials, databases, live task metadata, scene state, hook files, and installed backups out of Git. The browser must never receive the Nanoleaf token.

@@ -375,7 +375,7 @@ Record source revision, local checks, and installation/physical status
 separately. An
 installed-feature issue remains open until its requested checks are satisfied.
 Source-only work does not invoke the installer. For an authorized upgrade,
-follow [the existing deployment procedure](development.md#upgrade-the-installed-integration)
+follow [the owning upgrade procedure](linux-install.md#upgrade-and-roll-back-the-installed-runtime)
 and coordinate with the installation owner. Preserve live tasks, scene choices,
 and the single light writer per device.
 

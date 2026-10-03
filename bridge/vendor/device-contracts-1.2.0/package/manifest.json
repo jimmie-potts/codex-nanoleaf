@@ -1,0 +1,37 @@
+{
+  "artifact": "@jimmie-potts/device-contracts",
+  "version": "1.2.0",
+  "apiVersions": [
+    "1.0",
+    "1.1"
+  ],
+  "installReceiptVersion": "install-receipt/1.0",
+  "schemaDraft": "2020-12",
+  "fixtureFormat": 1,
+  "files": {
+    "dist/index.d.ts": "4e54c091e8475df4e18fc0c2aa48880fbd67330668a53aa8588ee8c9967c825c",
+    "dist/index.js": "433924ebef0ae5a0111257b9a900ebe5311f77514382b9d73e9625d578c75f86",
+    "dist/install-receipt.d.ts": "6599680f6c3d2193b0492922457e2ac7aabfda9922bb0464f3c470c99baeb84b",
+    "dist/install-receipt.js": "a1153da8af0f68ee175dac79e4ca281dd11fff006aaaf5d77ebee75fdf7c7214",
+    "dist/types.d.ts": "9f13eae6f5acea1c7bd21de5c5260487681a073e5595a8211da67799a063b7f6",
+    "dist/types.js": "8e609bb71c20b858c77f0e9f90bb1319db8477b13f9f965f1a1e18524bf50881",
+    "fixtures/controller-v1.json": "ba879e74f83d9c6963b4d5b2d018b31ecf582543abaaec9db0acf15fe9fa2c15",
+    "fixtures/install-receipt-v1.json": "52324d145d57385c4d2160778f63c0d63ca94f2ed97a71c183cda09ceecb80c1",
+    "install-contract.md": "cf3ee34c99a18bf6998544998ce78bffc097de214d4ee41780526e324ddee544",
+    "package.json": "9bdfcae0e7fc10a70665cf270562119c69b14a170e66ab3a846c7ecea7b894b0",
+    "python/agent_device_hub_contracts/__init__.py": "21504a799b9c70575de6d042bba78a7037231391dbbe98cd20dc77c3d9e7a81c",
+    "README.md": "c79e90254a5f5dd8f2b14034d5179e8fd241354bba0ee72aeddfe7d09007fa4d",
+    "requirements-contracts.txt": "458264f12b930be81562e3f2d26cac2faeef37a0c1cc1a3c256bc5daa65e726c",
+    "schemas/controller-v1.schema.json": "a7d76e245384337c6d0706362448f045e49a5642c5a26e3730147c279e8a8df2",
+    "schemas/install-receipt-v1.schema.json": "be0c48e834229324f831641c8ade296f83f91a363c15323d35851d34f064b9b8",
+    "src/index.ts": "a10b8c8f53886a46e2b9fdb98a6fab4f1f9bb0a643cf666abe511a387bb3073b",
+    "src/install-receipt.ts": "9d8d81a5c35b431a4a2932e6ee956c51d65ffd3c1656a4704764d7b1f4e48c4e",
+    "src/types.ts": "cb7e86cb87874122e0a816b01c3f1deb0b4898aead88b173bca40241bb5071b8",
+    "tests/contracts.test.mjs": "c8159ca349ca1bc02afb7095bf5cf16559bdcd9c6e118dce19d3bba525cd7663",
+    "tests/install-receipt.test.mjs": "c73cf222181103b2d1cc8cc73fe4912dfba9c19b5e14e5167f42d7958ba1f38d",
+    "tests/regressions.test.mjs": "f35d7c22182c5d7f9a54a0f1bcc394f7c4420d42f5565c9d39840ed40db4e03b",
+    "tests/test_contracts.py": "1879b90061283dfd1d7f4099848bf62061b7ef98c3af9d87cc411f7747882479",
+    "tests/test_install_receipt.py": "c04c4e24ad3b1574a1069eff010151900c13e38f20b8454059dd78faabb2d48f",
+    "tests/test_regressions.py": "f8c2a35ba98109cdcefa23c8886ecfa5f7adc35c8577b3353d6b98d54fabf615"
+  }
+}

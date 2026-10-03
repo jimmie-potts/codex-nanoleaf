@@ -6,6 +6,13 @@ The [protected controller specification](../openspec/specs/protected-controller-
 
 ## Linux installation
 
+`GET /controller/meta/v1/health` is a separate, authenticated read endpoint for
+process-bound build evidence: `apiVersion`, `serviceHealth` and
+`build: {sourceRevision, version}`. It uses the same machine-read, host, origin
+and fetch-metadata checks as the controller. The process captures its own verified
+release identity at startup; missing provenance reports `unknown`. Changing
+`current` cannot relabel an older process. Controller v1 snapshots remain unchanged.
+
 [Fresh Linux setup](linux-install.md) provisions the controller dependencies and credentials. Run the generated controller user service, or `~/.local/share/codex-nanoleaf/nanoleaf controller-serve --port 41231` in the foreground. Use the selected custom port when setup overrides the default. Its state and worker stay in Linux. MCP calls this listener directly; no Windows helper is involved. Enrolling [NL22 Light Panels](linux-install.md#add-nl22-light-panels) neither issues nor changes machine credentials. The controller reaches the Panels only after you [add them](#add-the-nl22-light-panels). [ADR 0007](decisions/0007-linux-runtime-ownership.md) records the Linux ownership, and [ADR 0015](decisions/0015-per-device-controller-ledgers.md) records the per-device ledgers. Linux installed acceptance belongs to [#55](https://github.com/jimmie-potts/codex-nanoleaf/issues/55).
 
 ## Dependency and activation

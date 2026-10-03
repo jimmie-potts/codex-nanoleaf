@@ -10,6 +10,7 @@ import sys
 import time
 import urllib.error
 
+sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import codex_hooks
 import configuration
