@@ -12,7 +12,6 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 sys.dont_write_bytecode = True
 sys.path[:0] = [str(ROOT / 'bridge'), str(ROOT / 'tests')]
-import runtime_host
 import runtime_package
 import runtime_release as release
 import runtime_upgrade as upgrade

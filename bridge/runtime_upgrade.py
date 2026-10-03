@@ -3,7 +3,6 @@ import argparse
 import contextlib
 from datetime import datetime, timezone
 import fcntl
-import io
 import json
 import os
 from pathlib import Path
@@ -13,8 +12,6 @@ import sqlite3
 import stat
 import subprocess
 import sys
-import tarfile
-import tempfile
 import uuid
 
 import install_contract
@@ -600,6 +597,7 @@ def operate(value, npm='npm'):
     check_plan(value)
     directory = Path(value['installation'])
     current, _ = selected(directory)
+    prior_umask = os.umask(0o077)
     staging = private_directory(directory / 'upgrade-staging' / uuid.uuid4().hex)
     records = private_directory(directory / 'upgrade-records' / ('qualification-' + uuid.uuid4().hex))
     try:
@@ -621,7 +619,10 @@ def operate(value, npm='npm'):
         return transition(value, target, identity, records / 'compatibility.json',
                           runtime_host.Host(directory, value['unitsDirectory']), lambda: check_plan(value))
     finally:
-        shutil.rmtree(staging)
+        try:
+            shutil.rmtree(staging)
+        finally:
+            os.umask(prior_umask)
 
 
 def refused(directory, requested, operation, code='qualification-or-plan-refused'):

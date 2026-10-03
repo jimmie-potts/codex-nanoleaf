@@ -1,9 +1,11 @@
+# runtime-upgrades Specification
+
 ## Purpose
 
 Upgrade and recover the existing Nanoleaf Linux runtime with exact release
 identity, preserved state and independently verifiable installed outcomes.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: Exact read-only plan and status
 The runtime SHALL provide read-only plan and status commands that distinguish
@@ -69,13 +71,13 @@ preserving newer state; recovery success SHALL remain a failed requested upgrade
 Every operation SHALL persist a semantically valid install-receipt/1.0 outcome.
 Receipt finalization failure, unresolved intent or failed recovery SHALL prevent
 success, automatic retry and pruning. Successful retention SHALL keep current
-plus three previous successful owned releases and all referenced, legacy,
-receipt, backup and other-owner history.
+plus three previous successful owned releases, legacy copies, receipts, backups
+and other-owner history. No pruning SHALL run while an operation is unresolved.
 
 #### Scenario: Final receipt persistence fails
 - **WHEN** the candidate is healthy but its final receipt cannot be durably read back
 - **THEN** the command fails, retains the operation barrier and reports finalization failure
 
 #### Scenario: An old release is still referenced
-- **WHEN** retention considers a recovery target or another owner's history
+- **WHEN** retention considers a target of an unresolved or executing operation, or another owner's history
 - **THEN** it preserves that content regardless of age

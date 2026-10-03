@@ -229,6 +229,31 @@ class FakeHost:
         return {'fakeServices': True, 'physicalAcceptance': False}
 
 
+class ServiceOwnershipTest(unittest.TestCase):
+    def test_additional_unit_dependencies_and_alternate_state_arguments_refuse(self):
+        import install_linux
+        import runtime_host
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'config.json').write_text(json.dumps({'wall_port': 8765, 'controller_port': 41231, 'mcp_port': 41230}))
+            units = root / 'units'
+            install_linux.write_service_units(root, units, root / '.venv/bin/python', root / 'runtime/node/bin/node')
+            host = runtime_host.Host(root, units)
+            def service(name):
+                return {'FragmentPath': str(units / name), 'MainPID': '0', 'ActiveState': 'inactive',
+                        'DropInPaths': '', 'User': '', 'AmbientCapabilities': '', 'NeedDaemonReload': 'no'}
+            with mock.patch.object(host, 'service', side_effect=service):
+                self.assertEqual(len(host.snapshot()), 3)
+                path = units / runtime_host.UNITS[0]
+                original = path.read_text()
+                path.write_text(original.replace('[Unit]', '[Unit]\nPropagatesStopTo=other-owner.service'))
+                with self.assertRaisesRegex(ValueError, 'effects'):
+                    host.snapshot()
+                path.write_text(original.replace('"--state-dir" "' + str(root) + '"', '"--state-dir" "/another-owner"'))
+                with self.assertRaisesRegex(ValueError, 'command'):
+                    host.snapshot()
+
+
 class OperationTest(unittest.TestCase):
     def setUp(self):
         import runtime_upgrade as upgrade

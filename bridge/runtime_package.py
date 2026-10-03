@@ -8,7 +8,6 @@ from pathlib import Path
 import re
 import shutil
 import sqlite3
-import subprocess
 import tarfile
 import time
 

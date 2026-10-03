@@ -55,19 +55,41 @@ class Host:
         return min(maximum, remaining)
 
     def service(self, name):
-        raw = run(['systemctl', '--user', 'show', name, '--property=ActiveState,SubState,MainPID,FragmentPath,DropInPaths,User,CapabilityBoundingSet,AmbientCapabilities'], text=True, timeout=self.remaining(30)).stdout
+        raw = run(['systemctl', '--user', 'show', name, '--property=ActiveState,SubState,MainPID,FragmentPath,DropInPaths,User,CapabilityBoundingSet,AmbientCapabilities,NeedDaemonReload'], text=True, timeout=self.remaining(30)).stdout
         return dict(line.split('=', 1) for line in raw.splitlines() if '=' in line)
 
     def snapshot(self):
         result = {}
+        config = json.loads((self.directory / 'config.json').read_bytes())
         for name in UNITS:
             observed = self.service(name)
             path = self.units / name
             if (path.is_symlink() or not path.is_file() or observed['FragmentPath'] != str(path)
-                    or observed.get('DropInPaths') or observed.get('AmbientCapabilities')
+                    or observed.get('DropInPaths') or observed.get('AmbientCapabilities') or observed.get('NeedDaemonReload') != 'no'
                     or observed.get('User') not in ('', str(os.getuid()))):
                 raise ValueError('unsupported-service-ownership')
             lines = path.read_text().splitlines()
+            fields, section = {}, None
+            allowed = {'Unit': {'Description'}, 'Service': {'Type', 'ExecStart', 'UMask', 'Restart', 'RestartSec'},
+                       'Install': {'WantedBy'}}
+            for line in lines:
+                line = line.strip()
+                if not line or line.startswith(('#', ';')):
+                    continue
+                if line.startswith('[') and line.endswith(']'):
+                    section = line[1:-1]
+                    if section not in allowed:
+                        raise ValueError('unsupported-service-effects')
+                    continue
+                key, separator, value = line.partition('=')
+                if not separator or section not in allowed or key not in allowed[section] or (section, key) in fields:
+                    raise ValueError('unsupported-service-effects')
+                fields[section, key] = value
+            fixed = {('Service', 'Type'): 'simple', ('Service', 'UMask'): '0077',
+                     ('Service', 'Restart'): 'on-failure', ('Service', 'RestartSec'): '2',
+                     ('Install', 'WantedBy'): 'default.target'}
+            if any(fields.get(key) != value for key, value in fixed.items()):
+                raise ValueError('unsupported-service-effects')
             commands = [line[len('ExecStart='):] for line in lines if line.startswith('ExecStart=')]
             if len(commands) != 1:
                 raise ValueError('unsupported-service-command')
@@ -75,14 +97,20 @@ class Host:
             component = 'mcp' if name.endswith('-mcp.service') else 'bridge'
             expected = str(self.directory / 'runtime' / component / ('dist/main.js' if component == 'mcp' else 'bridge.py'))
             executable = str(self.directory / ('runtime/node/bin/node' if component == 'mcp' else '.venv/bin/python'))
-            if len(argv) < 2 or argv[:2] != [executable, expected]:
+            if component == 'mcp':
+                required = [executable, expected, '--config', str(self.directory / 'mcp-config.json')]
+            else:
+                controller = name.endswith('-controller.service')
+                required = [executable, expected, 'controller-serve' if controller else 'serve',
+                            '--state-dir', str(self.directory), '--port', str(config['controller_port' if controller else 'wall_port'])]
+            if argv != required:
                 raise ValueError('unsupported-service-command')
-            if any(line.startswith(('ExecStartPre=', 'ExecStartPost=', 'ExecStop=', 'ExecStopPost=', 'Environment=', 'EnvironmentFile=', 'WorkingDirectory=', 'RootDirectory=', 'BindPaths=', 'ReadWritePaths=')) for line in lines):
-                raise ValueError('unsupported-service-effects')
             pid = int(observed['MainPID'])
             running = process(pid) if pid else None
             if running and (running['uid'] != os.getuid() or running['capabilities'] & BYPASS):
                 raise ValueError('privileged-service-cannot-be-fenced')
+            if running and running['argv'] != required:
+                raise ValueError('unsupported-service-command')
             result[name] = {'sha256': release.digest(path.read_bytes()), 'argv': argv,
                             'active': observed['ActiveState'], 'process': running}
         return result
