@@ -135,12 +135,14 @@ class TransitionTest(unittest.TestCase):
         (self.root / 'records').rmdir()
         host = mock.Mock()
         host.snapshot.return_value = {'fixture.service': {'sha256': 'c' * 64, 'argv': ['fixture'], 'active': 'active', 'process': None}}
+        host.running_build.return_value = {'sourceRevision': 'unknown', 'version': 'unknown'}
         before = release.inventory(self.root)
         with mock.patch.object(upgrade, 'source_identity', return_value=('a' * 40, 'a' * 40)), mock.patch.object(upgrade, 'git', return_value=b'exact archive'):
             value = upgrade.plan(self.root, ROOT, self.root / 'units', 'a' * 40, host=host)
         self.assertEqual(release.inventory(self.root), before)
         self.assertIsNone(value['commits'])
         self.assertIsNone(value['changedPaths'])
+        self.assertEqual(value['runningBuild']['sourceRevision'], 'unknown')
         self.assertEqual(value['archiveSha256'], release.digest(b'exact archive'))
         self.assertNotIn('private', json.dumps(value))
 

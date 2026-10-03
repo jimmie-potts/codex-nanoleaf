@@ -226,6 +226,7 @@ def plan(directory, source, units, requested='main', operation='upgrade', host=N
              'previous': previous, 'selected': str(current), 'configuration': configuration(directory),
              'protected': protected(directory), 'services': {name: {key: item[key] for key in ('sha256', 'argv', 'active')} for name, item in services.items()},
              'running': {name: item['process'] if item['active'] == 'active' else None for name, item in services.items()},
+             'runningBuild': host.running_build(services),
              'commits': commits, 'pullRequests': None, 'changedPaths': changes,
              'outage': 'All three Nanoleaf units and detached bridge workers; bounded stop and health checks.',
              'backupScope': 'All root regular state/configuration files; consistent status.sqlite; excludes worker locks and transient journals.',
@@ -239,7 +240,7 @@ def plan(directory, source, units, requested='main', operation='upgrade', host=N
 
 def binding(value):
     # PIDs and process ages naturally change; executable/unit/configuration/bundle identity may not.
-    return {key: item for key, item in value.items() if key not in ('running', 'planSha256')}
+    return {key: item for key, item in value.items() if key not in ('running', 'runningBuild', 'planSha256')}
 
 
 class Fence:
@@ -597,9 +598,9 @@ def operate(value, npm='npm'):
     check_plan(value)
     directory = Path(value['installation'])
     current, _ = selected(directory)
-    prior_umask = os.umask(0o077)
     staging = private_directory(directory / 'upgrade-staging' / uuid.uuid4().hex)
     records = private_directory(directory / 'upgrade-records' / ('qualification-' + uuid.uuid4().hex))
+    prior_umask = os.umask(0o077)
     try:
         if value['operation'] == 'rollback':
             target, identity = rollback_target(directory, value['requestedTarget'])
