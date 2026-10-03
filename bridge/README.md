@@ -657,3 +657,7 @@ is played by the same worker with transport receipts.
 Source delivery does not enable the listener, switch task input or change an installation.
 
 Desktop tasks removed by the shared owner release their local task state and Lines. Snapshot 1.1 generation changes also reset a recreated task after missed removal; see [shared input](../docs/shared-input.md#ended-desktop-tasks) for version requirements, preserved project settings and installation order. Native mode selection remains independent.
+
+## Optional diagnostics
+
+[Controller and worker diagnostics](../docs/observability.md) documents explicit enablement, the local Collector sink, correlation and source checks. The [host observability specification](../openspec/specs/host-observability/spec.md) owns this optional behavior.

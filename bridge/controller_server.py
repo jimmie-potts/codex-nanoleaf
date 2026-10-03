@@ -12,6 +12,7 @@ import controller_state as state
 from controller_state import HTTP, admission_transaction, check_deadline
 import database
 import devices
+import diagnostics
 import integration_api
 import jsonfile
 import launcher
@@ -93,9 +94,10 @@ def cancel(db,principal=None):
 
 
 class App:
-    def __init__(self,directory,launch=None):
+    def __init__(self,directory,launch=None,diagnostic=None):
         from controller_contract import load  # Optional listener dependency: requirements-controller.txt.
         self.contract=load();self.directory=directory;self.launch=launch or launcher.launch_worker
+        self.diagnostic=diagnostic or diagnostics.Diagnostics()
         with contextlib.closing(state.readonly(directory)) as db:state.read(db)
 
     def facts(self,db,token,device=None,scope='read',host=True,origin=True,metadata=True):
@@ -248,6 +250,7 @@ def make_server(app,port=0):
             if time.monotonic()>=self.admission_deadline:
                 self.close_connection=True
                 return
+            if self.command=='POST':app.diagnostic.receipt(value)
             raw=state.encoded(value).encode()
             self.send_response(code);self.send_header('Content-Type','application/json')
             self.send_header('Content-Length',str(len(raw)));self.send_header('Cache-Control','no-store')
@@ -269,58 +272,61 @@ def make_server(app,port=0):
                 checks=self.checks()
                 permitted=app.authorize(token,scope='control' if write else 'read',**checks)
                 if permitted!='allowed':return self.failure(permitted)
-                parts=urlsplit(self.path)
-                if parts.scheme or parts.netloc or parts.fragment or len(self.path)>1024:raise ValueError('Invalid target.')
-                query=parse_qs(parts.query,keep_blank_values=True,strict_parsing=True,max_num_fields=3)
-                if any(len(v)!=1 for v in query.values()):raise ValueError('Repeated query.')
-                query={k:v[0] for k,v in query.items()}
-                if write:
-                    if parts.path not in ('/controller/v1/commands','/controller/integration/v1/commands','/controller/integration/v1/cancel') or query:return self.respond(404,{'failure':{'code':'invalid-request'}})
-                    lengths=self.headers.get_all('Content-Length',[])
-                    if len(lengths)!=1 or not re.fullmatch(r'[0-9]{1,8}',lengths[0]) or self.headers.get_all('Transfer-Encoding'):raise ValueError('Invalid framing.')
-                    length=int(lengths[0])
-                    if length>state.LIMITS['maxBodyBytes']:return self.failure('capacity')
-                    if length==0 or self.headers.get_all('Content-Type')!=['application/json']:raise ValueError('Invalid content type.')
-                    raw=self.rfile.read(length)
-                    if len(raw)!=length:raise ValueError('Incomplete body.')
-                    body=strict_json(raw)
-                    if parts.path=='/controller/integration/v1/commands':
-                        code,result=app.integration_admit(token,body,length,deadline=self.admission_deadline,**checks)
+                incoming=self.headers.get_all('traceparent',[])
+                with app.diagnostic.operation('bunny.http', 'status', span_name='bunny.command.request', root=True,
+                        traceparent=incoming[0] if len(incoming)==1 else None, authenticated=True, owned=True):
+                    parts=urlsplit(self.path)
+                    if parts.scheme or parts.netloc or parts.fragment or len(self.path)>1024:raise ValueError('Invalid target.')
+                    query=parse_qs(parts.query,keep_blank_values=True,strict_parsing=True,max_num_fields=3)
+                    if any(len(v)!=1 for v in query.values()):raise ValueError('Repeated query.')
+                    query={k:v[0] for k,v in query.items()}
+                    if write:
+                        if parts.path not in ('/controller/v1/commands','/controller/integration/v1/commands','/controller/integration/v1/cancel') or query:return self.respond(404,{'failure':{'code':'invalid-request'}})
+                        lengths=self.headers.get_all('Content-Length',[])
+                        if len(lengths)!=1 or not re.fullmatch(r'[0-9]{1,8}',lengths[0]) or self.headers.get_all('Transfer-Encoding'):raise ValueError('Invalid framing.')
+                        length=int(lengths[0])
+                        if length>state.LIMITS['maxBodyBytes']:return self.failure('capacity')
+                        if length==0 or self.headers.get_all('Content-Type')!=['application/json']:raise ValueError('Invalid content type.')
+                        raw=self.rfile.read(length)
+                        if len(raw)!=length:raise ValueError('Incomplete body.')
+                        body=strict_json(raw)
+                        if parts.path=='/controller/integration/v1/commands':
+                            code,result=app.integration_admit(token,body,length,deadline=self.admission_deadline,**checks)
+                            return self.respond(code,result)
+                        if parts.path=='/controller/integration/v1/cancel':
+                            if type(body) is not dict or set(body)!={'apiVersion','deviceId','requestId'} or body['apiVersion']!=integration_api.VERSION:
+                                raise ValueError('Invalid cancellation.')
+                            code,result=app.integration_cancel(token,body['deviceId'],body['requestId'],deadline=self.admission_deadline,**checks)
+                            return self.respond(code,result)
+                        code,result=app.admit(token,body,length,deadline=self.admission_deadline,**checks)
                         return self.respond(code,result)
-                    if parts.path=='/controller/integration/v1/cancel':
-                        if type(body) is not dict or set(body)!={'apiVersion','deviceId','requestId'} or body['apiVersion']!=integration_api.VERSION:
-                            raise ValueError('Invalid cancellation.')
-                        code,result=app.integration_cancel(token,body['deviceId'],body['requestId'],deadline=self.admission_deadline,**checks)
-                        return self.respond(code,result)
-                    code,result=app.admit(token,body,length,deadline=self.admission_deadline,**checks)
-                    return self.respond(code,result)
-                if parts.path=='/controller/v1/devices' and not query:
-                    return self.respond(200,dict(apiVersion='1.0',devices=app.devices()))
-                device=query.get('deviceId')
-                if device is None:raise ValueError('Explicit target required.')
-                permitted=app.authorize(token,device,**checks)
-                if permitted!='allowed':return self.failure(permitted)
-                if parts.path=='/controller/integration/v1/snapshot' and set(query)=={'deviceId'}:
-                    return self.respond(200,app.integration_snapshot(token,device,**checks))
-                if parts.path=='/controller/integration/v1/animations' and set(query)=={'deviceId'}:
-                    return self.respond(200,app.integration_animations(token,device,**checks))
-                if parts.path=='/controller/integration/v1/geometry' and set(query)=={'deviceId'}:
-                    return self.respond(200,app.integration_geometry(token,device,**checks))
-                if parts.path=='/controller/integration/v1/receipt' and set(query)=={'deviceId','epoch','sequence'}:
-                    ticket=dict(epoch=query['epoch'],sequence=int(query['sequence']))
-                    return self.respond(200,integration_api.receipt(app,token,device,ticket,**checks))
-                if parts.path=='/controller/v1/snapshot' and set(query)=={'deviceId'}:
-                    return self.respond(200,app.snapshot(device))
-                if parts.path=='/controller/v1/feed' and set(query)<= {'deviceId','epoch','sequence'}:
-                    if not self.server.feed_slots.acquire(False):return self.failure('capacity')
-                    try:
-                        cursor=None
-                        if 'epoch' in query and 'sequence' in query:
-                            try:cursor=dict(epoch=query['epoch'],sequence=int(query['sequence']))
-                            except ValueError:pass
-                        return self.respond(200,app.feed(cursor,device))
-                    finally:self.server.feed_slots.release()
-                return self.respond(404,{'failure':{'code':'invalid-request'}})
+                    if parts.path=='/controller/v1/devices' and not query:
+                        return self.respond(200,dict(apiVersion='1.0',devices=app.devices()))
+                    device=query.get('deviceId')
+                    if device is None:raise ValueError('Explicit target required.')
+                    permitted=app.authorize(token,device,**checks)
+                    if permitted!='allowed':return self.failure(permitted)
+                    if parts.path=='/controller/integration/v1/snapshot' and set(query)=={'deviceId'}:
+                        return self.respond(200,app.integration_snapshot(token,device,**checks))
+                    if parts.path=='/controller/integration/v1/animations' and set(query)=={'deviceId'}:
+                        return self.respond(200,app.integration_animations(token,device,**checks))
+                    if parts.path=='/controller/integration/v1/geometry' and set(query)=={'deviceId'}:
+                        return self.respond(200,app.integration_geometry(token,device,**checks))
+                    if parts.path=='/controller/integration/v1/receipt' and set(query)=={'deviceId','epoch','sequence'}:
+                        ticket=dict(epoch=query['epoch'],sequence=int(query['sequence']))
+                        return self.respond(200,integration_api.receipt(app,token,device,ticket,**checks))
+                    if parts.path=='/controller/v1/snapshot' and set(query)=={'deviceId'}:
+                        return self.respond(200,app.snapshot(device))
+                    if parts.path=='/controller/v1/feed' and set(query)<= {'deviceId','epoch','sequence'}:
+                        if not self.server.feed_slots.acquire(False):return self.failure('capacity')
+                        try:
+                            cursor=None
+                            if 'epoch' in query and 'sequence' in query:
+                                try:cursor=dict(epoch=query['epoch'],sequence=int(query['sequence']))
+                                except ValueError:pass
+                            return self.respond(200,app.feed(cursor,device))
+                        finally:self.server.feed_slots.release()
+                    return self.respond(404,{'failure':{'code':'invalid-request'}})
             except (ValueError,TypeError,KeyError,RecursionError,UnicodeError) as error:
                 self.failure(error.code if isinstance(error,integration_api.Failure) else 'invalid-request')
             except (BrokenPipeError,ConnectionError,TimeoutError):pass
@@ -359,6 +365,11 @@ def make_server(app,port=0):
 
 
 def serve(directory,port=0,launch=None,ready=None):
+    with diagnostics.start('nanoleaf-controller') as diagnostic:
+        return _serve(directory,port,launch,ready,diagnostic)
+
+
+def _serve(directory,port,launch,ready,diagnostic):
     """Serve until disabled or interrupted; ready, when given, receives the bound port once the listener is bound."""
     with contextlib.closing(sqlite3.connect(directory/'controller-lock.sqlite',timeout=0)) as guard:
         try:guard.execute('BEGIN EXCLUSIVE')
@@ -370,7 +381,7 @@ def serve(directory,port=0,launch=None,ready=None):
             db.execute('BEGIN IMMEDIATE');clock=secrets.token_hex(16)
             for ledger in state.ledgers(db):
                 data=state.read(db,ledger);data['clockEpoch']=clock;data['stopped']=False;state.save(db,data,ledger);state.event(db,ledger)
-        app=App(directory,launch)
+        app=App(directory,launch,diagnostic)
         try:server=make_server(app,port)
         except OSError as error:
             if error.errno==errno.EADDRINUSE:
@@ -397,7 +408,10 @@ def serve(directory,port=0,launch=None,ready=None):
                     server.shutdown();return
                 except Exception:
                     server.shutdown();return
-        watchdog=threading.Thread(target=maintain,daemon=True);watchdog.start()
+        captured=diagnostic.capture_context()
+        def maintained():
+            with diagnostic.run_context(captured):maintain()
+        watchdog=threading.Thread(target=maintained,daemon=True);watchdog.start()
         try:server.serve_forever(poll_interval=.2)
         finally:
             stopping.set();watchdog.join(3);server.server_close()

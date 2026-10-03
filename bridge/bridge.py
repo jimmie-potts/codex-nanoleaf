@@ -16,6 +16,7 @@ import configuration
 import controller_state
 import database
 import devices
+import diagnostics
 import effects
 import integration_api
 import jsonfile
@@ -602,7 +603,7 @@ def play_preview(config, choice, send, sleep, now):
 
 
 def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unread=None,
-               scene_factory=SceneRestorer, device=devices.DEFAULT, feed=None, request=None):
+               scene_factory=SceneRestorer, device=devices.DEFAULT, feed=None, request=None, diagnostic=None):
     """One worker pass loop for one device; False when another instance holds its lock.
 
     request is the device transport (transport.light_request by default) for layout reads, scene
@@ -611,6 +612,7 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
     # One locked instance per device. Each instance owns its own device's controller ledger:
     # journal, controls, overrides, hold and scene discovery. Only the original Lines instance
     # polls the shared feed and runs the integration settings queue and requested animations.
+    diagnostic = diagnostic or diagnostics.Diagnostics()
     primary = device == devices.DEFAULT
     key = lambda name: devices.meta_key(name, device)
     connect = lambda: database.connect_state(directory, WORKER_BUSY_SECONDS)
@@ -637,7 +639,12 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
         read_unread = read_unread or unread_reader(config)
         scenes = scene_factory(directory, config, request=request) if scene_factory else None
         metadata = wall.Metadata(directory, config)
-        sender = send or (scenes.send if scenes else render)
+        original_sender = send or (scenes.send if scenes else render)
+        def sender(config, snapshot, instant, loop):
+            if scenes and not any(snapshot) and not config.get('_comet') and not config.get('_locate'):
+                with diagnostic.operation('bunny.playback', 'playback'):
+                    return original_sender(config, snapshot, instant, loop)
+            return original_sender(config, snapshot, instant, loop)
         active_execution = [None]
         def controller_request(*args, **kwargs):
             execution = active_execution[0]
@@ -754,15 +761,23 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
                 def guarded_sender(*args):
                     return execution.call(sender, *args) if send and execution else sender(*args)
                 def apply_mode():
-                    active_execution[0] = execution
-                    if mode == 'free':
-                        if pending_mode:
-                            guarded_sender(config, [None] * len(snapshot), started, True)
-                        db.execute('DELETE FROM display_v3 WHERE device=?', (device,))
-                    elif not dark:
-                        update_display(db, config, snapshot, started, loop, guarded_sender)
-                    if execution:
-                        execution.complete()
+                    sequence = execution.sequence if execution else None
+                    traced = diagnostic.enabled and sequence is not None
+                    fields = diagnostics.ticket_fields({'requestId':controller_state.ticket(controller_state.read(db, device), sequence)}) if traced else {}
+                    span = diagnostic.operation('bunny.controller', 'mode', span_name='bunny.command.execute', root=True, attributes=fields) if traced else contextlib.nullcontext()
+                    with span:
+                        try:
+                            active_execution[0] = execution
+                            if mode == 'free':
+                                if pending_mode:
+                                    guarded_sender(config, [None] * len(snapshot), started, True)
+                                db.execute('DELETE FROM display_v3 WHERE device=?', (device,))
+                            elif not dark:
+                                update_display(db, config, snapshot, started, loop, guarded_sender)
+                            if execution:
+                                execution.complete()
+                        finally:
+                            if traced:diagnostic.stored_receipt(db, controller_state.table('controller_requests', device), sequence, 'mode')
                 def queued_content():
                     # Native one-shot writes and, on the Lines, Free animations, in admission order across both ledgers.
                     queue = [(created, sequence, command, False) for created, sequence, command in controller_state.controls(db, control['revision'], device)]
@@ -781,15 +796,22 @@ def run_worker(directory, send=None, sleep=time.sleep, now=time.time, read_unrea
                             generation = integration_api.attempt(db, sequence)
                             integration_api.play(db, sequence, generation, lambda: controller_request(config, 'PUT', '/effects', payload))
                             continue
-                        target = controller_state.control_payload(controller_state.read(db, device), command)
-                        if target is None:
-                            controller_state.finish(db, sequence, 'failed', 'unsupported-capability', device)
-                            continue
-                        active_execution[0] = controller_state.Execution(db, control['revision'], sequence, device)
-                        controller_request(config, 'PUT', target[0], target[1])
-                        active_execution[0].complete()
-                        if scenes and command['kind'] == 'brightness.set' and mode != 'free':
-                            scenes.wrote(scenes.selected, command['percent'])
+                        operation = {'brightness.set':'brightness', 'power.set':'power', 'scene.activate':'playback'}.get(command['kind'], 'status')
+                        fields = diagnostics.ticket_fields({'requestId':controller_state.ticket(controller_state.read(db, device), sequence)}) if diagnostic.enabled else {}
+                        with diagnostic.operation('bunny.controller', operation, span_name='bunny.command.execute', root=True, attributes=fields):
+                            diagnostic.event('command.executing', 'bunny.controller', {**fields, 'bunny.operation':operation})
+                            try:
+                                target = controller_state.control_payload(controller_state.read(db, device), command)
+                                if target is None:
+                                    controller_state.finish(db, sequence, 'failed', 'unsupported-capability', device)
+                                    continue
+                                active_execution[0] = controller_state.Execution(db, control['revision'], sequence, device)
+                                controller_request(config, 'PUT', target[0], target[1])
+                                active_execution[0].complete()
+                                if scenes and command['kind'] == 'brightness.set' and mode != 'free':
+                                    scenes.wrote(scenes.selected, command['percent'])
+                            finally:
+                                diagnostic.stored_receipt(db, controller_state.table('controller_requests', device), sequence, operation)
                 try:
                     # A pending mode applies first so a control admitted behind it lands last.
                     if pending_mode:
@@ -979,20 +1001,22 @@ def main(launch=None, request=None):
             sys.exit(1)
         return
     if args.mode == 'worker':
-        feed = {}
-        while True:
-            try:
-                if run_worker(directory, device=device, feed=feed, request=request) is False: return
-                with contextlib.closing(database.connect_state(directory)) as db:
-                    resume_shared = shared_input.selected(db)
-                if not resume_shared: return
-                time.sleep(1)
-            except Exception:
-                # A failed pass records and retries this device only, while it is still registered.
-                if device not in configuration.registered_devices(directory) or not record_failure(directory, device):
-                    return
-                # Release locks between attempts. All retries read the newest mode.
-                time.sleep(2)
+        with diagnostics.start('nanoleaf-worker') as diagnostic:
+            feed = {}
+            while True:
+                try:
+                    if run_worker(directory, device=device, feed=feed, request=request, diagnostic=diagnostic) is False: return
+                    with contextlib.closing(database.connect_state(directory)) as db:
+                        resume_shared = shared_input.selected(db)
+                    if not resume_shared: return
+                    time.sleep(1)
+                except Exception:
+                    diagnostic.event('process.failed', severity='ERROR')
+                    # A failed pass records and retries this device only, while it is still registered.
+                    if device not in configuration.registered_devices(directory) or not record_failure(directory, device):
+                        return
+                    # Release locks between attempts. All retries read the newest mode.
+                    time.sleep(2)
     if args.mode == 'hook':
         try:
             event = json.load(sys.stdin)

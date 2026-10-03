@@ -1,0 +1,9 @@
+{
+  "version": "1.1.0",
+  "sourceRevision": "4c23b0171e4ae3ea5537ebe81cd65dae265c8a47",
+  "sha256": "4a75174d42e9454d90e3b2dbc0351b6de653ea6ac6a75e2d710373866f1cba3c",
+  "manifestSha256": "e1791383ee6830ac4d5cbafc10759844834da2687258c5f4527d495667a744f5",
+  "producerPR": "https://github.com/jimmie-potts/agent-device-hub/pull/736",
+  "validation": "730-merged-artifact-corrected.log",
+  "acceptance": "accepted: both independent reviews and all seven PR/main Depot jobs passed"
+}
