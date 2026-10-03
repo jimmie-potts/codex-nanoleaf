@@ -18,7 +18,7 @@ import runtime_upgrade as upgrade
 from test_runtime_install import FakeHost
 
 
-def qualify(scratch, evidence):
+def qualify(scratch, evidence, previous_program=None):
     if upgrade.git(ROOT, 'status', '--porcelain').strip():
         raise ValueError('package qualification requires a clean committed checkout')
     revision = upgrade.git(ROOT, 'rev-parse', 'HEAD').decode().strip()
@@ -34,7 +34,7 @@ def qualify(scratch, evidence):
         runtime = installation / 'runtime'
         runtime.mkdir(parents=True)
         for name in release.COMPONENTS:
-            shutil.copytree(candidate / name, runtime / name, symlinks=True)
+            shutil.copytree((previous_program or candidate) / name, runtime / name, symlinks=True)
         (runtime / 'node').mkdir()
         (runtime / 'node/marker').write_text('shared Node remains owned by its existing installer')
         (runtime / 'hub-gh30').mkdir()
@@ -45,6 +45,8 @@ def qualify(scratch, evidence):
             db.executescript((ROOT / 'tests/fixtures/linux-state-v4/status.sql').read_text())
         compatibility = runtime_package.qualify(runtime, candidate, sys.executable, base / 'compatibility', ROOT / 'tests/fixtures/linux-state-v4/status.sql')
         release.write(evidence / 'compatibility.json', compatibility)
+        reverse = runtime_package.qualify(candidate, runtime, sys.executable, base / 'reverse-compatibility', ROOT / 'tests/fixtures/linux-state-v4/status.sql')
+        release.write(evidence / 'reverse-compatibility.json', reverse)
         previous = upgrade.selected(installation)[1]
         value = {'installation': str(installation), 'requestedTarget': revision, 'operation': 'upgrade', 'previous': previous,
                  'configuration': upgrade.configuration(installation), 'protected': upgrade.protected(installation), 'planSha256': 'b' * 64}
@@ -68,6 +70,7 @@ def qualify(scratch, evidence):
         result = {'sourceRevision': revision, 'identity': identity, 'build': json.loads((base / 'build/build.json').read_bytes()),
                   'recovery': 'failed-rolled-back-latest-state-preserved', 'upgrade': 'succeeded',
                   'adoptionOrders': ['Nanoleaf-before-Hub', 'Nanoleaf-after-Hub'],
+                  'previousCode': 'explicit-read-only-program-copy' if previous_program else 'candidate-fixture',
                   'services': 'fake', 'installedAcceptance': False, 'physicalAcceptance': False}
         release.write(evidence / 'package.json', result)
         return result
@@ -77,8 +80,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--scratch', type=Path, required=True)
     parser.add_argument('--evidence', type=Path, required=True)
+    parser.add_argument('--previous-program', type=Path, help='Read-only previous bridge/MCP/vendor program roots to copy into the isolated fixture.')
     args = parser.parse_args()
     with contextlib.ExitStack() as stack:
         prior = os.umask(0o077)
         stack.callback(os.umask, prior)
-        print(json.dumps(qualify(args.scratch.absolute(), args.evidence.absolute()), indent=2))
+        print(json.dumps(qualify(args.scratch.absolute(), args.evidence.absolute(), args.previous_program), indent=2))

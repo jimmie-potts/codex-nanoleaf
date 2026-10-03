@@ -135,6 +135,7 @@ def requirements(path, seen=None):
 DEPENDENCY_PROBE = '''
 import importlib.metadata,json,sys
 from pathlib import Path
+sys.dont_write_bytecode=True
 bundle=Path(sys.argv[2])/'python-deps'
 if bundle.is_dir():sys.path.insert(0,str(bundle))
 expected=json.loads(sys.argv[1])
@@ -154,7 +155,7 @@ def verify_dependencies(program, python):
     environment = dict(os.environ, PYTHONDONTWRITEBYTECODE='1')
     runtime_host.run([python, '-I', '-c', DEPENDENCY_PROBE, json.dumps(dependencies), program / 'bridge'], env=environment)
     runtime_host.run([python, '-I', '-c',
-                     "import sys,runpy;sys.path.insert(0,sys.argv[1]);sys.argv=['pip','check'];runpy.run_module('pip',run_name='__main__')",
+                     "import sys,runpy;sys.dont_write_bytecode=True;sys.path.insert(0,sys.argv[1]);sys.argv=['pip','check'];runpy.run_module('pip',run_name='__main__')",
                      program / 'bridge/python-deps'], env=environment)
     return dependencies
 
