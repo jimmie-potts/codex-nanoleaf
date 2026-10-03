@@ -13,6 +13,10 @@ Run `npm run test:browser` and `npm run test:verify` after map or API changes; t
 
 Exercise Linux installation and device enrollment with isolated state and fake device transport; never enroll a personal device from a development checkout. `cd tests && python3 -m unittest test_enrollment` runs the focused enrollment tests; the operator commands are in [the Linux installation guide](linux-install.md#add-nl22-light-panels). Hosted CI runs the Python, browser, MCP and workflow checks on Linux; there are no platform-specific checks.
 
+## Diagnostic checks
+
+The optional [controller and worker diagnostics](observability.md) use the pinned dependencies above. `python3 -m unittest discover -s tests -p test_observability.py` checks copied-package conformance and host integration with fake state/transport. `scripts/check.py` includes it in both Python CI jobs. Run it before the full Python, browser/API and workflow checks when changing these boundaries.
+
 ## Verification runs
 
 A verification run serves the actual wall server over its own synthetic state. An agent can exercise a change, keep assertion-backed proof and hand over a disposable preview that expires. The shared lifecycle core `@jimmie-potts/app-verify`, vendored from the Hub under `vendor/`, implements the [app verification contract](https://github.com/jimmie-potts/agent-device-hub/blob/main/docs/app-verification.md): the transient systemd user unit and lease timer, receipt, `doctor`, frozen proof, capture harness and preview card. This repository supplies the wall plug-in in `scripts/verify/` and the wrapper `scripts/verify.mjs`. The [wall verification runs specification](../openspec/specs/wall-verification-runs/spec.md) owns the plug-in's requirements.

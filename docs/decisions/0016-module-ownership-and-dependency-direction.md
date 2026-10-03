@@ -34,7 +34,7 @@ Each shared operation has one owning module. Callers import it directly. No modu
 
 **Dependency direction.** Module-level imports form an acyclic graph, from leaves to entry points:
 
-1. `devices`, `effects`, `panels`, `project_map`, `controller_contract`, `jsonfile`, `transport`, `store`
+1. `devices`, `effects`, `panels`, `project_map`, `controller_contract`, `diagnostics`, `jsonfile`, `transport`, `store`
 2. `configuration`, `controller_state`, `shared_input`
 3. `launcher`, `codex_hooks`, `edits`, `integration_api`
 4. `database`, then `modes`, then `shared_source`
@@ -62,3 +62,5 @@ Device reads, enrollment requests and rendered-effect sends stay separate parame
 - The Linux installer already copies every `bridge/*.py` except itself, so the new modules are packaged automatically. `test_copied_runtime_holds_and_starts_every_shared_module` imports each module from an isolated copy and runs the documented commands from it.
 - Tests and the demo inject fakes through these seams. Patching an owning boundary (`transport.light_request`, `database.connect_state`, `jsonfile.write_json`) remains acceptable for failure injection.
 - Follow-up work builds on these owners. [#120](https://github.com/jimmie-potts/codex-nanoleaf/issues/120) moves backup and seeding knowledge to state owners. [#121](https://github.com/jimmie-potts/codex-nanoleaf/issues/121) decides the worker's device context. [#122](https://github.com/jimmie-potts/codex-nanoleaf/issues/122) investigates a pure shared-input projection.
+
+The optional `diagnostics` leaf verifies the shared artifact and provides explicit host adapters. Its import starts no exporter or optional dependency; entry points inject the initialized adapter into application work. It owns no device or domain state.

@@ -516,11 +516,11 @@ class IsolationTest(DeviceWorkerTest):
         self.fake.panels.fail = lambda method, endpoint, payload: True
         attempts, feeds = [], []
         original = b.run_worker
-        def run(directory, device='wall', feed=None, request=None):
+        def run(directory, device='wall', feed=None, request=None, diagnostic=None):
             attempts.append(device)
             feeds.append(feed)
             return original(directory, device=device, feed=feed, sleep=self.clock.sleep, now=self.clock.now,
-                            read_unread=lambda: self.unread, request=request)
+                            read_unread=lambda: self.unread, request=request, diagnostic=diagnostic)
         with patch.object(sys, 'argv', ['bridge.py', 'worker', '--device', 'panels', '--state-dir', str(self.directory)]), \
                 patch.object(b, 'run_worker', side_effect=run), \
                 patch.object(b.time, 'sleep', lambda seconds: self.assertEqual(seconds, 2) or self.mode('free', 'panels')):
@@ -714,7 +714,7 @@ class UnregisteredDeviceTest(DeviceWorkerTest):
         class Stop(BaseException):
             pass
         attempts = []
-        def run(directory, device='wall', feed=None, request=None):
+        def run(directory, device='wall', feed=None, request=None, diagnostic=None):
             attempts.append(device)
             if len(attempts) > 1:
                 raise Stop()
