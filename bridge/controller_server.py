@@ -405,8 +405,10 @@ def _serve(directory,port,launch,ready,diagnostic):
                     code=getattr(error,'sqlite_errorcode',None)
                     if code is not None and code & 255 in (sqlite3.SQLITE_BUSY,sqlite3.SQLITE_LOCKED):
                         continue  # Retry after the regular bounded wait; a local writer may hold the database.
+                    diagnostic.event('process.failed', severity='ERROR')
                     server.shutdown();return
                 except Exception:
+                    diagnostic.event('process.failed', severity='ERROR')
                     server.shutdown();return
         captured=diagnostic.capture_context()
         def maintained():

@@ -242,4 +242,40 @@ class DetachedDiagnosticsTest(unittest.TestCase):
             server.shutdown();server.server_close();thread.join()
 
 
+class ControllerLifecycleDiagnosticsTest(unittest.TestCase):
+    def test_watchdog_reports_fatal_errors_but_retries_busy_without_failure(self):
+        import sqlite3
+        import threading
+        from unittest.mock import patch
+        import database
+        import test_controller_state as fixtures
+        for code in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED, sqlite3.SQLITE_IOERR, None):
+            with self.subTest(code=code):
+                fixture=fixtures.ControllerStateTest();fixture.setUp()
+                lines=[]
+                host=diagnostics.start('nanoleaf-controller',environ={'BUNNY_DIAGNOSTICS':'1'},local_sink=lines.append)
+                calls=[0];retried=threading.Event();original=database.connect_state
+                error=sqlite3.OperationalError('private synthetic failure') if code else RuntimeError('private synthetic failure')
+                if code:error.sqlite_errorcode=code
+                def connect(directory):
+                    calls[0]+=1
+                    if calls[0]==2:raise error
+                    if calls[0]>2:retried.set()
+                    return original(directory)
+                try:
+                    with patch.object(diagnostics,'start',return_value=host):
+                        with fixture.watchdog_listener(connect) as listener:
+                            if code in (sqlite3.SQLITE_BUSY,sqlite3.SQLITE_LOCKED):
+                                self.assertTrue(retried.wait(3))
+                                self.assertFalse(listener.stopped.is_set())
+                            else:self.assertTrue(listener.stopped.wait(3))
+                    records=[json.loads(line) for line in lines]
+                    events=[r['event_name'] for r in records]
+                    self.assertEqual(events.count('process.failed'),0 if code in (sqlite3.SQLITE_BUSY,sqlite3.SQLITE_LOCKED) else 1)
+                    self.assertEqual(events[-1],'process.stopped')
+                    self.assertNotIn('private synthetic failure',''.join(lines))
+                finally:
+                    host.close();fixture.doCleanups()
+
+
 if __name__ == '__main__': unittest.main()
