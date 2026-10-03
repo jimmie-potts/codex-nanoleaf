@@ -41,15 +41,19 @@ correcting an existing setup command includes the issue and PR workflow unless
 the user requests local edits only. Preparing planning documents during a design
 discussion stays within the planning boundary.
 
-Installing the runtime or changing physical lights needs an explicit
-request. Keep source, installed, and physically verified claims separate.
+Authorized delivery includes routine installation on the established target
+under the owner's standing authority. Physical-light tests, new targets and
+unqualified migrations retain their separate boundaries. Keep source, installed
+and physically verified claims separate.
 
 ## Define and prepare work
 
 Search existing issues before creating one. Draft features with the prompts in
 [scope defaults](#scope-defaults) and bugs with the bug form. For maintenance
-and investigations, use the same headings in an ordinary issue. Source-only is
-the default delivery target.
+and investigations, use the same headings in an ordinary issue. Authorized
+delivery normally finishes merged, installed on the established target and
+verified. An explicit source-only exception needs its reason and linked
+installation obligation; overall installation remains pending.
 
 Preserve unrelated labels. Use `bug`, `enhancement`, `documentation`, or
 `maintenance` to describe the work, with exactly one status label on an open

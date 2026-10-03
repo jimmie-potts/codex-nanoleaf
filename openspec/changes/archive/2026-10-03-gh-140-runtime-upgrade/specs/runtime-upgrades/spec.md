@@ -97,3 +97,7 @@ claim client, physical or full issue acceptance from installation alone.
 #### Scenario: Supervisor resumes after an ambiguous operation
 - **WHEN** reconcile finds unresolved intent, invalid receipt or mismatched running evidence
 - **THEN** it reports uncertainty and never repeats the upgrade
+
+#### Scenario: Native recovery has restored a verified baseline
+- **WHEN** a plan-bound refusal or failed-rolled-back receipt passes full validation and fresh inspection proves the baseline identity is healthy with no unresolved barrier or competing operation
+- **THEN** the bridge reports the failed attempt as settled and blocked, preserves its complete legacy or release identity, and makes no installed-target claim or new installation attempt
