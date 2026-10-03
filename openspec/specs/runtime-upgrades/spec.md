@@ -81,3 +81,21 @@ and other-owner history. No pruning SHALL run while an operation is unresolved.
 #### Scenario: An old release is still referenced
 - **WHEN** retention considers a target of an unresolved or executing operation, or another owner's history
 - **THEN** it preserves that content regardless of age
+
+### Requirement: Owning supervisor installation bridge
+The runtime SHALL accept the shared supervisor install/reconcile request through
+fixed private configuration binding the named owner, source, installation, units,
+native npm and evidence root. Install SHALL run the native exact plan and guarded
+upgrade with adequate transition/recovery reserve before stopping services.
+Reconcile SHALL inspect only. Installed responses SHALL require semantically
+valid exact-revision receipts, selected release, fresh process-bound build and
+health readback; unresolved intent SHALL remain uncertain. No response SHALL
+claim client, physical or full issue acceptance from installation alone.
+
+#### Scenario: Request changes authority or exceeds its deadline
+- **WHEN** a request changes the configured owner/target paths, carries unknown fields or has insufficient transition reserve
+- **THEN** the bridge refuses without installing
+
+#### Scenario: Supervisor resumes after an ambiguous operation
+- **WHEN** reconcile finds unresolved intent, invalid receipt or mismatched running evidence
+- **THEN** it reports uncertainty and never repeats the upgrade

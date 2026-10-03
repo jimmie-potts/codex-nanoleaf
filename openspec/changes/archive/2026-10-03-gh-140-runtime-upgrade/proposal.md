@@ -13,6 +13,7 @@ establish running release identity or compatible recovery.
 - Fence supported entrypoints, stop and verify owned writers, retain consistent
   backups and recover to compatible code without restoring stale state.
 - Expose process-bound build identity separately from the strict controller v1 snapshot.
+- Add a fixed-config install/reconcile bridge for the shared supervisor, with exact owner/revision, deadline reserve and fresh receipt/health readback.
 - Consume the published install receipt contract and document standing authority,
   qualification limits and installed completion.
 

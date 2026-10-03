@@ -445,7 +445,7 @@ def prune(directory):
     release.sync(directory / 'releases')
 
 
-def transition(value, candidate, identity, compatibility, host, recheck, final_writer=persist, checkpoint=lambda _: None):
+def transition(value, candidate, identity, compatibility, host, recheck, final_writer=persist, checkpoint=lambda _: None, before_stop=lambda: None):
     """The single-writer boundary. Tests inject services, never weaken file guards."""
     directory, candidate = Path(value['installation']), Path(candidate)
     lock = directory / 'upgrade.lock'
@@ -480,6 +480,7 @@ def transition(value, candidate, identity, compatibility, host, recheck, final_w
         recovery_path = directory / 'legacy' / previous['legacyId'] if legacy_adoption else previous_path
         if legacy_adoption and recovery_path.exists():
             raise ValueError('existing-legacy-recovery-conflict')
+        before_stop()  # Last deadline/authority check; never cancel an admitted switch.
         active = directory / 'upgrade-records/active.json'
         release.write(active, {'operationId': operation_id, 'receipt': str(receipt_path),
                                'planSha256': value['planSha256'], 'recovery': 'Inspect link, fence records, processes and latest state before resolving this barrier.'})
@@ -594,31 +595,33 @@ def check_plan(value):
         raise ValueError('routine-upgrade-requires-three-established-active-units')
 
 
-def operate(value, npm='npm'):
-    check_plan(value)
+def operate(value, npm='npm', *, deadline=None, before_stop=lambda: None):
+    with runtime_host.preflight_deadline(deadline):
+        check_plan(value)
     directory = Path(value['installation'])
     current, _ = selected(directory)
     staging = private_directory(directory / 'upgrade-staging' / uuid.uuid4().hex)
     records = private_directory(directory / 'upgrade-records' / ('qualification-' + uuid.uuid4().hex))
     prior_umask = os.umask(0o077)
     try:
-        if value['operation'] == 'rollback':
-            target, identity = rollback_target(directory, value['requestedTarget'])
-        else:
-            target, identity = runtime_package.stage(value['source'], value['targetRevision'], staging,
-                                                     directory / 'runtime/node/bin/node', npm)
-            if identity['archiveSha256'] != value['archiveSha256']:
-                raise ValueError('planned-source-archive-mismatch')
-        # Qualification uses a maintained synthetic fixture, never real device calls.
-        compatibility = runtime_package.qualify(current, target, directory / '.venv/bin/python',
-                                                 staging / 'compatibility', Path(value['source']) / 'tests/fixtures/linux-state-v4/status.sql')
-        copy_state(directory, staging / 'current-state')
-        compatibility['currentStateReopenSha256'] = runtime_package.reopen_current(
-            current, target, directory / '.venv/bin/python', staging / 'current-state')
-        release.write(records / 'compatibility.json', compatibility)
-        release.write(records / 'plan.json', value)
+        with runtime_host.preflight_deadline(deadline):
+            if value['operation'] == 'rollback':
+                target, identity = rollback_target(directory, value['requestedTarget'])
+            else:
+                target, identity = runtime_package.stage(value['source'], value['targetRevision'], staging,
+                                                         directory / 'runtime/node/bin/node', npm)
+                if identity['archiveSha256'] != value['archiveSha256']:
+                    raise ValueError('planned-source-archive-mismatch')
+            # Qualification uses a maintained synthetic fixture, never real device calls.
+            compatibility = runtime_package.qualify(current, target, directory / '.venv/bin/python',
+                                                     staging / 'compatibility', Path(value['source']) / 'tests/fixtures/linux-state-v4/status.sql')
+            copy_state(directory, staging / 'current-state')
+            compatibility['currentStateReopenSha256'] = runtime_package.reopen_current(
+                current, target, directory / '.venv/bin/python', staging / 'current-state')
+            release.write(records / 'compatibility.json', compatibility)
+            release.write(records / 'plan.json', value)
         return transition(value, target, identity, records / 'compatibility.json',
-                          runtime_host.Host(directory, value['unitsDirectory']), lambda: check_plan(value))
+                          runtime_host.Host(directory, value['unitsDirectory']), lambda: check_plan(value), before_stop=before_stop)
     finally:
         try:
             shutil.rmtree(staging)
@@ -643,6 +646,16 @@ def refused(directory, requested, operation, code='qualification-or-plan-refused
     return receipt
 
 
+def status(directory, host):
+    directory = Path(directory)
+    _, identity = selected(directory)
+    services = host.snapshot()
+    return {'installed': identity,
+            'runningProcesses': {name: item['process'] if item['active'] == 'active' else None for name, item in services.items()},
+            'runningBuild': host.running_build(services),
+            'inspectionRequired': (directory / 'upgrade-records/active.json').exists()}
+
+
 def command(arguments):
     parser = argparse.ArgumentParser(description='Guarded complete-bundle Nanoleaf upgrades; no device commands.')
     parser.add_argument('command', choices=('plan', 'status', 'upgrade', 'rollback'))
@@ -657,17 +670,12 @@ def command(arguments):
     try:
         if args.command == 'status':
             directory = args.state_dir.expanduser().absolute()
-            _, identity = selected(directory)
             host = runtime_host.Host(directory, args.systemd_dir.expanduser().absolute())
-            services = host.snapshot()
             try:
                 _, main = source_identity(args.source_root, 'main')
             except (OSError, ValueError, subprocess.SubprocessError):
                 main = None
-            value = {'installed': identity,
-                     'runningProcesses': {name: item['process'] if item['active'] == 'active' else None for name, item in services.items()},
-                     'runningBuild': host.running_build(services), 'mergedMain': main,
-                     'inspectionRequired': (directory / 'upgrade-records/active.json').exists()}
+            value = status(directory, host) | {'mergedMain': main}
             print(json.dumps(value, indent=2))
             return 0
         if args.command == 'plan':

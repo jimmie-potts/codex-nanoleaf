@@ -46,6 +46,16 @@ install a scheduler or create a shared installer framework.
   inputs. Operation intent and terminal receipts use fsync and exact readback;
   finalization failure is not success.
 
+- The supervisor bridge accepts only a strict stdin request and a private trusted
+  configuration naming the owner, installation, source, units, native npm and
+  evidence root. It runs the native exact plan/operation, retaining a minimum
+  600-second transition/recovery reserve before durable intent. Once switching
+  starts, it reaches the native safe boundary without deadline cancellation.
+  Reconcile is inspection only under the native shared lock: validate the full
+  receipt, latest selected release, process/build identity and fresh health.
+  Unresolved barriers or incomplete readback remain uncertain. Installation does
+  not imply client, physical or issue acceptance.
+
 ## Risks / Trade-offs
 
 - Unsupported direct Python imports or privileged writers can bypass ordinary

@@ -155,6 +155,70 @@ Report merged source, exact packaged artifact, installed receipt, running health
 client acceptance and physical acceptance separately. Source tests alone leave
 installation pending.
 
+### Shared supervisor adapter
+
+The reviewed owning bridge is `bridge/runtime_adapter.py --config <private-json>`.
+It accepts one JSON request on stdin and emits one JSON response. Configure its
+fixed argv in the supervisor; never construct shell commands from issue text.
+The private configuration has exactly these fields:
+
+```json
+{
+  "schemaVersion": 1,
+  "owner": "jimmie",
+  "stateDirectory": "/absolute/established/nanoleaf",
+  "sourceRoot": "/absolute/clean/reviewed/source",
+  "systemdDirectory": "/absolute/user/systemd/units",
+  "npm": "/absolute/resolved/native/npm-cli.js",
+  "evidenceRoot": "/absolute/private/supervisor/evidence",
+  "transitionReserveSeconds": 600
+}
+```
+
+These are placeholders, not a qualified installation. The coordinator binds the
+actual paths and named owner during activation. Configuration is an owned private
+regular file; paths are absolute, existing and free of symlink ancestors. State
+and evidence directories are private. Source and unit directories are owned and
+not writable by other users. The native npm path is an owned executable regular
+file: resolve an npm symlink before recording it. The supervisor pins the reviewed
+Python executable, configuration, adapter and imported owning module/receipt
+artifact closure using its existing `files` fingerprints. Updating those pins or
+the running supervisor's adapter waits for its stopped ownership boundary.
+
+The strict request uses the shared supervisor protocol:
+
+```json
+{"schemaVersion":1,"operation":"install","repository":"jimmie-potts/codex-nanoleaf","issue":140,"merge":"<full merged SHA>","owner":"jimmie","deadline":1234567890,"evidenceDirectory":"<private child of evidenceRoot>"}
+```
+
+Unknown fields, duplicate JSON keys, changed authority and evidence outside the
+configured root refuse. Install saves and reads back the native exact plan, then
+passes that plan to the same native operation. The bridge reserves at least 600
+seconds for switching, health and recovery, caps preflight subprocess calls to
+the remaining preparation time, and rechecks the reserve immediately before
+durable intent and fencing. Slow preparation refuses before outage. Once a
+switch starts, neither deadline nor supervisor pause cancels it; native recovery
+reaches its safe boundary. A deadline overrun remains unaccepted by the supervisor
+until inspection. This reserve does not promise a deadline for stalled kernel or
+storage I/O. Configure the supervisor timeout and reserve to accommodate the
+owning operation rather than wrapping it in a process-killing timeout.
+
+`operation: "reconcile"` only inspects. Under a shared native installation lock,
+it validates the complete semantic receipt, exact selected bundle and requested
+revision, then obtains fresh running process/build and wall/controller/MCP health
+readback. It never stages, installs, rolls back, starts services, removes a
+barrier or repeats an ambiguous operation. Evidence is written only in the
+request's private evidence directory. Missing or inconsistent proof and any
+unresolved active barrier return `status: "uncertain"`.
+
+Only complete readback returns `status: "installed"`, the exact repository,
+merge and owner, matching `installedRevision` and `runningRevision`,
+`health: "healthy"`, and the retained native `receipt: {path, sha256}`. A native
+`migrate` receipt can qualify the first adoption; `failed-rolled-back` cannot
+qualify the requested upgrade. This adapter establishes installation only.
+The separate owning closeout procedure still checks client, physical and all
+other issue acceptance before closure.
+
 ## Install from the reviewed checkout
 
 Record `git rev-parse HEAD` with the #55 acceptance evidence. From that checkout:

@@ -10,6 +10,8 @@
 - [x] 2.2 Implement legacy and routine admission, owned writer shutdown and consistent backup; test concurrent entry and other-owner preservation.
 - [x] 2.3 Implement migration, upgrade, rollback, durable receipts and retention; test both adoption orders and interrupted/failed outcomes.
 
+- [x] 2.4 Add the fixed owning supervisor adapter and test strict authority, deadline reserve, exact receipt/build/health readback and inspection-only uncertainty.
+
 ## 3. Delivery evidence
 
 - [x] 3.1 Update the root agent pointer and owning install procedure; verify read-only and standing-authority routes by inspection.

@@ -1,5 +1,6 @@
 """Bounded Linux effects for the Nanoleaf updater; only named user units and paths."""
 import contextlib
+from contextvars import ContextVar
 import http.client
 import json
 import os
@@ -15,12 +16,34 @@ import devices
 import runtime_release as release
 
 UNITS = tuple('codex-nanoleaf-' + name + '.service' for name in ('wall', 'controller', 'mcp'))
+PREFLIGHT_DEADLINE = ContextVar('nanoleaf_preflight_deadline', default=None)
+
+
+@contextlib.contextmanager
+def preflight_deadline(deadline):
+    token = PREFLIGHT_DEADLINE.set(deadline)
+    try:
+        yield
+    finally:
+        PREFLIGHT_DEADLINE.reset(token)
+
+
+def bounded_timeout(maximum):
+    deadline = PREFLIGHT_DEADLINE.get()
+    if deadline is None:
+        return maximum
+    remaining = deadline - time.time()
+    if remaining <= 0:
+        raise TimeoutError('preflight-deadline')
+    return min(maximum, remaining)
+
+
 BYPASS = (1 << 1) | (1 << 2)  # CAP_DAC_OVERRIDE and CAP_DAC_READ_SEARCH
 
 
 def run(arguments, **kwargs):
     return subprocess.run([str(arg) for arg in arguments], check=True, capture_output=True,
-                          timeout=kwargs.pop('timeout', 30), **kwargs)
+                          timeout=bounded_timeout(kwargs.pop('timeout', 30)), **kwargs)
 
 
 def process(pid):
@@ -47,6 +70,7 @@ class Host:
         self.deadline = None
 
     def remaining(self, maximum):
+        maximum = bounded_timeout(maximum)
         if self.deadline is None:
             return maximum
         remaining = self.deadline - time.monotonic()
