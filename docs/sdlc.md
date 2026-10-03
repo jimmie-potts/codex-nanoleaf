@@ -95,9 +95,15 @@ Reading it does not invoke either skill. If it is unavailable, report that and
 apply this section. Codex and Claude follow the same policy. A read-only request
 reports the assessment instead of editing the issue.
 
-Draft stories with the five prompts of the
-[feature form](../.github/ISSUE_TEMPLATE/feature.yml). A small story may answer
+Draft stories with the recognized headings of the
+[Work item template](../.github/ISSUE_TEMPLATE/feature.md). A small story may answer
 them in a few sentences.
+
+Use the [issue conventions](issue-conventions.md) for Epic, Work item and Bug
+intake, native membership and portfolio views. Outcome and observable acceptance
+are required. Implementation, preservation and deferral details are conditional
+on the work; keep their recognized headings without inventing irrelevant prose.
+No model choice or Execution recommendation is required to file an issue.
 
 1. Outcome and real setup.
 2. Smallest useful implementation, with dependencies.
