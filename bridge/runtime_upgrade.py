@@ -68,7 +68,7 @@ def configuration(directory):
 def protected(directory):
     """Record excluded roots without moving, following for deletion, or copying them."""
     directory = Path(directory)
-    result = {}
+    result = {'untouchedSiblings': untouched_siblings(directory)}
     for name in ('runtime/node', 'runtime/hub-gh30', '.venv'):
         path = directory / name
         if not path.exists():
@@ -91,6 +91,31 @@ def protected(directory):
             entries[relative] = entry
         result[name] = {'link': os.readlink(path) if path.is_symlink() else None,
                         'resolved': str(root), 'entriesSha256': release.digest(release.encoded(entries))}
+    return result
+
+
+def untouched_siblings(directory):
+    """Bind opaque neighboring directories without reading or adopting their state.
+
+    Hub state, caches and retained history share this parent. Only the three
+    component roots belong to Nanoleaf's program switch. Their siblings may
+    keep changing under their own owner; directory replacement requires replan.
+    """
+    directory = Path(directory)
+    result = {}
+    for parent, owned in ((directory, MANAGED),
+                          (directory / 'runtime', {*release.COMPONENTS, 'node', 'hub-gh30'})):
+        for path in sorted(parent.iterdir()):
+            if path.name in owned:
+                continue
+            info = path.lstat()
+            if parent == directory and stat.S_ISREG(info.st_mode):
+                continue  # Root regular state files have their own backup scope.
+            if not stat.S_ISDIR(info.st_mode):
+                raise ValueError('unsupported-unowned-sibling')
+            result[path.relative_to(directory).as_posix()] = {
+                'device': info.st_dev, 'inode': info.st_ino,
+                'mode': stat.S_IMODE(info.st_mode), 'uid': info.st_uid}
     return result
 
 
@@ -138,8 +163,7 @@ def selected(directory):
     runtime = directory / 'runtime'
     if runtime.is_symlink() or not runtime.is_dir():
         raise ValueError('runtime-parent-must-remain-directory')
-    if set(p.name for p in runtime.iterdir()) - {*release.COMPONENTS, 'node', 'hub-gh30'}:
-        raise ValueError('unknown-runtime-ownership')
+    untouched_siblings(directory)
     current = directory / 'current'
     if current.is_symlink():
         target = current.resolve(strict=True)
@@ -218,8 +242,6 @@ def plan(directory, source, units, requested='main', operation='upgrade', host=N
     if previous['kind'] == 'release' and release.SHA.fullmatch(target):
         commits = git(source, 'rev-list', '--reverse', previous['sourceRevision'] + '..' + target).decode().splitlines()
     changes = None if commits is None else git(source, 'diff', '--name-only', previous['sourceRevision'], target).decode().splitlines()
-    if any(path.is_dir() and path.name not in MANAGED for path in directory.iterdir()):
-        raise ValueError('unknown-state-directory-backup-scope')
     value = {'format': 1, 'installation': str(directory), 'source': str(source), 'unitsDirectory': str(units),
              'requestedTarget': requested, 'targetRevision': target, 'mergedMain': main, 'operation': operation,
              'archiveSha256': archive_sha,
@@ -318,7 +340,7 @@ def switch(directory, target):
 def state_files(directory):
     result = []
     for path in sorted(Path(directory).iterdir()):
-        if path.name in MANAGED or path.name in ('upgrade.lock', 'map-server.json', 'controller-server.json') or path.name.startswith('.current-'):
+        if path.name in MANAGED or (path.is_dir() and not path.is_symlink()) or path.name in ('upgrade.lock', 'map-server.json', 'controller-server.json') or path.name.startswith('.current-'):
             continue
         if path.name.startswith('notification-lock') or path.name.endswith(('-wal', '-shm', '-journal')):
             continue
@@ -365,7 +387,7 @@ def safe_code(error):
                'routine-upgrade-requires-three-established-active-units', 'unsupported-service-ownership',
                'unsupported-service-command', 'unsupported-service-effects', 'installer-permission-bypass',
                'privileged-service-cannot-be-fenced', 'privileged-runtime-executable', 'privileged-or-foreign-owned-writer',
-               'owned-process-entrypoint-unreadable', 'unknown-runtime-ownership', 'unknown-state-directory-backup-scope',
+               'owned-process-entrypoint-unreadable', 'unsupported-unowned-sibling',
                'writer-stop-timeout', 'service-stop-unverified', 'bounded-health-failure', 'controller-build-mismatch',
                'wall-served-artifact', 'mcp-initialize', 'mcp-session', 'mcp-discovery', 'configuration-drift-during-drain',
                'bundle-identity-drift', 'release-inventory-or-provenance', 'no-successful-recovery-target',

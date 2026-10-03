@@ -146,6 +146,38 @@ class TransitionTest(unittest.TestCase):
         self.assertEqual(value['archiveSha256'], release.digest(b'exact archive'))
         self.assertNotIn('private', json.dumps(value))
 
+    def test_shared_state_and_retained_history_are_bound_but_never_adopted_or_backed_up(self):
+        import runtime_upgrade as upgrade
+        import runtime_release as release
+        siblings = ('shared-monitor', 'install-backups', '.npm-cache',
+                    'runtime/hub-gh30.prev-op-example', 'runtime/bridge-before-gh30', 'runtime/codex-gh30')
+        for name in siblings:
+            path = self.root / name
+            path.mkdir()
+            (path / 'private-original').write_text(name)
+        host = mock.Mock()
+        host.snapshot.return_value = {}
+        host.running_build.return_value = None
+        before = release.inventory(self.root)
+        with mock.patch.object(upgrade, 'source_identity', return_value=('a' * 40, 'a' * 40)), mock.patch.object(upgrade, 'git', return_value=b'archive'):
+            value = upgrade.plan(self.root, ROOT, self.root / 'units', 'a' * 40, host=host)
+        self.assertEqual(release.inventory(self.root), before)
+        self.assertTrue(set(siblings).issubset(value['protected']['untouchedSiblings']))
+        backup = self.root / 'upgrade-backups/fixture'
+        upgrade.copy_state(self.root, backup)
+        self.assertEqual(list(backup.iterdir()), [])
+        retained = self.root / 'legacy/first'
+        retained.mkdir(parents=True)
+        upgrade.adopt(self.root, retained)
+        for name in siblings:
+            self.assertEqual((self.root / name / 'private-original').read_text(), name)
+        self.assertEqual(upgrade.protected(self.root), value['protected'])
+        (self.root / 'shared-monitor/private-original').write_text('normal live owner write')
+        self.assertEqual(upgrade.protected(self.root), value['protected'])
+        (self.root / 'shared-monitor').rename(self.root / 'shared-monitor-old')
+        (self.root / 'shared-monitor').mkdir()
+        self.assertNotEqual(upgrade.protected(self.root), value['protected'])
+
     def test_owned_record_path_cannot_escape_through_parent_symlink(self):
         import runtime_upgrade as upgrade
         outside = self.root / 'other-owner'

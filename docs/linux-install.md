@@ -114,6 +114,11 @@ First adoption retains original bridge/MCP/vendor directories under
 anchor. The `runtime` parent remains a directory; `runtime/hub-gh30`, shared
 `runtime/node` and `.venv` remain unchanged. Component conversion occurs while
 fenced and is not atomic. Each later `current` publication is one atomic rename.
+Other directories under the installation and runtime parents, including shared
+Hub state, caches and retained history, remain outside adoption and backup. The
+plan binds their directory identities and modes without reading their contents;
+normal writes by their owners are allowed, but replacing a directory requires a
+new plan. Unknown sibling links or special files refuse before any switch.
 An interrupted first conversion leaves the originals, fence records and active
 barrier for inspection and blocks automatic replay.
 
