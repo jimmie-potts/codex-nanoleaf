@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import shutil
 import sqlite3
+import sys
 import tarfile
 import time
 
@@ -15,6 +16,13 @@ import runtime_host
 import runtime_release as release
 
 BRIDGE_ASSETS = ('wall.html', 'prism.js', 'prism-adapters.js', 'prism-labels.js', 'requirements-controller.txt')
+# Qualified diagnostics-only adoption: e15de12 -> 8cc11c4 (#209). These are
+# normalized complete product-module hashes, not inferred release identities.
+# Both directions still require dependency and target-write/previous-reopen proof.
+DIAGNOSTICS_ADOPTION = frozenset({
+    'a09cf5451cdd9800fadf5ae8fedc6e17c3dae509a6819b784f6d91f051297b9e',
+    '3cf143cfdbdb1e32f6ea8043b8f00b3fbc14b455804d2b71778ffb34fa7f1915',
+})
 
 
 def copy_payload(source, target):
@@ -34,7 +42,7 @@ def copy_payload(source, target):
         shutil.copytree(source / 'mcp' / name, target / 'mcp' / name, symlinks=True)
 
 
-def stage(source, revision, destination, node, npm):
+def stage(source, revision, destination, node, npm, python=None):
     destination, source = Path(destination), Path(source)
     started = time.monotonic()
     archive = runtime_host.run(['git', '-C', source, 'archive', '--format=tar', revision]).stdout
@@ -51,6 +59,15 @@ def stage(source, revision, destination, node, npm):
     runtime_host.run([npm, 'ci', '--ignore-scripts', '--no-audit', '--no-fund'], cwd=payload / 'mcp', env=environment, timeout=300)
     runtime_host.run([node, 'scripts/verify.mjs'], cwd=payload / 'mcp', env=environment)
     runtime_host.run([node, 'node_modules/typescript/bin/tsc', '-p', 'tsconfig.json'], cwd=payload / 'mcp', env=environment)
+    python = python or sys.executable
+    # Immutable, target-owned wheels leave the shared interpreter/environment and
+    # every retained previous release untouched. No sdist build or install hook.
+    pins = requirements(payload / 'bridge/requirements-controller.txt')
+    runtime_host.run([python, '-I', '-m', 'pip', 'install', '--only-binary=:all:', '--no-deps',
+                      '--no-compile', '--disable-pip-version-check', '--target', payload / 'bridge/python-deps',
+                      *(name + '==' + version for name, version in sorted(pins.items()))],
+                    env=environment, timeout=300)
+    verify_dependencies(payload, python)
     # No Python cache is shipped. Every managed bridge entry disables subsequent writes.
     for path in payload.rglob('__pycache__'):
         if path.is_dir() and not path.is_symlink():
@@ -58,7 +75,7 @@ def stage(source, revision, destination, node, npm):
     identity = release.seal(payload, revision, json.loads((checkout / 'package.json').read_bytes())['version'], archive)
     release.verify(payload)
     release.write(destination / 'build.json', {'identity': identity, 'seconds': round(time.monotonic() - started, 3),
-                                             'pythonStrategy': 'unchanged-shared-environment', 'npmLifecycleScripts': False})
+                                             'pythonStrategy': 'release-owned-wheels-shared-interpreter', 'npmLifecycleScripts': False})
     return payload, identity
 
 
@@ -77,6 +94,7 @@ def durable_fingerprint(program):
         source = path.read_text()
         if path.name == 'bridge.py':
             source = source.replace('sys.dont_write_bytecode = True\n', '')
+            source = source.replace("sys.path.insert(0, str(Path(__file__).resolve().parent / 'python-deps'))\n", '')
         if path.name == 'controller_server.py':
             source = source.replace('import runtime_release\n', '')
             source = source.replace('        self.build=runtime_release.build(__file__)\n', '')
@@ -116,18 +134,36 @@ def requirements(path, seen=None):
 
 DEPENDENCY_PROBE = '''
 import importlib.metadata,json,sys
+from pathlib import Path
+bundle=Path(sys.argv[2])/'python-deps'
+if bundle.is_dir():sys.path.insert(0,str(bundle))
 expected=json.loads(sys.argv[1])
 for name,version in expected.items():
-    if importlib.metadata.version(name)!=version: raise RuntimeError('dependency-version')
+    distribution=importlib.metadata.distribution(name)
+    if distribution.version!=version: raise RuntimeError('dependency-version')
+    if bundle.is_dir() and not Path(distribution.locate_file('')).resolve().is_relative_to(bundle.resolve()):
+        raise RuntimeError('dependency-outside-release')
 import jsonschema
 print(json.dumps(expected,sort_keys=True))
 '''
+
+
+def verify_dependencies(program, python):
+    program = Path(program)
+    dependencies = requirements(program / 'bridge/requirements-controller.txt')
+    environment = dict(os.environ, PYTHONDONTWRITEBYTECODE='1')
+    runtime_host.run([python, '-I', '-c', DEPENDENCY_PROBE, json.dumps(dependencies), program / 'bridge'], env=environment)
+    runtime_host.run([python, '-I', '-c',
+                     "import sys,runpy;sys.path.insert(0,sys.argv[1]);sys.argv=['pip','check'];runpy.run_module('pip',run_name='__main__')",
+                     program / 'bridge/python-deps'], env=environment)
+    return dependencies
 
 STATE_PROBE = '''
 import contextlib,json,sqlite3,sys
 from pathlib import Path
 sys.dont_write_bytecode=True
 sys.path.insert(0,sys.argv[1])
+sys.path.insert(0,str(Path(sys.argv[1])/'python-deps'))
 import database,project_map,shared_input,controller_state,integration_api
 directory=Path(sys.argv[2]);mode=sys.argv[3]
 with contextlib.closing(database.connect_state(directory)) as db,db:
@@ -148,17 +184,12 @@ print(json.dumps(dump))
 
 def qualify(previous, target, python, scratch, fixture):
     previous, target, scratch = Path(previous), Path(target), Path(scratch)
-    if durable_fingerprint(previous) != durable_fingerprint(target):
+    previous_fingerprint, target_fingerprint = durable_fingerprint(previous), durable_fingerprint(target)
+    if previous_fingerprint != target_fingerprint and frozenset((previous_fingerprint, target_fingerprint)) != DIAGNOSTICS_ADOPTION:
         raise ValueError('durable-implementation-unqualified')
-    dependencies = requirements(target / 'bridge/requirements-controller.txt')
-    prior = requirements(previous / 'bridge/requirements-controller.txt')
-    for name, version in prior.items():
-        if name in dependencies and dependencies[name] != version:
-            raise ValueError('shared-python-dependency-conflict')
-        dependencies[name] = version
+    dependencies = verify_dependencies(target, python)
+    prior = verify_dependencies(previous, python)
     environment = dict(os.environ, PYTHONDONTWRITEBYTECODE='1')
-    runtime_host.run([python, '-I', '-c', DEPENDENCY_PROBE, json.dumps(dependencies)], env=environment)
-    runtime_host.run([python, '-I', '-m', 'pip', 'check'], env=environment)
     scratch.mkdir(parents=True)
     with contextlib.closing(sqlite3.connect(scratch / 'status.sqlite')) as db, db:
         db.executescript(Path(fixture).read_text())
@@ -168,8 +199,8 @@ def qualify(previous, target, python, scratch, fixture):
     reopened = probe(previous, 'reopen')
     if reopened != written:
         raise ValueError('previous-code-changed-latest-state')
-    return {'status': 'compatible', 'durableFingerprint': durable_fingerprint(target),
-            'dependencies': dependencies, 'stateSha256': release.digest(release.encoded(written)),
+    return {'status': 'compatible', 'durableFingerprint': target_fingerprint, 'previousDurableFingerprint': previous_fingerprint,
+            'dependencies': dependencies, 'previousDependencies': prior, 'stateSha256': release.digest(release.encoded(written)),
             'probe': 'target-write-previous-reopen', 'latestStateRestoredFromBackup': False}
 
 

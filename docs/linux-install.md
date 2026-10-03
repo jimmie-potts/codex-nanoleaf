@@ -76,13 +76,17 @@ unsupported ownership, partial migration and unresolved prior operations.
 
 The candidate contains every bridge Python module copied by fresh setup, wall
 assets, both vendor trees, MCP source, build output and locked dependencies.
-Staging uses the exact Git archive and disables npm lifecycle scripts. It never
-updates shared Node or modifies the existing Python environment. Both previous
-and target Python requirements must already pass in that environment. Build
-duration and the selected Python strategy are recorded in private evidence.
-Dependency changes require a separately qualified environment transition.
+Staging uses the exact Git archive and disables npm lifecycle scripts. It installs
+the pinned Python wheels into the target's `bridge/python-deps`, includes them in
+the complete inventory, and checks their versions and dependencies with the
+existing interpreter. It never updates shared Node or the shared Python
+environment. The target entrypoint and qualification probes use its private
+dependency path; previous releases retain their own path or the unchanged legacy
+environment. Source distribution builds are refused. Build duration and the
+selected Python strategy are recorded in private evidence.
 
-Rollback qualification requires the known durable implementation fingerprint,
+Rollback qualification requires matching durable implementation fingerprints or
+the exact reviewed pre-diagnostics/diagnostics pair from PR #209,
 an isolated target-write/previous-reopen fixture and unchanged reopening of a
 consistent copy of current state by both programs. Unknown durable code or a
 migration refuses before outage. This bounded qualification must be refreshed
@@ -223,6 +227,15 @@ merge and owner, matching `installedRevision` and `runningRevision`,
 qualify the requested upgrade. This adapter establishes installation only.
 The separate owning closeout procedure still checks client, physical and all
 other issue acceptance before closure.
+
+A fully validated native refusal or failed rollback attempt can return
+`status: "blocked"`, `effects: "none"` or `"reconciled"`, and its receipt only
+after fresh health and process evidence proves the original baseline is running
+and the native lock and operation barriers are clear. The response preserves
+the complete release or legacy identity; it never claims the requested revision
+was installed. A known reserve failure at the native pre-stop boundary writes
+a plan-bound refusal receipt. Missing or ambiguous proof retains the uncertain
+operation and never triggers another installation.
 
 ## Install from the reviewed checkout
 

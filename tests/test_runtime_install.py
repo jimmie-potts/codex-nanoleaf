@@ -75,6 +75,18 @@ class ReleaseTest(unittest.TestCase):
         self.assertEqual(release.build(self.root / 'bridge' / 'controller_server.py'),
                          {'sourceRevision': 'unknown', 'version': 'unknown'})
 
+    def test_release_dependencies_are_read_from_the_bundle_without_changing_shared_python(self):
+        import runtime_package
+        dependencies = self.root / 'bridge/python-deps'
+        metadata = dependencies / 'upgrade_fixture-1.0.dist-info'
+        metadata.mkdir(parents=True)
+        (metadata / 'METADATA').write_text('Metadata-Version: 2.1\nName: upgrade-fixture\nVersion: 1.0\n')
+        (self.root / 'bridge/requirements-controller.txt').write_text('upgrade-fixture==1.0\n')
+        runtime_package.verify_dependencies(self.root, sys.executable)
+        (metadata / 'METADATA').write_text('Metadata-Version: 2.1\nName: upgrade-fixture\nVersion: 2.0\n')
+        with self.assertRaises(subprocess.CalledProcessError):
+            runtime_package.verify_dependencies(self.root, sys.executable)
+
 
 class TransitionTest(unittest.TestCase):
     def setUp(self):
@@ -402,6 +414,13 @@ class OperationTest(unittest.TestCase):
         self.assertEqual(evidence['status'], 'compatible')
         self.assertEqual(evidence['probe'], 'target-write-previous-reopen')
         self.assertFalse(evidence['latestStateRestoredFromBackup'])
+
+    def test_unrecognized_durable_code_refuses_before_dependency_or_state_work(self):
+        import runtime_package
+        with mock.patch.object(runtime_package, 'durable_fingerprint', side_effect=['a' * 64, 'b' * 64]), mock.patch.object(runtime_package, 'verify_dependencies') as dependencies:
+            with self.assertRaisesRegex(ValueError, 'durable-implementation-unqualified'):
+                runtime_package.qualify(ROOT, ROOT, sys.executable, Path(self.temp.name) / 'probe', ROOT / 'tests/fixtures/linux-state-v4/status.sql')
+        dependencies.assert_not_called()
 
     def test_same_sha_different_bytes_and_concurrent_operation_refuse_before_stop(self):
         import runtime_upgrade as upgrade

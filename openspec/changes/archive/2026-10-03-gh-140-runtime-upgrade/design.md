@@ -22,10 +22,17 @@ install a scheduler or create a shared installer framework.
   Package every copied module, vendor artifact and MCP dependency; record trusted
   source/archive/manifest hashes and reject unknown, changed or unlisted content.
   Current selection is one `current` anchor, never separate component switches.
-- Preserve the shared Python environment only when both previous and target
-  dependency/import requirements are verified. Do not mutate it during a switch.
-  Unknown dependency compatibility refuses before outage and remains a specific
-  qualification gap rather than falling back to an in-place pip upgrade.
+- Preserve the shared Python interpreter and environment. Stage pinned binary
+  wheels into each target bundle's `bridge/python-deps`; include the closure in
+  the immutable inventory and select it in the entrypoint and qualification
+  probes. Previous code keeps its own dependency path or the unchanged legacy
+  environment. Verify both closures and refuse unknown dependency compatibility
+  before outage. No in-place pip upgrade or source distribution build is allowed.
+- Qualify the established pre-diagnostics installation against PR #209 using
+  the exact normalized product-module fingerprint pair plus dependency and
+  target-write/previous-reopen probes in both directions. Other differing
+  fingerprints still refuse. Matching code never assigns an unknown legacy
+  installation a guessed source revision.
 - Legacy admission needs a kernel-enforced boundary because old entrypoints know
   no new lock. Persist original directory modes/inodes before temporarily denying
   traversal of strictly owned bridge/MCP program directories. Require the ordinary
@@ -55,6 +62,9 @@ install a scheduler or create a shared installer framework.
   receipt, latest selected release, process/build identity and fresh health.
   Unresolved barriers or incomplete readback remain uncertain. Installation does
   not imply client, physical or issue acceptance.
+  Verified native refusal or rollback may instead settle the failed attempt with
+  fresh baseline health and complete legacy/release identity, leaving the selected
+  issue parked without holding unrelated deliveries. This never repeats a switch.
 
 ## Risks / Trade-offs
 

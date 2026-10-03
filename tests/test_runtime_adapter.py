@@ -61,7 +61,7 @@ class AdapterTest(unittest.TestCase):
         self.assertEqual(result['status'], 'uncertain')
         plan.assert_not_called(); operate.assert_not_called()
 
-    def installed_fixture(self):
+    def installed_fixture(self, fail_target=False):
         import runtime_adapter as adapter
         import runtime_host
         import runtime_release as release
@@ -81,6 +81,8 @@ class AdapterTest(unittest.TestCase):
                 return {name: {'active': 'active', 'process': {'pid': index + 1000, 'startTicks': 1000,
                         'uid': os.getuid(), 'argv': [name]}} for index, name in enumerate(runtime_host.UNITS)}
             def health(self, identity, selected, started_after):
+                if fail_target and identity['kind'] == 'release':
+                    raise ValueError('candidate-health-failed')
                 return {'units': self.snapshot(), 'fakeServices': True}
             def running_build(self, services):
                 return {key: identity[key] for key in ('sourceRevision', 'version')}
@@ -89,9 +91,28 @@ class AdapterTest(unittest.TestCase):
                 'targetRevision': 'a' * 40, 'requestedTarget': 'a' * 40, 'operation': 'upgrade',
                 'previous': adapter.upgrade.selected(state)[1], 'configuration': adapter.upgrade.configuration(state),
                 'protected': adapter.upgrade.protected(state), 'planSha256': 'b' * 64}
+        plan['planSha256'] = release.digest(release.encoded({key: value for key, value in plan.items() if key != 'planSha256'}))
         receipt = adapter.upgrade.transition(plan, self.root / 'candidate', identity, self.root / 'compatibility', host, lambda: None)
-        self.assertEqual(receipt['outcome'], 'succeeded')
+        self.assertEqual(receipt['outcome'], 'failed-rolled-back' if fail_target else 'succeeded')
         return host, receipt, plan
+
+    def test_reconciled_legacy_rollback_parks_without_reinstall_or_installed_claim(self):
+        import runtime_adapter as adapter
+        host, receipt, plan = self.installed_fixture(fail_target=True)
+        adapter.release.write(self.root / 'evidence/attempt/plan.json', plan)
+        with mock.patch.object(adapter.runtime_host, 'Host', return_value=host), mock.patch.object(adapter.upgrade, 'operate') as operate:
+            result = adapter.execute(self.config, self.request | {'operation': 'reconcile'})
+        self.assertEqual(result['status'], 'blocked')
+        self.assertEqual(result['effects'], 'reconciled')
+        self.assertEqual(result['outcome'], 'failed-rolled-back')
+        self.assertEqual(result['baselineIdentity'], plan['previous'])
+        self.assertEqual(result['runningIdentity'], plan['previous'])
+        self.assertTrue(result['barriersClear'])
+        self.assertNotIn('installedRevision', result)
+        operate.assert_not_called()
+        adapter.release.write(self.root / 'state/upgrade-records/active.json', {})
+        with mock.patch.object(adapter.runtime_host, 'Host', return_value=host):
+            self.assertEqual(adapter.execute(self.config, self.request | {'operation': 'reconcile'})['status'], 'uncertain')
 
     def test_reconcile_verifies_semantic_receipt_and_fresh_build_health_without_reinstall(self):
         import runtime_adapter as adapter

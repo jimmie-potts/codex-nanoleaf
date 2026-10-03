@@ -631,7 +631,7 @@ def operate(value, npm='npm', *, deadline=None, before_stop=lambda: None):
                 target, identity = rollback_target(directory, value['requestedTarget'])
             else:
                 target, identity = runtime_package.stage(value['source'], value['targetRevision'], staging,
-                                                         directory / 'runtime/node/bin/node', npm)
+                                                         directory / 'runtime/node/bin/node', npm, directory / '.venv/bin/python')
                 if identity['archiveSha256'] != value['archiveSha256']:
                     raise ValueError('planned-source-archive-mismatch')
             # Qualification uses a maintained synthetic fixture, never real device calls.
@@ -651,7 +651,7 @@ def operate(value, npm='npm', *, deadline=None, before_stop=lambda: None):
             os.umask(prior_umask)
 
 
-def refused(directory, requested, operation, code='qualification-or-plan-refused'):
+def refused(directory, requested, operation, code='qualification-or-plan-refused', *, output_path=None, plan=None):
     """A safe bounded reason; no exception text, credentials or private record contents."""
     now = timestamp()
     receipt = {'schemaVersion': 'install-receipt/1.0', 'operationId': 'nanoleaf-' + uuid.uuid4().hex,
@@ -663,7 +663,12 @@ def refused(directory, requested, operation, code='qualification-or-plan-refused
                'failure': {'phase': 'preflight', 'code': code, 'evidence': None},
                'rollback': {'status': 'not-attempted', 'evidence': None},
                'statePreservation': {'strategy': 'latest-durable-state', 'evidence': None}, 'outcome': 'refused'}
-    path = private_directory(Path(directory) / 'receipts') / (receipt['operationId'] + '.json')
+    if plan is not None:
+        receipt['previous'] = plan['previous']
+        receipt['approval'] = {'planSha256': plan['planSha256'],
+                               'baselineSha256': release.digest(release.encoded(plan['previous'])),
+                               'configurationSha256': release.digest(release.encoded(plan['configuration']))}
+    path = Path(output_path) if output_path is not None else private_directory(Path(directory) / 'receipts') / (receipt['operationId'] + '.json')
     persist(path, receipt)
     return receipt
 

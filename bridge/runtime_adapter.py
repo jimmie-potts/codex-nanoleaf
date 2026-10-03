@@ -155,10 +155,58 @@ def inspect(config, value):
                 'health': 'healthy', 'receipt': {'path': str(path), 'sha256': release.digest(raw)}}
 
 
+def inspect_settled_failure(config, value):
+    directory = Path(config['stateDirectory'])
+    _, exact = read_record(Path(value['evidenceDirectory']) / 'plan.json')
+    require(exact['targetRevision'] == value['merge'] and exact['operation'] == 'upgrade' and
+            exact['installation'] == str(directory) and exact['source'] == config['sourceRoot'] and
+            exact['unitsDirectory'] == config['systemdDirectory'] and exact['planSha256'] ==
+            release.digest(release.encoded({key: item for key, item in exact.items() if key != 'planSha256'})),
+            'settled-failure-plan-mismatch')
+    with inspection_lock(directory):
+        upgrade.unresolved(directory)
+        selected, identity = upgrade.selected(directory)
+        require(identity == exact['previous'], 'settled-failure-baseline-mismatch')
+        paths = list((directory / 'receipts').glob('nanoleaf-*.json'))
+        require(len(paths) <= 1024, 'receipt-inspection-capacity')
+        refusal = Path(value['evidenceDirectory']) / 'native-refusal.json'
+        if refusal.exists(): paths.append(refusal)
+        matches = []
+        for path in paths:
+            raw, receipt = read_record(path)
+            if (receipt.get('approval') or {}).get('planSha256') == exact['planSha256']:
+                require(install_contract.validate_receipt(receipt), 'invalid-terminal-native-receipt')
+                if receipt['outcome'] in ('refused', 'failed-rolled-back'):
+                    matches.append((path, raw, receipt))
+        require(len(matches) == 1, 'ambiguous-terminal-native-receipt')
+        path, raw, receipt = matches[0]
+        require(receipt['runtime'] == 'nanoleaf' and receipt['installationId'] == 'primary' and
+                receipt['requestedTarget'] == value['merge'] and receipt['previous'] == identity,
+                'terminal-native-identity-mismatch')
+        if receipt['outcome'] == 'failed-rolled-back':
+            require(receipt['running']['identity'] == identity and receipt['health']['status'] == 'healthy',
+                    'rollback-not-healthy')
+        host = runtime_host.Host(directory, config['systemdDirectory'])
+        fresh = host.health(identity, selected, 0)
+        status = upgrade.status(directory, host)
+        require(not status['inspectionRequired'] and status['installed'] == identity and
+                all(runtime_host.same_process(fresh['units'][name]['process'], status['runningProcesses'][name])
+                    for name in runtime_host.UNITS), 'settled-failure-running-mismatch')
+        upgrade.unresolved(directory)
+        require(upgrade.selected(directory) == (selected, identity) and path.read_bytes() == raw,
+                'installation-changed-during-readback')
+        release.write(Path(value['evidenceDirectory']) / 'failure-readback.json', {'status': status, 'health': fresh})
+        return {'status': 'blocked', 'effects': 'none' if receipt['outcome'] == 'refused' else 'reconciled',
+                'outcome': receipt['outcome'], 'baselineIdentity': identity, 'runningIdentity': identity,
+                'health': 'healthy', 'locksClear': True, 'barriersClear': True,
+                'receipt': {'path': str(path), 'sha256': release.digest(raw)}}
+
+
 def execute(config, value, config_guard=lambda: None):
     value = request(value, config)
     response = {key: value[key] for key in ('schemaVersion', 'repository', 'issue', 'merge', 'owner')}
     dispatched = False
+    exact = None
     try:
         reserve(value['deadline'], 1)
         if value['operation'] == 'install':
@@ -185,8 +233,18 @@ def execute(config, value, config_guard=lambda: None):
         reserve(value['deadline'], 0)
         return response | {'status': 'installed'} | observed
     except (OSError, ValueError, KeyError, TypeError, RuntimeError, subprocess.SubprocessError) as error:
-        # Even a valid failed-recovery receipt cannot establish requested installation.
-        # No retry, rollback or barrier removal is performed by reconciliation.
+        try:
+            config_guard()
+            if dispatched and exact is not None and isinstance(error, Refusal) and str(error) == 'insufficient-installation-deadline-reserve':
+                upgrade.refused(config['stateDirectory'], value['merge'], 'upgrade',
+                                'insufficient-installation-deadline-reserve',
+                                output_path=Path(value['evidenceDirectory']) / 'native-refusal.json', plan=exact)
+            with runtime_host.preflight_deadline(value['deadline']):
+                settled = inspect_settled_failure(config, value)
+            reserve(value['deadline'], 0)
+            return response | settled
+        except (OSError, ValueError, KeyError, TypeError, RuntimeError, AttributeError, subprocess.SubprocessError):
+            pass  # Missing proof stays uncertain; never replay or remove a barrier.
         return response | {'status': 'uncertain' if dispatched or value['operation'] == 'reconcile' else 'blocked',
                            'reason': reason(error)}
 

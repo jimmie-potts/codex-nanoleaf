@@ -12,6 +12,7 @@ import urllib.error
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent / 'python-deps'))
 import codex_hooks
 import configuration
 import controller_state
