@@ -80,7 +80,7 @@ class AdapterTest(unittest.TestCase):
             def snapshot(self):
                 return {name: {'active': 'active', 'process': {'pid': index + 1000, 'startTicks': 1000,
                         'uid': os.getuid(), 'argv': [name]}} for index, name in enumerate(runtime_host.UNITS)}
-            def health(self, identity, selected, started_after):
+            def health(self, identity, selected, started_after, *, inspection=True):
                 if fail_target and identity['kind'] == 'release':
                     raise ValueError('candidate-health-failed')
                 return {'units': self.snapshot(), 'fakeServices': True}

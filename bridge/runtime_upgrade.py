@@ -536,7 +536,7 @@ def transition(value, candidate, identity, compatibility, host, recheck, final_w
             phase = 'start'
             host.start()
             phase = 'health'
-            evidence = host.health(identity, target, before_start)
+            evidence = host.health(identity, target, before_start, inspection=False)
             if verify_bundle(target, identity) != identity or protected(directory) != value['protected']:
                 raise ValueError('post-switch-inventory-drift')
             release.write(records / 'health.json', evidence)
@@ -570,7 +570,7 @@ def transition(value, candidate, identity, compatibility, host, recheck, final_w
                                 raise ValueError('rollback-replaced-latest-state')
                     before_start = runtime_host.ticks()
                     host.start()
-                    evidence = host.health(previous, recovery_path, before_start)
+                    evidence = host.health(previous, recovery_path, before_start, inspection=False)
                     observed = release.verify(recovery_path) if previous['kind'] == 'release' else legacy_identity(recovery_path)
                     if observed != previous or protected(directory) != value['protected']:
                         raise ValueError('recovery-inventory-drift')

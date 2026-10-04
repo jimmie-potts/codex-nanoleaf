@@ -131,6 +131,8 @@ services and checks bounded process-start/identity evidence, the served wall
 artifact, `/api/state`, authenticated controller build/reads and authenticated
 MCP discovery. It calls no device command or MCP tool. Service startup can resume
 existing device behavior; assess that effect under the installation's authority.
+The post-start `/api/state` request can perform the wall's normal metadata and
+layout refresh and wake its existing worker.
 These checks do not establish physical appearance or a real Codex client session.
 
 If the candidate fails, recovery repeats the fence and writer drain, selects the
@@ -219,6 +221,8 @@ readback. It never stages, installs, rolls back, starts services, removes a
 barrier or repeats an ambiguous operation. Evidence is written only in the
 request's private evidence directory. Missing or inconsistent proof and any
 unresolved active barrier return `status: "uncertain"`.
+This inspection uses the wall's existing read-only `/api/rendering` route; it
+does not call `/api/state`, refresh metadata or geometry, or wake a worker.
 
 Only complete readback returns `status: "installed"`, the exact repository,
 merge and owner, matching `installedRevision` and `runningRevision`,

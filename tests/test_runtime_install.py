@@ -243,6 +243,57 @@ class TransitionTest(unittest.TestCase):
             self.assertEqual(host.owned_processes([program]), [])
 
 
+class ReadbackHealthTest(unittest.TestCase):
+    def test_inspection_avoids_the_wall_metadata_refresh_and_worker_launch_route(self):
+        import runtime_host
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'bridge').mkdir()
+            page = b'<html>ready</html>'
+            (root / 'bridge/wall.html').write_bytes(page)
+            (root / 'config.json').write_text(json.dumps({'wall_port': 8765, 'controller_port': 41231, 'mcp_port': 41230}))
+            (root / 'mcp-credentials.json').write_text(json.dumps({'principals': [{'scopes': ['read'], 'upstreamToken': 'fixture'}]}))
+            (root / 'mcp-client-token').write_text('fixture')
+            marker = root / 'mutable-state'
+            marker.write_text('latest')
+            launches = []
+            paths = []
+
+            def http(port, path, token=None, body=None, headers=None):
+                paths.append(path)
+                if path == '/':
+                    return page, {}
+                if path == '/api/state':
+                    # The existing browser state route refreshes metadata and
+                    # launches a worker when it changes. Inspection must avoid it.
+                    marker.write_text('metadata-refreshed')
+                    launches.append('worker')
+                    return b'{}', {}
+                if path == '/api/rendering':
+                    return b'{}', {}
+                if path == '/controller/v1/devices':
+                    return b'{"devices":[{"id":"fixture"}]}', {}
+                if path == '/mcp':
+                    if body['method'] == 'initialize':
+                        return b'{"result":{}}', {'Mcp-Session-Id': 'fixture'}
+                    if body['method'] == 'notifications/initialized':
+                        return b'', {}
+                    if body['method'] == 'tools/list':
+                        return b'{"result":{"tools":[{"name":"nanoleaf_status"}]}}', {}
+                raise AssertionError('unexpected health request')
+
+            host = runtime_host.Host(root, root)
+            services = {name: {'active': 'active', 'process': {'startTicks': 10}} for name in runtime_host.UNITS}
+            with mock.patch.object(host, 'snapshot', return_value=services), \
+                    mock.patch.object(host, 'owned_processes', return_value=[]), \
+                    mock.patch.object(host, 'http', side_effect=http):
+                observed = host.health({'kind': 'legacy'}, root, 0)
+            self.assertEqual(marker.read_text(), 'latest', 'inspection refreshed mutable state')
+            self.assertEqual(launches, [], 'inspection launched a worker')
+            self.assertEqual(observed['mcp'], 'authenticated-discovery')
+            self.assertIn('/api/rendering', paths)
+
+
 class FakeHost:
     def __init__(self, root, fail_target=False, fail_recovery=False):
         self.root = root
@@ -265,7 +316,8 @@ class FakeHost:
         self.calls.append('locks')
         yield
 
-    def health(self, identity, selected, started_after):
+    def health(self, identity, selected, started_after, *, inspection=True):
+        assert not inspection, 'a transition must perform its post-start health check'
         self.calls.append('health-' + identity['kind'])
         if identity['kind'] == 'release' and self.fail_target:
             (self.root / 'scene-state.json').write_text('{"newer":"write"}')

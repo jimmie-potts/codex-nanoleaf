@@ -263,8 +263,8 @@ class Host:
         finally:
             connection.close()
 
-    def health(self, identity, selected, started_after):
-        """Read-only loopback checks: no MCP tool call, controller command or device request."""
+    def health(self, identity, selected, started_after, *, inspection=True):
+        """Inspect without refreshing metadata; an explicit post-start check may refresh it."""
         config = json.loads((self.directory / 'config.json').read_bytes())
         credentials = json.loads((self.directory / 'mcp-credentials.json').read_bytes())
         principal = next(p for p in credentials['principals'] if 'read' in p['scopes'])
@@ -284,7 +284,7 @@ class Host:
                 if any(info['startTicks'] < started_after for info in processes):
                     raise ValueError('old-bridge-process')
                 page, _ = self.http(config['wall_port'], '/')
-                state, _ = self.http(config['wall_port'], '/api/state')
+                state, _ = self.http(config['wall_port'], '/api/rendering' if inspection else '/api/state')
                 json.loads(state)
                 template = (Path(selected) / 'bridge/wall.html').read_bytes()
                 normalized = re.sub(rb"const token='[A-Za-z0-9_-]+'", b"const token='__CSRF__'", page)
