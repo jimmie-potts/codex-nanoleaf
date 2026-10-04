@@ -214,6 +214,19 @@ class TransitionTest(unittest.TestCase):
         self.assertIsNone(value)
         http.assert_not_called()
 
+    def test_status_distinguishes_inactive_failed_and_transitional_services(self):
+        import runtime_host
+        import runtime_upgrade as upgrade
+        host = runtime_host.Host(self.root, self.root / 'units')
+        states = dict(zip(runtime_host.UNITS, ('inactive', 'failed', 'activating')))
+        services = {name: {'active': active, 'process': None} for name, active in states.items()}
+        with mock.patch.object(host, 'snapshot', return_value=services), mock.patch.object(host, 'http') as http:
+            value = upgrade.status(self.root, host)
+        self.assertEqual(value['serviceStates'], states)
+        self.assertEqual(value['runningProcesses'], {name: None for name in states})
+        self.assertIsNone(value['runningBuild'])
+        http.assert_not_called()
+
     def test_permission_fence_blocks_new_entry_and_drains_preopened_owned_process(self):
         import runtime_upgrade as upgrade
         import runtime_host

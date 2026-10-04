@@ -235,9 +235,10 @@ def execute(config, value, config_guard=lambda: None):
     except (OSError, ValueError, KeyError, TypeError, RuntimeError, subprocess.SubprocessError) as error:
         try:
             config_guard()
-            if dispatched and exact is not None and isinstance(error, Refusal) and str(error) == 'insufficient-installation-deadline-reserve':
+            if dispatched and exact is not None and (isinstance(error, upgrade.PreflightRefusal) or
+                    isinstance(error, Refusal) and str(error) == 'insufficient-installation-deadline-reserve'):
                 upgrade.refused(config['stateDirectory'], value['merge'], 'upgrade',
-                                'insufficient-installation-deadline-reserve',
+                                reason(error),
                                 output_path=Path(value['evidenceDirectory']) / 'native-refusal.json', plan=exact)
             with runtime_host.preflight_deadline(value['deadline']):
                 settled = inspect_settled_failure(config, value)

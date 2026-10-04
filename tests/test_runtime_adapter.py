@@ -180,6 +180,58 @@ class AdapterTest(unittest.TestCase):
             runtime_host.run([sys.executable, '-c', 'pass'])
         self.assertIsNone(runtime_host.PREFLIGHT_DEADLINE.get())
 
+    def test_native_preflight_refusal_is_durable_and_settles_only_with_fresh_baseline_proof(self):
+        import runtime_adapter as adapter
+        host, _, plan = self.installed_fixture()
+        self.request['merge'] = 'c' * 40
+        plan.update(targetRevision=self.request['merge'], requestedTarget=self.request['merge'])
+        plan['previous'] = adapter.upgrade.selected(self.root / 'state')[1]
+        plan['archiveSha256'] = plan['previous']['archiveSha256']
+        plan['planSha256'] = adapter.release.digest(adapter.release.encoded({key: value for key, value in plan.items() if key != 'planSha256'}))
+        host.calls.clear()
+        with mock.patch.object(adapter.upgrade, 'plan', return_value=plan), \
+                mock.patch.object(adapter.upgrade, 'check_plan'), \
+                mock.patch.object(adapter.upgrade.runtime_package, 'stage', return_value=(self.root / 'candidate', plan['previous'] | {'sourceRevision': self.request['merge']})), \
+                mock.patch.object(adapter.upgrade.runtime_package, 'qualify', side_effect=ValueError('durable-implementation-unqualified')), \
+                mock.patch.object(adapter.runtime_host, 'Host', return_value=host):
+            result = adapter.execute(self.config, self.request)
+        self.assertEqual(result['status'], 'blocked', result)
+        self.assertEqual(result['outcome'], 'refused')
+        self.assertEqual(result['effects'], 'none')
+        self.assertTrue(result['locksClear'] and result['barriersClear'])
+        self.assertEqual(result['baselineIdentity'], plan['previous'])
+        self.assertEqual(result['runningIdentity'], plan['previous'])
+        self.assertNotIn('installedRevision', result)
+        receipt_path = self.root / 'evidence/attempt/native-refusal.json'
+        receipt = json.loads(receipt_path.read_bytes())
+        self.assertTrue(adapter.install_contract.validate_receipt(receipt))
+        self.assertEqual(receipt['approval']['planSha256'], plan['planSha256'])
+        self.assertEqual(receipt['failure']['code'], 'durable-implementation-unqualified')
+        self.assertEqual(result['receipt']['sha256'], adapter.release.digest(receipt_path.read_bytes()))
+        self.assertEqual(host.calls, [])
+        with mock.patch.object(adapter.runtime_host, 'Host', return_value=host), \
+                mock.patch.object(adapter.upgrade, 'operate') as operate:
+            reconciled = adapter.execute(self.config, self.request | {'operation': 'reconcile'})
+            self.assertEqual(reconciled['status'], 'blocked')
+            self.assertEqual(reconciled['receipt'], result['receipt'])
+            with mock.patch.object(host, 'health', side_effect=ValueError('bounded-health-failure')):
+                self.assertEqual(adapter.execute(self.config, self.request | {'operation': 'reconcile'})['status'], 'uncertain')
+        operate.assert_not_called()
+
+    def test_ambiguous_post_intent_failure_never_becomes_a_preflight_refusal(self):
+        import runtime_adapter as adapter
+        host, _, plan = self.installed_fixture()
+        def interrupted(*args, **kwargs):
+            adapter.release.write(self.root / 'state/upgrade-records/active.json', {'inspectionRequired': True})
+            raise ValueError('durable-implementation-unqualified')
+        with mock.patch.object(adapter.upgrade, 'plan', return_value=plan), \
+                mock.patch.object(adapter.upgrade, 'operate', side_effect=interrupted), \
+                mock.patch.object(adapter.runtime_host, 'Host', return_value=host):
+            result = adapter.execute(self.config, self.request)
+        self.assertEqual(result['status'], 'uncertain')
+        self.assertFalse((self.root / 'evidence/attempt/native-refusal.json').exists())
+        self.assertTrue((self.root / 'state/upgrade-records/active.json').exists())
+
     def test_duplicate_json_authority_and_symlink_configuration_are_rejected(self):
         import runtime_adapter as adapter
         with self.assertRaises(ValueError):

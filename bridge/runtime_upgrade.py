@@ -377,6 +377,10 @@ def timestamp():
     return datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
 
 
+class PreflightRefusal(ValueError):
+    """Native preparation failed before entering the installation transition."""
+
+
 def safe_code(error):
     allowed = {'dirty-installer-source', 'untrusted-source-remote', 'unknown-merged-main', 'full-merged-sha-required',
                'durable-implementation-unqualified', 'durable-implementation-unavailable', 'shared-python-dependency-conflict',
@@ -392,7 +396,7 @@ def safe_code(error):
                'wall-served-artifact', 'mcp-initialize', 'mcp-session', 'mcp-discovery', 'configuration-drift-during-drain',
                'bundle-identity-drift', 'release-inventory-or-provenance', 'no-successful-recovery-target',
                'post-switch-inventory-drift', 'legacy-preservation-mismatch', 'recovery-inventory-drift', 'plan-drift'}
-    if type(error) is ValueError and str(error) in allowed:
+    if type(error) in (ValueError, PreflightRefusal) and str(error) in allowed:
         return str(error)
     if isinstance(error, subprocess.SubprocessError):
         return 'bounded-subprocess-failed'
@@ -618,35 +622,39 @@ def check_plan(value):
 
 
 def operate(value, npm='npm', *, deadline=None, before_stop=lambda: None):
-    with runtime_host.preflight_deadline(deadline):
-        check_plan(value)
     directory = Path(value['installation'])
-    current, _ = selected(directory)
-    staging = private_directory(directory / 'upgrade-staging' / uuid.uuid4().hex)
-    records = private_directory(directory / 'upgrade-records' / ('qualification-' + uuid.uuid4().hex))
+    staging = None
     prior_umask = os.umask(0o077)
     try:
-        with runtime_host.preflight_deadline(deadline):
-            if value['operation'] == 'rollback':
-                target, identity = rollback_target(directory, value['requestedTarget'])
-            else:
-                target, identity = runtime_package.stage(value['source'], value['targetRevision'], staging,
-                                                         directory / 'runtime/node/bin/node', npm, directory / '.venv/bin/python')
-                if identity['archiveSha256'] != value['archiveSha256']:
-                    raise ValueError('planned-source-archive-mismatch')
-            # Qualification uses a maintained synthetic fixture, never real device calls.
-            compatibility = runtime_package.qualify(current, target, directory / '.venv/bin/python',
-                                                     staging / 'compatibility', Path(value['source']) / 'tests/fixtures/linux-state-v4/status.sql')
-            copy_state(directory, staging / 'current-state')
-            compatibility['currentStateReopenSha256'] = runtime_package.reopen_current(
-                current, target, directory / '.venv/bin/python', staging / 'current-state')
-            release.write(records / 'compatibility.json', compatibility)
-            release.write(records / 'plan.json', value)
+        try:
+            with runtime_host.preflight_deadline(deadline):
+                check_plan(value)
+                current, _ = selected(directory)
+                staging = private_directory(directory / 'upgrade-staging' / uuid.uuid4().hex)
+                records = private_directory(directory / 'upgrade-records' / ('qualification-' + uuid.uuid4().hex))
+                if value['operation'] == 'rollback':
+                    target, identity = rollback_target(directory, value['requestedTarget'])
+                else:
+                    target, identity = runtime_package.stage(value['source'], value['targetRevision'], staging,
+                                                             directory / 'runtime/node/bin/node', npm, directory / '.venv/bin/python')
+                    if identity['archiveSha256'] != value['archiveSha256']:
+                        raise ValueError('planned-source-archive-mismatch')
+                # Qualification uses a maintained synthetic fixture, never real device calls.
+                compatibility = runtime_package.qualify(current, target, directory / '.venv/bin/python',
+                                                         staging / 'compatibility', Path(value['source']) / 'tests/fixtures/linux-state-v4/status.sql')
+                copy_state(directory, staging / 'current-state')
+                compatibility['currentStateReopenSha256'] = runtime_package.reopen_current(
+                    current, target, directory / '.venv/bin/python', staging / 'current-state')
+                release.write(records / 'compatibility.json', compatibility)
+                release.write(records / 'plan.json', value)
+        except (OSError, ValueError, KeyError, TypeError, RuntimeError, sqlite3.Error, subprocess.SubprocessError) as error:
+            raise PreflightRefusal(safe_code(error)) from error
         return transition(value, target, identity, records / 'compatibility.json',
                           runtime_host.Host(directory, value['unitsDirectory']), lambda: check_plan(value), before_stop=before_stop)
     finally:
         try:
-            shutil.rmtree(staging)
+            if staging is not None:
+                shutil.rmtree(staging)
         finally:
             os.umask(prior_umask)
 
@@ -678,6 +686,7 @@ def status(directory, host):
     _, identity = selected(directory)
     services = host.snapshot()
     return {'installed': identity,
+            'serviceStates': {name: item['active'] for name, item in services.items()},
             'runningProcesses': {name: item['process'] if item['active'] == 'active' else None for name, item in services.items()},
             'runningBuild': host.running_build(services),
             'inspectionRequired': (directory / 'upgrade-records/active.json').exists()}
