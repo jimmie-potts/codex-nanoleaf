@@ -17,6 +17,7 @@ import integration_api
 import jsonfile
 import launcher
 import modes
+import runtime_release
 import store
 
 ID=re.compile(r'[A-Za-z0-9_.-]{1,128}\Z')
@@ -97,6 +98,7 @@ class App:
     def __init__(self,directory,launch=None,diagnostic=None):
         from controller_contract import load  # Optional listener dependency: requirements-controller.txt.
         self.contract=load();self.directory=directory;self.launch=launch or launcher.launch_worker
+        self.build=runtime_release.build(__file__)
         self.diagnostic=diagnostic or diagnostics.Diagnostics()
         with contextlib.closing(state.readonly(directory)) as db:state.read(db)
 
@@ -300,6 +302,8 @@ def make_server(app,port=0):
                             return self.respond(code,result)
                         code,result=app.admit(token,body,length,deadline=self.admission_deadline,**checks)
                         return self.respond(code,result)
+                    if parts.path=='/controller/meta/v1/health' and not query:
+                        return self.respond(200,dict(apiVersion='1.0',serviceHealth='ready',build=dict(app.build)))
                     if parts.path=='/controller/v1/devices' and not query:
                         return self.respond(200,dict(apiVersion='1.0',devices=app.devices()))
                     device=query.get('deviceId')

@@ -1,4 +1,4 @@
-# Fresh Linux installation
+# Linux installation
 
 Run the existing Nanoleaf processes in Linux with private Linux SQLite state and
 one light-writing worker per registered device. The wall map, controller API and Node MCP host are
@@ -31,6 +31,215 @@ even if their databases are separate.
 The fresh installation imports no old tasks, preferences, credentials or scene
 state. Old Nanoleaf data may remain unused. No backup, data migration, rollback
 tooling or soak period is required.
+
+## Upgrade and roll back the installed runtime
+
+The guarded commands implement the published
+[install contract at `96710bba52054c381035a6afabe8348d2b9bbd93`](https://github.com/jimmie-potts/agent-device-hub/blob/96710bba52054c381035a6afabe8348d2b9bbd93/docs/install-contract.md),
+using its independently pinned contracts 1.2.0 receipt validator. The controller's
+wire contract remains 1.0.0. An authorized delivery includes routine installation
+on the owner's established target after merge and main CI. Review the exact plan
+under that standing authority; no repeat approval is needed. New installations,
+hooks, agent-session changes, unqualified migrations and physical checks retain
+their own boundaries.
+
+Run the source command from a clean checkout that contains the merged revision.
+Refresh Git refs before planning. Use the installation's unchanged Python with
+its pinned controller dependencies and native Node 24/npm. Name the established
+Linux state path explicitly; never select a guessed device or a Windows database.
+Keep plan and receipt output private because it contains installation paths and
+process identities, although credentials and state contents are excluded.
+
+```bash
+umask 077
+python3 bridge/install_linux.py plan <full-merged-sha> --state-dir <installation> > <private-plan.json>
+python3 bridge/install_linux.py upgrade <full-merged-sha> --state-dir <installation> --plan <private-plan.json>
+python3 bridge/install_linux.py status --state-dir <installation>
+```
+
+`plan` and `status` make no installation, service or device changes. The plan
+binds the source archive, installed inventory, configuration hashes, unit
+commands, protected paths, complete commit comparison when known, outage and
+recovery. Legacy comparison and unavailable PR attribution remain unknown.
+Changed bound inputs require a fresh plan; routine changes within standing scope
+do not need renewed human approval. Status separates the selected bundle,
+running process/build evidence and remote main. An inactive controller has no
+running build. A failed remote lookup leaves the comparison unknown.
+
+The supported layout has three established, active user services:
+`codex-nanoleaf-wall`, `codex-nanoleaf-controller` and `codex-nanoleaf-mcp`.
+Their executable and argument paths must match fresh setup, with no additional
+drop-ins or service effects. The ordinary installation owner and running
+processes must lack DAC-bypass capabilities, and the selected executables must
+have no privilege-elevating mode or file capability. The installer refuses
+unsupported ownership, partial migration and unresolved prior operations.
+
+The candidate contains every bridge Python module copied by fresh setup, wall
+assets, both vendor trees, MCP source, build output and locked dependencies.
+Staging uses the exact Git archive and disables npm lifecycle scripts. It installs
+the pinned Python wheels into the target's `bridge/python-deps`, includes them in
+the complete inventory, and checks their versions and dependencies with the
+existing interpreter. It never updates shared Node or the shared Python
+environment. The target entrypoint and qualification probes use its private
+dependency path; previous releases retain their own path or the unchanged legacy
+environment. Source distribution builds are refused. Build duration and the
+selected Python strategy are recorded in private evidence.
+
+Rollback qualification requires matching durable implementation fingerprints or
+the exact reviewed pre-diagnostics/diagnostics pair from PR #209,
+an isolated target-write/previous-reopen fixture and unchanged reopening of a
+consistent copy of current state by both programs. Unknown durable code or a
+migration refuses before outage. This bounded qualification must be refreshed
+when durable behavior changes; it does not promise every future source revision
+can be installed automatically.
+
+Before the first legacy adoption, verify that every writer uses the established
+launcher, hooks or user services and the owned `bridge.py` / `mcp/dist/main.js`
+entrypoints. Arbitrary embedded imports, alternate runtime copies and privileged
+writers are outside this procedure. No hook configuration is modified. The
+temporary fence removes directory search permission from only the owned bridge
+and MCP directories, so even relative entrypoint opens cannot pass it. New hook
+or CLI invocations can fail during this bounded outage. Existing entrypoints,
+including processes that opened their script before the fence, are drained by
+UID, argv path, start ticks and pidfd before device worker locks are acquired.
+The plan and exact target must qualify this procedure before live use; a quiet
+process scan alone is insufficient.
+
+The operation holds its installation lock, writes and fsyncs an in-progress
+receipt and active-operation barrier, records original directory modes, inodes
+and hashes, fences admission, stops the named services and drains their workers.
+Only then does it hold every device SQLite lock and copy durable state and
+configuration. The SQLite backup is consistent; sockets and transient journals
+are excluded. Credentials stay in private backups and never enter receipts.
+
+First adoption retains original bridge/MCP/vendor directories under
+`legacy/<legacy-id>`, with explicit unknown source identity. It creates stable
+`runtime/bridge`, `runtime/mcp` and `runtime/vendor` links through one `current`
+anchor. The `runtime` parent remains a directory; `runtime/hub-gh30`, shared
+`runtime/node` and `.venv` remain unchanged. Component conversion occurs while
+fenced and is not atomic. Each later `current` publication is one atomic rename.
+Other directories under the installation and runtime parents, including shared
+Hub state, caches and retained history, remain outside adoption and backup. The
+plan binds their directory identities and modes without reading their contents;
+normal writes by their owners are allowed, but replacing a directory requires a
+new plan. Unknown sibling links or special files refuse before any switch.
+An interrupted first conversion leaves the originals, fence records and active
+barrier for inspection and blocks automatic replay.
+
+After publication, the command restores admission, restarts only the named
+services and checks bounded process-start/identity evidence, the served wall
+artifact, `/api/state`, authenticated controller build/reads and authenticated
+MCP discovery. It calls no device command or MCP tool. Service startup can resume
+existing device behavior; assess that effect under the installation's authority.
+The post-start `/api/state` request can perform the wall's normal metadata and
+layout refresh and wake its existing worker.
+These checks do not establish physical appearance or a real Codex client session.
+
+If the candidate fails, recovery repeats the fence and writer drain, selects the
+already-qualified previous code and reopens the latest durable state. It never
+restores the pre-upgrade database. A healthy recovery is `failed-rolled-back`,
+so the original upgrade still fails. Failed recovery remains an inspection
+barrier. A healthy target is successful only after a schema-valid final receipt
+has been atomically written, fsynced and read back. Finalization failure emits an
+attempted `receipt-finalization-failed` document on stderr; that document does
+not prove the on-disk receipt changed. Retention runs only after durable success
+and preserves current plus three previous successful owned releases. Legacy
+copies, receipts, backups, unknown directories and other-owner history are kept.
+
+To select the last successful operation's verified recovery target:
+
+```bash
+python3 bridge/install_linux.py plan --operation rollback --state-dir <installation> > <private-rollback-plan.json>
+python3 bridge/install_linux.py rollback --state-dir <installation> --plan <private-rollback-plan.json>
+```
+
+An explicit full SHA selects an already-retained, verified release. Rollback is
+planned and qualified under the same authority and preserves newer state. There
+is no force option, blind retry or automatic backup restoration. For an unresolved
+operation, inspect the private receipt, `upgrade-records/active.json`, recorded
+fence modes/inodes, actual links and processes first. Do not delete the barrier
+or restore a mode onto a replacement inode. A reviewed recovery must name the
+exact retained original paths and account for newer state before resolving it.
+The command does not automatically repair a partially converted layout.
+
+Report merged source, exact packaged artifact, installed receipt, running health,
+client acceptance and physical acceptance separately. Source tests alone leave
+installation pending.
+
+### Shared supervisor adapter
+
+The reviewed owning bridge is `bridge/runtime_adapter.py --config <private-json>`.
+It accepts one JSON request on stdin and emits one JSON response. Configure its
+fixed argv in the supervisor; never construct shell commands from issue text.
+The private configuration has exactly these fields:
+
+```json
+{
+  "schemaVersion": 1,
+  "owner": "jimmie",
+  "stateDirectory": "/absolute/established/nanoleaf",
+  "sourceRoot": "/absolute/clean/reviewed/source",
+  "systemdDirectory": "/absolute/user/systemd/units",
+  "npm": "/absolute/resolved/native/npm-cli.js",
+  "evidenceRoot": "/absolute/private/supervisor/evidence",
+  "transitionReserveSeconds": 600
+}
+```
+
+These are placeholders, not a qualified installation. The coordinator binds the
+actual paths and named owner during activation. Configuration is an owned private
+regular file; paths are absolute, existing and free of symlink ancestors. State
+and evidence directories are private. Source and unit directories are owned and
+not writable by other users. The native npm path is an owned executable regular
+file: resolve an npm symlink before recording it. The supervisor pins the reviewed
+Python executable, configuration, adapter and imported owning module/receipt
+artifact closure using its existing `files` fingerprints. Updating those pins or
+the running supervisor's adapter waits for its stopped ownership boundary.
+
+The strict request uses the shared supervisor protocol:
+
+```json
+{"schemaVersion":1,"operation":"install","repository":"jimmie-potts/codex-nanoleaf","issue":140,"merge":"<full merged SHA>","owner":"jimmie","deadline":1234567890,"evidenceDirectory":"<private child of evidenceRoot>"}
+```
+
+Unknown fields, duplicate JSON keys, changed authority and evidence outside the
+configured root refuse. Install saves and reads back the native exact plan, then
+passes that plan to the same native operation. The bridge reserves at least 600
+seconds for switching, health and recovery, caps preflight subprocess calls to
+the remaining preparation time, and rechecks the reserve immediately before
+durable intent and fencing. Slow preparation refuses before outage. Once a
+switch starts, neither deadline nor supervisor pause cancels it; native recovery
+reaches its safe boundary. A deadline overrun remains unaccepted by the supervisor
+until inspection. This reserve does not promise a deadline for stalled kernel or
+storage I/O. Configure the supervisor timeout and reserve to accommodate the
+owning operation rather than wrapping it in a process-killing timeout.
+
+`operation: "reconcile"` only inspects. Under a shared native installation lock,
+it validates the complete semantic receipt, exact selected bundle and requested
+revision, then obtains fresh running process/build and wall/controller/MCP health
+readback. It never stages, installs, rolls back, starts services, removes a
+barrier or repeats an ambiguous operation. Evidence is written only in the
+request's private evidence directory. Missing or inconsistent proof and any
+unresolved active barrier return `status: "uncertain"`.
+This inspection uses the wall's existing read-only `/api/rendering` route; it
+does not call `/api/state`, refresh metadata or geometry, or wake a worker.
+
+Only complete readback returns `status: "installed"`, the exact repository,
+merge and owner, matching `installedRevision` and `runningRevision`,
+`health: "healthy"`, and the retained native `receipt: {path, sha256}`. A native
+`migrate` receipt can qualify the first adoption; `failed-rolled-back` cannot
+qualify the requested upgrade. This adapter establishes installation only.
+The separate owning closeout procedure still checks client, physical and all
+other issue acceptance before closure.
+
+A fully validated native refusal or failed rollback attempt can return
+`status: "blocked"`, `effects: "none"` or `"reconciled"`, and its receipt only
+after fresh health and process evidence proves the original baseline is running
+and the native lock and operation barriers are clear. The response preserves
+the complete release or legacy identity; it never claims the requested revision
+was installed. A known reserve failure at the native pre-stop boundary writes
+a plan-bound refusal receipt. Missing or ambiguous proof retains the uncertain
+operation and never triggers another installation.
 
 ## Install from the reviewed checkout
 
@@ -117,7 +326,8 @@ Other options are `--node`, `--npm`, `--systemd-dir`, `--wall-port`,
 `--controller-port` and `--mcp-port`. Choose three distinct ports from 1024 through
 65535. Setup refuses a nonempty state directory or existing Nanoleaf unit files.
 If preparation fails, inspect the reported step and select an empty project
-directory for a fresh retry; there is no upgrade or rollback mechanism here.
+directory for a fresh retry. Existing installations use the guarded upgrade
+procedure above; fresh setup is never an upgrade or rollback step.
 
 ## Run the services
 

@@ -280,7 +280,7 @@ outside product Git history and summarize their evidence in the PR.
 
 ## Upgrade the installed integration
 
-The Linux installer has no upgrade or rollback mechanism; [the Linux installation guide](linux-install.md) describes preparing a fresh installation and the operator's own retention of the current state directory. A bare `bridge.py setup` is refused and points at the Linux installer. `setup --reset` clears task records and is never an upgrade step; `setup --refresh` only redraws existing task state.
+Use the owning [upgrade and rollback procedure](linux-install.md#upgrade-and-roll-back-the-installed-runtime). The Python suite covers receipt semantics, admission, source provenance, component adoption and recovery with isolated state and fake services. Run `python3 scripts/qualify-upgrade.py --scratch <disk-backed-scratch> --evidence <private-evidence>` under Node 24 to build and qualify the exact committed artifact; CI runs it on Python 3.14. This requires the pinned controller dependencies and npm and does not inspect an installation. Keep the emitted source/archive/manifest hashes with delivery evidence. A bare `bridge.py setup` is refused; `setup --reset` clears task records and is never an upgrade step.
 
 For physical checks, hold the installed worker lock before sending isolated test effects. Hook-triggered workers can restart during testing, so verify lock ownership. Keep test tasks and scene choices in temporary state, then restore the latest real mode, layout, tasks, and scene preference before releasing the lock. Record controller readback separately from human confirmation of physical orientation.
 

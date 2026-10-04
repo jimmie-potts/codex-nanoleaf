@@ -14,6 +14,7 @@ import subprocess
 import sys
 import venv
 
+sys.dont_write_bytecode = True
 import codex_hooks
 import configuration
 import controller_server
@@ -23,6 +24,7 @@ import devices
 from enrollment import read_token
 import jsonfile
 import project_map as wall
+import runtime_upgrade
 import transport
 
 
@@ -269,6 +271,8 @@ def parser():
 
 
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] in ('plan', 'status', 'upgrade', 'rollback'):
+        return runtime_upgrade.command(sys.argv[1:])
     arguments = parser().parse_args()
     if arguments.hooks_file is None:
         arguments.hooks_file = [Path(os.environ.get('CODEX_HOME', str(Path.home() / '.codex'))) / 'hooks.json']

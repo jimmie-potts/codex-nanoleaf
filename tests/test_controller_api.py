@@ -37,6 +37,16 @@ class ControllerHTTPTest(unittest.TestCase):
         self.assertTrue(self.app.contract.validate('snapshot',snapshot))
         self.assertNotIn(self.token,json.dumps(snapshot))
 
+    def test_process_metadata_retains_machine_auth_and_does_not_extend_snapshot(self):
+        path='/controller/meta/v1/health'
+        self.assertEqual(self.http('GET',path,token=False)[0],401)
+        self.assertEqual(self.http('GET',path,headers={'Origin':'https://evil.example'})[0],403)
+        code,metadata=self.http('GET',path)
+        self.assertEqual(code,200)
+        self.assertEqual(metadata,{'apiVersion':'1.0','serviceHealth':'ready',
+                                   'build':{'sourceRevision':'unknown','version':'unknown'}})
+        self.assertTrue(self.app.contract.validate('snapshot',self.app.snapshot()))
+
     def test_http_command_feed_and_revocation(self):
         cursor=self.app.snapshot()['cursor']
         code,receipt=self.http('POST','/controller/v1/commands',self.request());self.assertEqual(code,202)
