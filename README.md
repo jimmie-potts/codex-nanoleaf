@@ -1,5 +1,25 @@
 # Codex Nanoleaf
 
+## Current B.U.N.N.Y. development
+
+B.U.N.N.Y. now uses the [Nanoleaf module in agent-device-hub](https://github.com/jimmie-potts/agent-device-hub/tree/main/modules/nanoleaf).
+Use that module's guide and the [current runtime guide](https://github.com/jimmie-potts/agent-device-hub/blob/main/apps/runtime/README.md)
+for development, setup and upgrades.
+
+The module was ported from this repository at
+[`c711e1812d6871952562e9070e20bdebe120db3a`](https://github.com/jimmie-potts/codex-nanoleaf/commit/c711e1812d6871952562e9070e20bdebe120db3a).
+The [porting record](https://github.com/jimmie-potts/agent-device-hub/blob/main/modules/nanoleaf/PORTING.md)
+records the source provenance and subsequent adaptations.
+
+The rest of this README documents the retained Python services and their tooling.
+The [accepted runtime cutover](https://github.com/jimmie-potts/agent-device-hub/issues/840#issuecomment-6086298585)
+stopped and disabled the old services while retaining their code, releases and
+stores for manual return. Their setup commands do not update the current runtime.
+[Repository consolidation](https://github.com/jimmie-potts/agent-device-hub/issues/936)
+tracks issue transfers and archiving; this repository keeps its code and history.
+
+## Historical standalone application
+
 Turn Nanoleaf Lines into status indicators for Codex Desktop tasks. A local wall map lets you assign project colors and reserve Lines for each project.
 
 - Work mode shows two-second task pulses, status waves, and completion comets.
