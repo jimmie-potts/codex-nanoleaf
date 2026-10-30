@@ -339,13 +339,13 @@ remove it and keep it until they decide. The
    Read all GitHub review pages, including unresolved threads and current review
    decisions. Resolve threads after fixing or agreed disposition. Do not dismiss
    an outstanding change request merely to enable merge; obtain its resolution.
-5. Require success for every configured Depot CI job. The current `Checks`
-   workflow in `.depot/workflows/ci.yml` runs five Linux jobs: Workflow checks,
+5. Require success for every configured GitHub Actions job. The current `Checks`
+   workflow in `.github/workflows/ci.yml` runs five Linux jobs: Workflow checks,
    Python 3.12, Python 3.14, Wall map browser checks, and MCP source checks.
    Inspect the workflow at the candidate revision for any changed job set. Use
-   the latest Depot run attributable to that candidate, confirm its PR
+   the latest GitHub Actions run attributable to that candidate, confirm its PR
    association/head SHA, inspect every job, and read all result pages. The
-   disabled GitHub Actions workflow and its historical runs are not evidence.
+   retired Depot workflow and historical runs for other revisions are not evidence.
    Missing, failed, cancelled, skipped, or pending required jobs are not success.
    Do not use an empty `--required` check list as proof on an unprotected branch.
 6. Immediately before merging, reread issue scope, dependencies, head revision,
@@ -358,7 +358,7 @@ remove it and keep it until they decide. The
    `gh pr merge <number> --repo jimmie-potts/codex-nanoleaf --squash --match-head-commit <reviewed-head>`.
    Never use `--admin`. Do not delete another worktree or its branch.
 7. Read back the PR's merged commit and verify it is on `main`. Check the push
-   Depot CI run for that merged revision and every configured job. Close a source-only
+   GitHub Actions run for that merged revision and every configured job. Close a source-only
    issue only after success, then read back closure and label cleanup. Keep the
    issue open and blocked if post-merge checks fail or required installation work
    remains. Report the failing evidence and next action.
