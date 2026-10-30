@@ -178,7 +178,7 @@ The Python and verification suites exercise held reads, invalid controls, releas
 
 ## Hosted CI
 
-Depot CI runs the workflow in `.depot/workflows/ci.yml` on pull requests and pushes to `main`. It reports each job as a GitHub check. A newer PR revision cancels the superseded PR run, and each `main` revision runs independently. Each job has a ten-minute timeout. Depot CI provides only Linux sandboxes, so normal CI has five Linux jobs:
+GitHub Actions runs the workflow in `.github/workflows/ci.yml` on pull requests and pushes to `main`. It reports each job as a GitHub check. A newer PR revision cancels the superseded PR run, and each `main` revision runs independently. Each job has a ten-minute timeout. The workflow has five Linux jobs:
 
 | Check | Coverage |
 | --- | --- |
@@ -187,7 +187,7 @@ Depot CI runs the workflow in `.depot/workflows/ci.yml` on pull requests and pus
 | Wall map browser checks | Controller dependencies for the paired run, Prism tests, a clean Prism export, `npm run test:browser`, `npm run test:verify` and `npm run test:verify:lifecycle` in Chromium; the lifecycle checks skip, printing the reason, when the runner has no systemd user manager. Screenshots, verification videos and assertion logs are uploaded as the `prism-wall-review` artifact with a requested 14-day retention |
 | MCP source checks | `npm run test:mcp` |
 
-`.github/workflows/ci.yml` stays in the repository as the migration source. It is disabled in GitHub Actions. Its runs, including earlier billing-blocked failures, are not evidence for a candidate.
+Depot CI is retired. Use GitHub Actions runs for the exact candidate or merged revision as evidence; historical Depot runs do not verify a later revision.
 
 ## Workflow tooling
 
@@ -218,7 +218,7 @@ These CLI checks validate syntax and archive task markers; they do not replace
 acceptance tests, artifact-completeness checks, or independent review.
 
 Run `npm run test:workflow` to exercise empty, valid, invalid, and incomplete
-archive fixtures and regeneration without user-configuration changes. Depot CI runs
+archive fixtures and regeneration without user-configuration changes. GitHub Actions runs
 both commands in the always-running Workflow checks job, alongside the existing
 product checks.
 
